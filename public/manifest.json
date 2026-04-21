@@ -1,0 +1,12 @@
+{
+  "name": "PandaCRM — Академия Панды",
+  "short_name": "PandaCRM",
+  "description": "CRM система для Академии Панды",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F0EDD8",
+  "theme_color": "#7BAF8E",
+  "icons": [
+    { "src": "/paw.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
