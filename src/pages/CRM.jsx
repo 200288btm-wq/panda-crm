@@ -13,15 +13,32 @@ import StaffPage from './StaffPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд',
+  calendar: 'Расписание',
   clients: 'Клиенты',
   payments: 'Оплаты',
   expenses: 'Расходы',
   directions: 'Направления',
   teachers: 'Педагоги',
-  calendar: 'Расписание',
   finance: 'Финансы и аналитика',
   staff: 'Сотрудники',
 }
+
+// Panda SVG logo
+const PandaLogo = () => (
+  <svg width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="50" cy="48" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
+    <circle cx="28" cy="26" r="12" fill="#1A1A1A"/>
+    <circle cx="72" cy="26" r="12" fill="#1A1A1A"/>
+    <circle cx="38" cy="44" r="10" fill="#1A1A1A"/>
+    <circle cx="62" cy="44" r="10" fill="#1A1A1A"/>
+    <circle cx="38" cy="44" r="5" fill="white"/>
+    <circle cx="62" cy="44" r="5" fill="white"/>
+    <circle cx="39" cy="43" r="3" fill="#1A1A1A"/>
+    <circle cx="63" cy="43" r="3" fill="#1A1A1A"/>
+    <ellipse cx="50" cy="58" rx="6" ry="4" fill="#1A1A1A"/>
+    <path d="M42 65 Q50 72 58 65" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+  </svg>
+)
 
 export default function CRM({ session, staff }) {
   const [page, setPage] = useState('dashboard')
@@ -61,6 +78,7 @@ export default function CRM({ session, staff }) {
   const nav = [
     { section: 'Главная', items: [
       { id: 'dashboard', icon: '📊', label: 'Дашборд', show: true },
+      { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
     ]},
     { section: 'Учёт', items: [
       { id: 'clients', icon: '👨‍👧', label: 'Клиенты', badge: newCount || null, show: isAdmin },
@@ -68,9 +86,8 @@ export default function CRM({ session, staff }) {
       { id: 'expenses', icon: '📤', label: 'Расходы', show: isDirector },
     ]},
     { section: 'Организация', items: [
-      { id: 'directions', icon: '🐾', label: 'Направления', show: true },
+      { id: 'directions', icon: '🎯', label: 'Направления', show: true },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
-      { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
     ]},
     { section: 'Управление', items: [
       { id: 'finance', icon: '💰', label: 'Финансы', show: isDirector },
@@ -78,15 +95,19 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, reload: load, role, isAdmin, isDirector }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, reload: load, role, isAdmin, isDirector, staff }
 
   return (
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <div className="logo-paw">🐾</div>
-          <div className="logo-name">PandaCRM</div>
-          <div className="logo-sub">Академия Панды</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
+            <PandaLogo />
+            <div>
+              <div className="logo-name">PandaCRM</div>
+              <div className="logo-sub">Академия Панды</div>
+            </div>
+          </div>
         </div>
 
         {nav.map(s => (
@@ -126,12 +147,12 @@ export default function CRM({ session, staff }) {
 
         <div className="content">
           {page === 'dashboard'   && <Dashboard {...props} />}
+          {page === 'calendar'    && <CalendarPage {...props} />}
           {page === 'clients'     && isAdmin && <ClientsPage {...props} />}
           {page === 'payments'    && isAdmin && <PaymentsPage {...props} />}
           {page === 'expenses'    && isDirector && <ExpensesPage {...props} />}
           {page === 'directions'  && <DirectionsPage {...props} />}
           {page === 'teachers'    && isAdmin && <TeachersPage {...props} />}
-          {page === 'calendar'    && <CalendarPage {...props} />}
           {page === 'finance'     && isDirector && <FinancePage {...props} />}
           {page === 'staff'       && isDirector && <StaffPage {...props} />}
         </div>
