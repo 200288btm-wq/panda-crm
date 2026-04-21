@@ -1,4 +1,4 @@
-import { T, fmt, hashColor } from '../styles'
+import { T, fmt, hashColor } from '../styles.jsx'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
 

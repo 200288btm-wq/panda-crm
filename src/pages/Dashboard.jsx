@@ -1,4 +1,4 @@
-import { T, fmt } from '../styles'
+import { T, fmt } from '../styles.jsx'
 
 export default function Dashboard({ clients, payments, expenses, directions }) {
   const active = clients.filter(c => c.status === 'Активен').length

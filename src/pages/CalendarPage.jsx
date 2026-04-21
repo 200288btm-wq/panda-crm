@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { T } from '../styles'
+import { T } from '../styles.jsx'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const DAYS = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']

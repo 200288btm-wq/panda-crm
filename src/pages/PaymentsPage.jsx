@@ -1,7 +1,7 @@
 // PaymentsPage
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles'
+import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 function PaymentModal({ clients, directions, onClose, onSave }) {

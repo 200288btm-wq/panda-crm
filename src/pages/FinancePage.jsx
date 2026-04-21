@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { T, fmt } from '../styles'
+import { T, fmt } from '../styles.jsx'
 
 export default function FinancePage({ payments, expenses, directions }) {
   const [tab, setTab] = useState('Обзор')

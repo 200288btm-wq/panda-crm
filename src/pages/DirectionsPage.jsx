@@ -1,4 +1,4 @@
-import { T, fmt, hashColor } from '../styles'
+import { T, fmt, hashColor } from '../styles.jsx'
 
 export default function DirectionsPage({ directions, clients }) {
   return (

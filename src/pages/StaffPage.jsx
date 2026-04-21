@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T, ROLES, ROLE_COLORS, hashColor } from '../styles'
+import { T, ROLES, ROLE_COLORS, hashColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 function InviteModal({ onClose, onDone }) {

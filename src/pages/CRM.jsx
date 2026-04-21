@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabase'
-import { T, ROLE_COLORS } from '../styles'
+import { T, ROLE_COLORS } from '../styles.jsx'
 import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
 import PaymentsPage from './PaymentsPage'

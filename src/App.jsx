@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import LoginPage from './pages/LoginPage'
 import CRM from './pages/CRM'
-import { GlobalStyles } from './styles'
+import { GlobalStyles } from './styles.jsx'
 
 export default function App() {
   const [session, setSession] = useState(null)

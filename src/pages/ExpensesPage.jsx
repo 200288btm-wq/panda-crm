@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles'
+import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const EXPENSE_TYPES = ['Аренда', 'Материалы', 'Транспорт', 'Подписки', 'Зарплата сотрудникам', 'Прочее']

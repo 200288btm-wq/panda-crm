@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles'
+import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 function ClientModal({ client, directions, onClose, onSave }) {

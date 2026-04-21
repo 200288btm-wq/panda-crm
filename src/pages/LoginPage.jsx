@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles'
+import { T } from '../styles.jsx'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
