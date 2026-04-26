@@ -70,7 +70,12 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
     // Check if this direction has a slot for this day
     const timeForDay = getTimeForDow(dow, d.schedule)
     if (!timeForDay) return
-    if (filterDirs.length > 0 && !filterDirs.includes(String(d.id))) return
+    // filterDir can be 'all', a single id string, or array of ids
+    if (Array.isArray(filterDir)) {
+      if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
+    } else {
+      if (filterDir !== 'all' && String(d.id) !== filterDir) return
+    }
     if (filterTeacher !== 'all') {
       const t = teachers.find(t => String(t.id) === filterTeacher)
       if (t && !(t.direction_ids||[]).includes(d.id)) return
@@ -392,7 +397,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
   const myTeacherName = myTeacher?.name || null
   const effectiveTeacher = !isAdmin && myTeacher ? String(myTeacher.id) : filterTeacher
-  const filterDir = filterDirs.length === 1 ? filterDirs[0] : 'all' // for backward compat
+  const filterDir = filterDirs // pass array directly
 
   // Navigation
   const navigate = (dir) => {
