@@ -38,17 +38,37 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>
         <div className="card card-pad">
-          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 14 }}>📊 Наполнение направлений</div>
+          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 14 }}>📊 Заполненность групп</div>
           {directions.map(d => {
             const cnt = clients.filter(c => (c.direction_ids || []).includes(d.id) && c.status === 'Активен').length
-            const pct = active ? Math.round(cnt / active * 100) : 0
+            const capacity = d.max_capacity || 0
+            const pct = capacity > 0 ? Math.min(Math.round(cnt / capacity * 100), 100) : (active > 0 ? Math.round(cnt / active * 100) : 0)
+            const color = d.color || T.green
+            const isFull = capacity > 0 && cnt >= capacity
+            const isNearFull = capacity > 0 && cnt >= capacity * 0.8
+
             return (
-              <div key={d.id} style={{ marginBottom: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                  <span>{d.name}</span>
-                  <span style={{ color: T.muted }}>{cnt} чел. · {pct}%</span>
+              <div key={d.id} style={{ marginBottom: 14 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, marginBottom: 4, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                    <span>{d.name}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: T.muted, fontSize: 12 }}>
+                      {cnt}{capacity > 0 ? `/${capacity}` : ''} чел.
+                      {capacity > 0 ? ` · ${pct}%` : ''}
+                    </span>
+                    {isFull && <span className="badge badge-red">Группа полная</span>}
+                    {!isFull && isNearFull && <span className="badge badge-orange">Почти полная</span>}
+                  </div>
                 </div>
-                <div className="prog-bar"><div className="prog-fill" style={{ width: pct + '%' }} /></div>
+                <div className="prog-bar">
+                  <div className="prog-fill" style={{
+                    width: (capacity > 0 ? pct : (active > 0 ? pct : 0)) + '%',
+                    background: isFull ? T.red : isNearFull ? T.orange : color
+                  }} />
+                </div>
               </div>
             )
           })}

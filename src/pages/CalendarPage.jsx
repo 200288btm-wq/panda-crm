@@ -270,7 +270,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
               return (
                 <div key={ei} onClick={() => onDayClick(date)} style={{
                   position:'absolute', top, left, width, height,
-                  background: ev.color + (isOverlap ? '44' : '33'),
+                  background: ev.color + '33',
                   borderLeft:`3px solid ${ev.color}`,
                   borderRadius:'0 8px 8px 0',
                   padding:'3px 6px', cursor:'pointer', zIndex:3,
