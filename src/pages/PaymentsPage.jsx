@@ -54,6 +54,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       subscription_id: subId ? +subId : null,
       discount_pct: discount,
       base_amount: basePrice,
+      lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : 0),
     })
   }
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
 import { Modal } from '../components/Modal'
@@ -127,10 +127,33 @@ function ClientModal({ client, directions, onClose, onSave }) {
 }
 
 function ClientDetail({ client, directions, payments, onClose, onEdit }) {
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      const now = new Date()
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
+
+      // Paid lessons from payments table
+      const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date').eq('client_id', client.id)
+      const totalPaid = (pays||[]).reduce((s,p) => s + (+p.lessons_count||0), 0)
+      const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
+
+      // Visited from attendance
+      const { data: att } = await supabase.from('attendance').select('date').eq('client_id', client.id).eq('present', true)
+      const totalVisited = (att||[]).length
+      const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
+
+      setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
+    }
+    fetchStats()
+  }, [client.id])
   const cDirs = directions.filter(d => (client.direction_ids || []).includes(d.id))
   const cPay = payments.filter(p => p.client_id === client.id)
-  const bal = client.balance || 0
   const age = calcAge(client.birthday)
+  const totalPaid = stats?.totalPaid ?? client.paid_lessons ?? 0
+  const totalVisited = stats?.totalVisited ?? client.visited_lessons ?? 0
+  const bal = calcBalance(totalPaid, totalVisited)
 
   return (
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
@@ -147,35 +170,47 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
           </div>
           <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
         </div>
-        {(() => {
-          const b = calcBalance(client.paid_lessons, client.visited_lessons)
-          return (
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: b.color }}>{b.left > 0 ? b.left : Math.abs(b.left)}</div>
-              <div style={{ fontSize: 11, color: b.color, fontWeight: 700 }}>{b.left >= 0 ? 'зан. осталось' : 'зан. долг'}</div>
-            </div>
-          )
-        })()}
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: bal.color }}>{Math.abs(bal.left)}</div>
+          <div style={{ fontSize: 11, color: bal.color, fontWeight: 700 }}>{bal.left >= 0 ? 'зан. осталось' : 'зан. долг'}</div>
+        </div>
       </div>
-      {(() => {
-        const b = calcBalance(client.paid_lessons, client.visited_lessons)
-        if (b.status !== 'ok') return (
-          <div style={{ background: b.bg, border: `1.5px solid ${b.color}44`, borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 20 }}>{b.status === 'debt' ? '🔴' : '🟡'}</span>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 14, color: b.color }}>{b.label}</div>
-              <div style={{ fontSize: 12, color: b.color + 'aa' }}>{b.status === 'debt' ? `Посещено ${client.visited_lessons} зан., оплачено ${client.paid_lessons} зан.` : 'Осталось всего 1 занятие — пора продлевать'}</div>
-            </div>
+      {bal.status !== 'ok' && (
+        <div style={{ background: bal.bg, border: `1.5px solid ${bal.color}44`, borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20 }}>{bal.status === 'debt' ? '🔴' : '🟡'}</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: bal.color }}>{bal.label}</div>
+            <div style={{ fontSize: 12, color: bal.color + 'aa' }}>{bal.status === 'debt' ? `Посещено ${totalVisited} зан., оплачено ${totalPaid} зан.` : 'Осталось всего 1 занятие — пора продлевать'}</div>
           </div>
-        )
-      })()}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
-        {[['📅 Оплачено', client.paid_lessons + ' зан.'], ['✅ Посещено', client.visited_lessons + ' зан.'], ['📌 Источник', client.source || '—'], ['🎁 Скидка', (client.discount || 0) + '%']].map(([k, v]) => (
-          <div key={k} style={{ background: T.cream, borderRadius: 11, padding: '10px 12px' }}>
-            <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 2 }}>{k}</div>
-            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15 }}>{v}</div>
+        </div>
+      )}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+        {/* Paid lessons */}
+        <div style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: T.greenDark, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>📅 Оплачено занятий</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 24, color: T.greenDark }}>{stats ? totalPaid : '...'}</span>
+            <span style={{ fontSize: 12, color: T.muted }}>всего</span>
           </div>
-        ))}
+          {stats && <div style={{ fontSize: 12, color: T.greenDark, marginTop: 2 }}>в этом мес.: <strong>{stats.monthPaid}</strong> зан.</div>}
+        </div>
+        {/* Visited lessons */}
+        <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>✅ Посещено занятий</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 24, color: T.ink }}>{stats ? totalVisited : '...'}</span>
+            <span style={{ fontSize: 12, color: T.muted }}>всего</span>
+          </div>
+          {stats && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>в этом мес.: <strong>{stats.monthVisited}</strong> зан.</div>}
+        </div>
+        <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>📌 Источник</div>
+          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14 }}>{client.source || '—'}</div>
+        </div>
+        <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
+          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>🎁 Скидка</div>
+          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14 }}>{client.discount || 0}%</div>
+        </div>
       </div>
       <div className="divider" />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Направления</div>
