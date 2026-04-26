@@ -13,14 +13,14 @@ function ClientModal({ client, directions, onClose, onSave }) {
     contacts: client.contacts || [{ type: 'Телефон', val: '' }],
     start_date: client.start_date || '',
     source: client.source || '',
-    age: client.age || '',
+    birthday: client.birthday || '',
     sex: client.sex || 'М',
     direction_ids: client.direction_ids || [],
     paid_lessons: client.paid_lessons || 0,
     visited_lessons: client.visited_lessons || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
-  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', age: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0 })
+  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0 })
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
@@ -29,7 +29,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
       footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={() => onSave(f)}>Сохранить</button></>}>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Имя ребёнка *</label><input className="form-input" value={f.child_name} onChange={e => set('child_name', e.target.value)} placeholder="Имя Фамилия" /></div>
-        <div className="form-group"><label className="form-label">Возраст</label><input className="form-input" type="number" min="1" max="18" value={f.age} onChange={e => set('age', +e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Дата рождения</label><input className="form-input" type="date" value={f.birthday} onChange={e => set('birthday', e.target.value)} /></div>
       </div>
       <div className="form-group"><label className="form-label">ФИО родителя / взрослого *</label><input className="form-input" value={f.adult_name} onChange={e => set('adult_name', e.target.value)} placeholder="Фамилия Имя Отчество" /></div>
       <div className="form-row">
@@ -103,7 +103,7 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
         <div className="avatar" style={{ background: hashColor(client.child_name), width: 52, height: 52, fontSize: 20 }}>{(client.child_name || '?')[0]}</div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 17 }}>{client.child_name}</div>
-          <div style={{ fontSize: 13, color: T.muted }}>{client.adult_name} · {client.age} лет · {client.sex}</div>
+          <div style={{ fontSize: 13, color: T.muted }}>{client.adult_name} · {client.birthday ? new Date(client.birthday).toLocaleDateString("ru-RU") : ""} · {client.sex}</div>
           <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -212,7 +212,7 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
                 <td>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <div className="avatar" style={{ background: hashColor(c.child_name), width: 30, height: 30, fontSize: 12 }}>{(c.child_name || '?')[0]}</div>
-                    <div><div style={{ fontWeight: 700 }}>{c.child_name}</div><div style={{ fontSize: 11, color: T.muted }}>{c.age} лет · {c.sex}</div></div>
+                    <div><div style={{ fontWeight: 700 }}>{c.child_name}</div><div style={{ fontSize: 11, color: T.muted }}>{c.birthday ? new Date(c.birthday).toLocaleDateString("ru-RU") : ""} · {c.sex}</div></div>
                   </div>
                 </td>
                 <td style={{ fontSize: 13 }}>{c.adult_name}</td>

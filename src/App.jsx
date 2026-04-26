@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 import LoginPage from './pages/LoginPage'
 import CRM from './pages/CRM'
 import { GlobalStyles } from './styles.jsx'
+import { checkBirthdays } from './birthdays.js'
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -27,6 +28,8 @@ export default function App() {
     const { data } = await supabase.from('staff').select('*').eq('user_id', userId).single()
     setStaff(data)
     setLoading(false)
+    // Check birthdays after login — once per day
+    setTimeout(() => checkBirthdays(), 3000)
   }
 
   if (loading) return (
