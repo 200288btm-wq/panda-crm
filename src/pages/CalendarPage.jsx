@@ -274,8 +274,8 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
                   borderLeft:`3px solid ${ev.color}`,
                   borderRadius:'0 8px 8px 0',
                   padding:'3px 6px', cursor:'pointer', zIndex:3,
-                  border: isOverlap ? `1px solid ${ev.color}88` : `1px solid ${ev.color}33`,
-                  boxShadow: isOverlap ? `0 0 0 2px ${T.red}44` : 'none',
+                  border: `1px solid ${ev.color}44`,
+                  boxShadow: 'none',
                   overflow:'hidden',
                 }}>
                   {isOverlap && (

@@ -163,7 +163,7 @@ export function GlobalStyles() {
       .cal-day.empty { background: transparent; border-color: transparent; cursor: default; }
       .cal-daynum { font-size: 11px; font-weight: 700; color: ${T.muted}; margin-bottom: 2px; text-align: center; }
       .cal-day.today .cal-daynum { color: ${T.greenDark}; }
-      .cal-event { border-radius: 3px; font-size: 9px; font-weight: 700; padding: 1px 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
+      .cal-event { border-radius: 4px; font-size: 10px; font-weight: 700; padding: 2px 4px; margin-bottom: 2px; white-space: normal; overflow: hidden; display: block; max-width: 100%; line-height: 1.3; word-break: break-word; }
 
       .chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid transparent; transition: all 0.12s; }
       .chip-active { border-color: ${T.green}; background: ${T.greenBg}; color: ${T.greenDark}; }

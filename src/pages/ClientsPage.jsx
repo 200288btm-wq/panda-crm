@@ -180,11 +180,19 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
   })
 
   const save = async (f) => {
+    const cleaned = {
+      ...f,
+      age: +f.age || null,
+      paid_lessons: +f.paid_lessons || 0,
+      visited_lessons: +f.visited_lessons || 0,
+      balance: +f.balance || 0,
+      discount: +f.discount || 0,
+    }
     if (showEdit) {
-      await supabase.from('clients').update(f).eq('id', showEdit.id)
+      await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('clients').insert(f)
+      await supabase.from('clients').insert(cleaned)
       setShowAdd(false)
     }
     await reload()

@@ -1,6 +1,6 @@
 import { T, fmt } from '../styles.jsx'
 
-export default function Dashboard({ clients, payments, expenses, directions }) {
+export default function Dashboard({ clients, payments, expenses, directions, isDirector }) {
   const active = clients.filter(c => c.status === 'Активен').length
   const income = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
@@ -20,10 +20,12 @@ export default function Dashboard({ clients, payments, expenses, directions }) {
       <div className="stats-grid">
         {[
           { label: 'Активных клиентов', val: active, sub: `из ${clients.length} всего`, cls: 'stat-green' },
-          { label: 'Доход за период', val: fmt(income), sub: 'все оплаты', cls: 'stat-green' },
-          { label: 'Расходы', val: fmt(totalExp), sub: 'все категории', cls: 'stat-red' },
-          { label: 'Прибыль', val: fmt(profit), sub: 'доход − расходы', cls: profit >= 0 ? 'stat-green' : 'stat-red' },
-          { label: 'Средний чек', val: fmt(avg), sub: 'на активного клиента', cls: 'stat-orange' },
+          ...(isDirector ? [
+            { label: 'Доход за период', val: fmt(income), sub: 'все оплаты', cls: 'stat-green' },
+            { label: 'Расходы', val: fmt(totalExp), sub: 'все категории', cls: 'stat-red' },
+            { label: 'Прибыль', val: fmt(profit), sub: 'доход − расходы', cls: profit >= 0 ? 'stat-green' : 'stat-red' },
+            { label: 'Средний чек', val: fmt(avg), sub: 'на активного клиента', cls: 'stat-orange' },
+          ] : []),
           { label: 'Новых клиентов', val: newC, sub: 'ожидают записи', cls: 'stat-orange' },
         ].map(s => (
           <div key={s.label} className="stat-card">

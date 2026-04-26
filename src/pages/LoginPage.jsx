@@ -3,21 +3,10 @@ import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 
 const PandaLogo = () => (
-  <svg width="52" height="52" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="48" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
-    <circle cx="28" cy="26" r="12" fill="#1A1A1A"/>
-    <circle cx="72" cy="26" r="12" fill="#1A1A1A"/>
-    <circle cx="38" cy="44" r="10" fill="#1A1A1A"/>
-    <circle cx="62" cy="44" r="10" fill="#1A1A1A"/>
-    <circle cx="38" cy="44" r="5" fill="white"/>
-    <circle cx="62" cy="44" r="5" fill="white"/>
-    <circle cx="39" cy="43" r="3" fill="#1A1A1A"/>
-    <circle cx="63" cy="43" r="3" fill="#1A1A1A"/>
-    <ellipse cx="50" cy="58" rx="6" ry="4" fill="#1A1A1A"/>
-    <path d="M42 65 Q50 72 58 65" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-  </svg>
+  <img src="/logo-icon.svg" alt="Академия Панды" style={{ width: 64, height: 64, objectFit: 'contain' }} />
 )
 
+export default function LoginPage
 export default function LoginPage() {
   const [mode, setMode] = useState('login') // login | forgot | sent
   const [email, setEmail] = useState('')
