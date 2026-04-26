@@ -6,7 +6,6 @@ const PandaLogo = () => (
   <img src="/logo-icon.svg" alt="Академия Панды" style={{ width: 64, height: 64, objectFit: 'contain' }} />
 )
 
-export default function LoginPage
 export default function LoginPage() {
   const [mode, setMode] = useState('login') // login | forgot | sent
   const [email, setEmail] = useState('')
