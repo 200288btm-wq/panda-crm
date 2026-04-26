@@ -278,9 +278,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
                   boxShadow: 'none',
                   overflow:'hidden',
                 }}>
-                  {isOverlap && (
-                    <div style={{ fontSize:9, fontWeight:700, color:T.red, marginBottom:1 }}>⚠️ Наложение</div>
-                  )}
+
                   <div style={{ fontSize:11, fontWeight:800, color:ev.color, lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.name}</div>
                   {height > 30 && <div style={{ fontSize:10, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
                   {height > 45 && <div style={{ fontSize:10, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
