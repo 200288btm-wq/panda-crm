@@ -305,10 +305,11 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Оплачено</th><th>Статус оплаты</th><th>Контакт</th></tr></thead>
+          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th></tr></thead>
           <tbody>
             {filtered.map(c => {
               const age = calcAge(c.birthday)
+              const bal = calcBalance(c.paid_lessons, c.visited_lessons)
               return (
                 <tr key={c.id} className="tr-click" onClick={() => setShowDetail(c)}>
                   <td>
@@ -335,16 +336,19 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
                       : <span style={{ color: T.muted, fontSize: 12 }}>—</span>
                     }
                   </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14 }}>{c.paid_lessons}</span>
-                    <span style={{ fontSize: 11, color: T.muted }}> зан.</span>
+                  <td>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 8px', borderRadius: 8, background: bal.bg, color: bal.color, display: 'inline-block', width: 'fit-content' }}>
+                        {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
+                      </span>
+                      <span style={{ fontSize: 10, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</span>
+                    </div>
                   </td>
-                  <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: (c.balance || 0) >= 0 ? T.greenDark : T.red }}>{fmt(c.balance)}</span></td>
                   <td style={{ fontSize: 12, color: T.muted }}>{(c.contacts || [])[0]?.val || '—'}</td>
                 </tr>
               )
             })}
-            {!filtered.length && <tr><td colSpan={9}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
+            {!filtered.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
           </tbody>
         </table>
       </div>
