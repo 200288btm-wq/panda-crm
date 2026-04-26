@@ -22,21 +22,9 @@ const Logo = ({ size = 36 }) => (
   <img src="/logo.svg" alt="Академия Панды" width={size} height={Math.round(size * 271/803)} style={{ flexShrink: 0, display: 'block' }} />
 )
 
-// Compact panda icon for collapsed sidebar / mobile
-const PandaIcon = ({ size = 32 }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <circle cx="50" cy="50" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
-    <circle cx="28" cy="28" r="12" fill="#1A1A1A"/>
-    <circle cx="72" cy="28" r="12" fill="#1A1A1A"/>
-    <circle cx="38" cy="46" r="10" fill="#1A1A1A"/>
-    <circle cx="62" cy="46" r="10" fill="#1A1A1A"/>
-    <circle cx="38" cy="46" r="5" fill="white"/>
-    <circle cx="62" cy="46" r="5" fill="white"/>
-    <circle cx="39" cy="45" r="3" fill="#1A1A1A"/>
-    <circle cx="63" cy="45" r="3" fill="#1A1A1A"/>
-    <ellipse cx="50" cy="59" rx="6" ry="4" fill="#1A1A1A"/>
-    <path d="M42 66 Q50 73 58 66" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-  </svg>
+// Compact icon for collapsed sidebar
+const PandaIcon = ({ size = 40 }) => (
+  <img src="/logo-icon.svg" alt="" width={size} height={size} style={{ flexShrink: 0, display: 'block', objectFit: 'contain' }} />
 )
 
 export default function CRM({ session, staff }) {
