@@ -12,20 +12,13 @@ import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 
 const PAGE_TITLES = {
-  dashboard: 'Дашборд',
-  calendar: 'Расписание',
-  clients: 'Клиенты',
-  payments: 'Оплаты',
-  expenses: 'Расходы',
-  directions: 'Направления',
-  teachers: 'Педагоги',
-  finance: 'Финансы и аналитика',
-  staff: 'Сотрудники',
+  dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
+  payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
+  teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
 }
 
-// Panda SVG logo
-const PandaLogo = () => (
-  <svg width="36" height="36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+const PandaLogo = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
     <circle cx="50" cy="48" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
     <circle cx="28" cy="26" r="12" fill="#1A1A1A"/>
     <circle cx="72" cy="26" r="12" fill="#1A1A1A"/>
@@ -40,6 +33,15 @@ const PandaLogo = () => (
   </svg>
 )
 
+// Mobile bottom nav items
+const MOBILE_NAV = [
+  { id: 'dashboard', icon: '📊', label: 'Главная' },
+  { id: 'calendar', icon: '📅', label: 'Расписание' },
+  { id: 'clients', icon: '👨‍👧', label: 'Клиенты' },
+  { id: 'payments', icon: '💳', label: 'Оплаты' },
+  { id: 'directions', icon: '🎯', label: 'Ещё' },
+]
+
 export default function CRM({ session, staff }) {
   const [page, setPage] = useState('dashboard')
   const [clients, setClients] = useState([])
@@ -49,6 +51,15 @@ export default function CRM({ session, staff }) {
   const [teachers, setTeachers] = useState([])
   const [staffList, setStaffList] = useState([])
   const [newCount, setNewCount] = useState(0)
+  const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const role = staff?.role || 'Преподаватель'
   const isDirector = role === 'Директор'
@@ -75,6 +86,11 @@ export default function CRM({ session, staff }) {
 
   const logout = () => supabase.auth.signOut()
 
+  const navigate = (id) => {
+    setPage(id)
+    setMobileOpen(false)
+  }
+
   const nav = [
     { section: 'Главная', items: [
       { id: 'dashboard', icon: '📊', label: 'Дашборд', show: true },
@@ -97,65 +113,118 @@ export default function CRM({ session, staff }) {
 
   const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, reload: load, role, isAdmin, isDirector, staff }
 
+  const SidebarContent = () => (
+    <>
+      <div className="sidebar-logo">
+        <div className="logo-row">
+          <PandaLogo size={34} />
+          <div>
+            <div className="logo-name">PandaCRM</div>
+            <div className="logo-sub">Академия Панды</div>
+          </div>
+        </div>
+      </div>
+
+      {nav.map(s => (
+        <div key={s.section} className="nav-section">
+          <div className="nav-label">{s.section}</div>
+          {s.items.filter(i => i.show).map(item => (
+            <div key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
+              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-label-text">{item.label}</span>
+              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+            </div>
+          ))}
+        </div>
+      ))}
+
+      <div className="sidebar-user" onClick={logout} title="Выйти">
+        <div className="avatar" style={{ background: T.green, width: 30, height: 30, fontSize: 12, flexShrink: 0 }}>
+          {(staff?.name || 'U')[0]}
+        </div>
+        <div className="user-info">
+          <div className="user-name">{staff?.name || 'Пользователь'}</div>
+          <div className="user-role">{staff?.role} · Выйти</div>
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 2 }}>
-            <PandaLogo />
-            <div>
-              <div className="logo-name">PandaCRM</div>
-              <div className="logo-sub">Академия Панды</div>
-            </div>
+      {/* Desktop sidebar with collapse */}
+      {!isMobile && (
+        <div className="sidebar-wrapper">
+          <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+            <SidebarContent />
+          </div>
+          {/* Toggle button */}
+          <div className="sidebar-toggle" onClick={() => setCollapsed(c => !c)}>
+            {collapsed ? '→' : '←'}
+          </div>
+        </div>
+      )}
+
+      {/* Mobile sidebar overlay */}
+      {isMobile && (
+        <div className={`sidebar-wrapper ${mobileOpen ? 'mobile-open' : ''}`}>
+          <div className="sidebar-overlay" onClick={() => setMobileOpen(false)} />
+          <div className="sidebar">
+            <SidebarContent />
+          </div>
+        </div>
+      )}
+
+      <main className="main">
+        {/* Topbar */}
+        <div className="topbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isMobile && (
+              <button className="topbar-hamburger" onClick={() => setMobileOpen(true)}>☰</button>
+            )}
+            <div className="page-title">{PAGE_TITLES[page]}</div>
+          </div>
+          <div className="topbar-right">
+            <span className={`badge ${ROLE_COLORS[role]}`}>{collapsed && !isMobile ? role[0] : role}</span>
+            {!isMobile && (
+              <span style={{ fontSize: 11, color: T.muted }}>
+                {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </span>
+            )}
           </div>
         </div>
 
-        {nav.map(s => (
-          <div key={s.section} className="nav-section">
-            <div className="nav-label">{s.section}</div>
-            {s.items.filter(i => i.show).map(item => (
-              <div key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}>
-                <span className="nav-icon">{item.icon}</span>
+        {/* Content */}
+        <div className="content">
+          {page === 'dashboard'  && <Dashboard {...props} />}
+          {page === 'calendar'   && <CalendarPage {...props} />}
+          {page === 'clients'    && isAdmin && <ClientsPage {...props} />}
+          {page === 'payments'   && isAdmin && <PaymentsPage {...props} />}
+          {page === 'expenses'   && isDirector && <ExpensesPage {...props} />}
+          {page === 'directions' && <DirectionsPage {...props} />}
+          {page === 'teachers'   && isAdmin && <TeachersPage {...props} />}
+          {page === 'finance'    && isDirector && <FinancePage {...props} />}
+          {page === 'staff'      && isDirector && <StaffPage {...props} />}
+        </div>
+
+        {/* Mobile bottom navigation */}
+        {isMobile && (
+          <div className="mobile-nav">
+            {[
+              { id: 'dashboard', icon: '📊', label: 'Главная', show: true },
+              { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
+              { id: 'clients', icon: '👨‍👧', label: 'Клиенты', show: isAdmin, badge: newCount },
+              { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
+              { id: 'directions', icon: '🎯', label: 'Ещё', show: true },
+            ].filter(i => i.show).map(item => (
+              <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)} style={{ position: 'relative' }}>
+                {item.badge ? <span className="mobile-nav-badge">{item.badge}</span> : null}
+                <span className="mobile-nav-icon">{item.icon}</span>
                 <span>{item.label}</span>
-                {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
               </div>
             ))}
           </div>
-        ))}
-
-        <div className="sidebar-user" onClick={logout} title="Выйти из системы">
-          <div className="avatar" style={{ background: T.green, width: 32, height: 32, fontSize: 12 }}>
-            {(staff?.name || 'U')[0]}
-          </div>
-          <div>
-            <div className="user-name">{staff?.name || 'Пользователь'}</div>
-            <div className="user-role">{staff?.role} · Выйти</div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="main">
-        <div className="topbar">
-          <div className="page-title">{PAGE_TITLES[page]}</div>
-          <div className="topbar-right">
-            <span className={`badge ${ROLE_COLORS[role]}`}>{role}</span>
-            <span style={{ fontSize: 12, color: T.muted }}>
-              {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
-            </span>
-          </div>
-        </div>
-
-        <div className="content">
-          {page === 'dashboard'   && <Dashboard {...props} />}
-          {page === 'calendar'    && <CalendarPage {...props} />}
-          {page === 'clients'     && isAdmin && <ClientsPage {...props} />}
-          {page === 'payments'    && isAdmin && <PaymentsPage {...props} />}
-          {page === 'expenses'    && isDirector && <ExpensesPage {...props} />}
-          {page === 'directions'  && <DirectionsPage {...props} />}
-          {page === 'teachers'    && isAdmin && <TeachersPage {...props} />}
-          {page === 'finance'     && isDirector && <FinancePage {...props} />}
-          {page === 'staff'       && isDirector && <StaffPage {...props} />}
-        </div>
+        )}
       </main>
     </div>
   )
