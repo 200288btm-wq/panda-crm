@@ -10,6 +10,7 @@ import TeachersPage from './TeachersPage'
 import CalendarPage from './CalendarPage'
 import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
+import SubscriptionsPage from './SubscriptionsPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
@@ -35,6 +36,7 @@ export default function CRM({ session, staff }) {
   const [directions, setDirections] = useState([])
   const [teachers, setTeachers] = useState([])
   const [staffList, setStaffList] = useState([])
+  const [subscriptions, setSubscriptions] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -51,13 +53,14 @@ export default function CRM({ session, staff }) {
   const isAdmin = role === 'Директор' || role === 'Администратор'
 
   const load = useCallback(async () => {
-    const [c, p, e, d, t, s] = await Promise.all([
+    const [c, p, e, d, t, s, sub] = await Promise.all([
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('payments').select('*').order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
       supabase.from('directions').select('*').order('id'),
       supabase.from('teachers').select('*').order('id'),
       supabase.from('staff').select('*').order('id'),
+      supabase.from('subscriptions').select('*').order('id'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -65,6 +68,7 @@ export default function CRM({ session, staff }) {
     if (d.data) setDirections(d.data)
     if (t.data) setTeachers(t.data)
     if (s.data) setStaffList(s.data)
+    if (sub.data) setSubscriptions(sub.data)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -88,12 +92,13 @@ export default function CRM({ session, staff }) {
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
     ]},
     { section: 'Управление', items: [
+      { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
       { id: 'finance', icon: '💰', label: 'Финансы', show: isDirector },
       { id: 'staff', icon: '🔑', label: 'Сотрудники', show: isDirector },
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, reload: load, role, isAdmin, isDirector, staff }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, reload: load, role, isAdmin, isDirector, staff }
 
   const SidebarContent = () => (
     <>
