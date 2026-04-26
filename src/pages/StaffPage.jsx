@@ -124,13 +124,26 @@ export default function StaffPage({ staffList, reload }) {
   }, [staffList])
 
   const save = async (f) => {
-    await supabase.from('staff').update(f).eq('id', showEdit.id)
+    const { error } = await supabase.from('staff').update({
+      name: f.name,
+      role: f.role,
+      phone: f.phone,
+      email: f.email,
+      is_active: f.is_active,
+    }).eq('id', showEdit.id)
+    if (error) { alert('Ошибка сохранения: ' + error.message); return }
     setShowEdit(null); reload()
   }
 
   const deactivate = async (id) => {
     if (!confirm('Отозвать доступ у сотрудника?')) return
     await supabase.from('staff').update({ is_active: false }).eq('id', id)
+    reload()
+  }
+
+  const deleteStaff = async (s) => {
+    if (!confirm(`Удалить сотрудника «${s.name}»? Это действие нельзя отменить.`)) return
+    await supabase.from('staff').delete().eq('id', s.id)
     reload()
   }
 
@@ -205,6 +218,7 @@ export default function StaffPage({ staffList, reload }) {
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
                       {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)} title="Отозвать доступ">🚫</button>}
+                      <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} title="Удалить сотрудника" style={{ color: '#e05a5a' }}>🗑️</button>
                     </div>
                   </td>
                 </tr>
