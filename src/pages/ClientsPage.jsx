@@ -3,6 +3,8 @@ import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
+const DEFAULT_COLOR = '#7BAF8E'
+
 function ClientModal({ client, directions, onClose, onSave }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
@@ -50,20 +52,33 @@ function ClientModal({ client, directions, onClose, onSave }) {
           <input className="form-input" value={f.contacts[0]?.val} onChange={e => set('contacts', [{ ...f.contacts[0], val: e.target.value }])} placeholder="+7 xxx / @login" />
         </div>
       </div>
+
+      {/* Направления с цветами */}
       <div className="form-group"><label className="form-label">Направления</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
           {directions.map(d => {
             const on = (f.direction_ids || []).includes(d.id)
+            const color = d.color || DEFAULT_COLOR
             return (
-              <label key={d.id} className={`chip ${on ? 'chip-active' : 'chip-inactive'}`}>
-                <input type="checkbox" checked={on} style={{ display: 'none' }}
-                  onChange={e => set('direction_ids', e.target.checked ? [...(f.direction_ids || []), d.id] : (f.direction_ids || []).filter(x => x !== d.id))} />
+              <label key={d.id} onClick={() => {
+                const ids = f.direction_ids || []
+                set('direction_ids', ids.includes(d.id) ? ids.filter(x => x !== d.id) : [...ids, d.id])
+              }} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                background: on ? color + '22' : '#f5f5f0',
+                border: `2px solid ${on ? color : T.border}`,
+                color: on ? color : T.muted,
+                fontWeight: 700, fontSize: 12,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
                 {d.name}
               </label>
             )
           })}
         </div>
       </div>
+
       <div className="form-row">
         <div className="form-group"><label className="form-label">Оплачено занятий</label><input className="form-input" type="number" value={f.paid_lessons} onChange={e => set('paid_lessons', +e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Посещено занятий</label><input className="form-input" type="number" value={f.visited_lessons} onChange={e => set('visited_lessons', +e.target.value)} /></div>
@@ -109,7 +124,19 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
       <div className="divider" />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Направления</div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {cDirs.map(d => <span key={d.id} className="badge badge-green">🐾 {d.name}</span>)}
+        {cDirs.map(d => {
+          const color = d.color || DEFAULT_COLOR
+          return (
+            <span key={d.id} style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700,
+              background: color + '22', color: color, border: `1px solid ${color}44`
+            }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />
+              {d.name}
+            </span>
+          )
+        })}
         {!cDirs.length && <span style={{ fontSize: 13, color: T.muted }}>нет направлений</span>}
       </div>
 
@@ -144,7 +171,6 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
-  const [saving, setSaving] = useState(false)
 
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
@@ -154,7 +180,6 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
   })
 
   const save = async (f) => {
-    setSaving(true)
     if (showEdit) {
       await supabase.from('clients').update(f).eq('id', showEdit.id)
       setShowEdit(null)
@@ -162,14 +187,6 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
       await supabase.from('clients').insert(f)
       setShowAdd(false)
     }
-    await reload()
-    setSaving(false)
-  }
-
-  const del = async (id) => {
-    if (!confirm('Удалить клиента?')) return
-    await supabase.from('clients').delete().eq('id', id)
-    setShowDetail(null)
     await reload()
   }
 
@@ -200,7 +217,24 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
                 </td>
                 <td style={{ fontSize: 13 }}>{c.adult_name}</td>
                 <td><span className={`badge ${STATUS_COLORS[c.status]}`}>{c.status}</span></td>
-                <td style={{ fontSize: 12 }}>{directions.filter(d => (c.direction_ids || []).includes(d.id)).map(d => d.name).join(', ') || '—'}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    {directions.filter(d => (c.direction_ids || []).includes(d.id)).map(d => {
+                      const color = d.color || DEFAULT_COLOR
+                      return (
+                        <span key={d.id} style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                          background: color + '22', color: color,
+                        }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                          {d.name}
+                        </span>
+                      )
+                    })}
+                    {!directions.filter(d => (c.direction_ids || []).includes(d.id)).length && <span style={{ color: T.muted, fontSize: 12 }}>—</span>}
+                  </div>
+                </td>
                 <td style={{ textAlign: 'center' }}><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15 }}>{c.paid_lessons}</span><span style={{ fontSize: 11, color: T.muted }}> зан.</span></td>
                 <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: (c.balance || 0) >= 0 ? T.greenDark : T.red }}>{fmt(c.balance)}</span></td>
                 <td style={{ fontSize: 12, color: T.muted }}>{(c.contacts || [])[0]?.val || '—'}</td>
