@@ -187,6 +187,7 @@ export default function CRM({ session, staff }) {
           {page === 'expenses'   && isDirector && <ExpensesPage {...props} />}
           {page === 'directions' && <DirectionsPage {...props} />}
           {page === 'teachers'   && isAdmin && <TeachersPage {...props} />}
+          {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
           {page === 'finance'    && isDirector && <FinancePage {...props} />}
           {page === 'staff'      && isDirector && <StaffPage {...props} />}
         </div>
