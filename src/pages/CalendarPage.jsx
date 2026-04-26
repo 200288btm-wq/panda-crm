@@ -12,8 +12,8 @@ const WORK_START = 7  // 07:00
 const WORK_END = 21   // 21:00
 const SLOT_HEIGHT = 60 // px per hour
 
-const parseTime = (schedule) => {
-  const m = (schedule || '').match(/(\d{1,2}):(\d{2})/)
+const parseTime = (timeStr) => {
+  const m = (timeStr || '').match(/(\d{1,2}):(\d{2})/)
   if (!m) return null
   return parseInt(m[1]) * 60 + parseInt(m[2])
 }
@@ -29,12 +29,31 @@ const parseDuration = (dur) => {
   return 60
 }
 
-const dayMatchesDow = (dow, schedule) => {
-  const s = schedule || ''
-  return (dow===1&&s.includes('Пн'))||(dow===2&&s.includes('Вт'))||
-    (dow===3&&s.includes('Ср'))||(dow===4&&s.includes('Чт'))||
-    (dow===5&&s.includes('Пт'))||(dow===6&&s.includes('Сб'))||
-    (dow===0&&s.includes('Вс'))
+const DOW_TO_KEY = { 0:'Вс', 1:'Пн', 2:'Вт', 3:'Ср', 4:'Чт', 5:'Пт', 6:'Сб' }
+
+// Parse new format "Пн/Ср 17:30, Сб 13:00" or old format "Пн/Ср/Пт 10:00"
+// Returns array of {day, time} slots
+const parseScheduleSlots = (schedule) => {
+  if (!schedule) return []
+  const slots = []
+  const parts = schedule.split(',').map(s => s.trim())
+  for (const part of parts) {
+    const m = part.match(/^([А-Яа-я/]+)\s+(\d{1,2}:\d{2})/)
+    if (m) {
+      const days = m[1].split('/')
+      const time = m[2]
+      days.forEach(d => slots.push({ day: d.trim(), time }))
+    }
+  }
+  return slots
+}
+
+// Get time for specific day of week from schedule
+const getTimeForDow = (dow, schedule) => {
+  const dayKey = DOW_TO_KEY[dow]
+  const slots = parseScheduleSlots(schedule)
+  const slot = slots.find(s => s.day === dayKey)
+  return slot ? slot.time : null
 }
 
 const fmt2 = n => String(n).padStart(2,'0')
@@ -45,9 +64,12 @@ const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7
 // Get events for a specific date
 const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers) => {
   const dow = date.getDay()
+  const dayKey = DOW_TO_KEY[dow]
   const events = []
   directions.forEach(d => {
-    if (!dayMatchesDow(dow, d.schedule)) return
+    // Check if this direction has a slot for this day
+    const timeForDay = getTimeForDow(dow, d.schedule)
+    if (!timeForDay) return
     if (filterDir !== 'all' && String(d.id) !== filterDir) return
     if (filterTeacher !== 'all') {
       const t = teachers.find(t => String(t.id) === filterTeacher)
@@ -57,12 +79,12 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
-    const timeMin = parseTime(d.schedule)
+    const timeMin = parseTime(timeForDay)
     if (timeMin === null) return
     let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
     if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
     events.push({
-      name: d.name, timeMin, time: (d.schedule||'').split(' ').pop(),
+      name: d.name, timeMin, time: timeForDay,
       teacher: d.teacher_name, dirId: d.id, students,
       color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
       durationMin: parseDuration(d.duration),
