@@ -106,21 +106,24 @@ function ClientModal({ client, directions, onClose, onSave }) {
           })}
         </div>
       </div>
-      <div className="form-row">
-        <div className="form-group"><label className="form-label">Оплачено занятий</label>
-          <input className="form-input" type="number" value={f.paid_lessons} onChange={e => set('paid_lessons', e.target.value)} />
-        </div>
-        <div className="form-group"><label className="form-label">Посещено занятий</label>
-          <input className="form-input" type="number" value={f.visited_lessons} onChange={e => set('visited_lessons', e.target.value)} />
-        </div>
+      <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: T.muted, lineHeight: 1.6 }}>
+        <strong style={{ color: T.ink }}>📌 Начальные остатки</strong> — заполните если переносите клиента из другой системы. Новым клиентам оставьте 0 — всё будет считаться автоматически из оплат и посещаемости.
       </div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label">Баланс, ₽</label>
-          <input className="form-input" type="number" value={f.balance} onChange={e => set('balance', e.target.value)} />
+        <div className="form-group">
+          <label className="form-label">Оплачено занятий (начало учёта)</label>
+          <input className="form-input" type="number" min="0" value={f.paid_lessons} onChange={e => set('paid_lessons', e.target.value)} placeholder="0" />
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Сколько занятий уже было оплачено до внедрения CRM</div>
         </div>
-        <div className="form-group"><label className="form-label">Скидка, %</label>
-          <input className="form-input" type="number" min="0" max="100" value={f.discount} onChange={e => set('discount', e.target.value)} />
+        <div className="form-group">
+          <label className="form-label">Посещено занятий (начало учёта)</label>
+          <input className="form-input" type="number" min="0" value={f.visited_lessons} onChange={e => set('visited_lessons', e.target.value)} placeholder="0" />
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Сколько занятий уже было посещено до внедрения CRM</div>
         </div>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Скидка, %</label>
+        <input className="form-input" type="number" min="0" max="100" value={f.discount} onChange={e => set('discount', e.target.value)} placeholder="0" style={{ maxWidth: 200 }} />
       </div>
     </Modal>
   )
@@ -134,14 +137,16 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
       const now = new Date()
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
 
-      // Paid lessons from payments table
+      // Paid lessons = initial balance + from payments table
       const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date').eq('client_id', client.id)
-      const totalPaid = (pays||[]).reduce((s,p) => s + (+p.lessons_count||0), 0)
+      const paidFromPayments = (pays||[]).reduce((s,p) => s + (+p.lessons_count||0), 0)
+      const totalPaid = (client.paid_lessons || 0) + paidFromPayments
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
 
-      // Visited from attendance
+      // Visited = initial balance + from attendance
       const { data: att } = await supabase.from('attendance').select('date').eq('client_id', client.id).eq('present', true)
-      const totalVisited = (att||[]).length
+      const visitedFromAtt = (att||[]).length
+      const totalVisited = (client.visited_lessons || 0) + visitedFromAtt
       const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
 
       setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
