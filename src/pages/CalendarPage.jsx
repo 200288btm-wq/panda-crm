@@ -310,7 +310,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   const cells = Array(offset).fill(null).concat(Array.from({ length:daysInMonth }, (_,i) => i+1))
 
   return (
-    <div>
+    <div className="cal-outer">
       <div className="cal-header-row">{DAYS_CAL.map(d => <div key={d} className="cal-dayname">{d}</div>)}</div>
       <div className="cal-grid">
         {cells.map((day, i) => {
@@ -325,8 +325,8 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
               <div className="cal-daynum" style={{ color: dayDate > today0 ? T.muted : T.ink }}>{day}</div>
               {events.map((e, j) => (
                 <div key={j} className="cal-event"
-                  style={{ background:e.color+'33', color:e.color, borderLeft:`3px solid ${e.color}`, borderRadius:'0 6px 6px 0', paddingLeft:5 }}
-                  title={`${e.name} · ${e.students.length} чел.`}>
+                  style={{ background:e.color+'33', color:e.color, borderLeft:'3px solid '+e.color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
+                  title={e.name+' · '+e.students.length+' чел.'}>
                   {e.time} {e.name.split(' ')[0]}
                 </div>
               ))}

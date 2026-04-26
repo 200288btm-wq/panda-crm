@@ -153,16 +153,17 @@ export function GlobalStyles() {
       .empty-text { font-weight: 600; font-size: 14px; }
 
       /* ── Calendar ── */
-      .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
-      .cal-header-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 3px; }
-      .cal-dayname { text-align: center; font-size: 10px; font-weight: 700; color: ${T.muted}; padding: 4px 2px; text-transform: uppercase; }
-      .cal-day { min-height: 72px; border-radius: 10px; border: 1px solid ${T.border}; background: white; padding: 5px; cursor: pointer; transition: border-color 0.15s; }
+      .cal-outer { width: 100%; overflow: hidden; }
+      .cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 2px; width: 100%; }
+      .cal-header-row { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 2px; margin-bottom: 2px; width: 100%; }
+      .cal-dayname { text-align: center; font-size: 10px; font-weight: 700; color: ${T.muted}; padding: 4px 0; text-transform: uppercase; overflow: hidden; min-width: 0; }
+      .cal-day { min-height: 68px; border-radius: 8px; border: 1px solid ${T.border}; background: white; padding: 4px 2px; cursor: pointer; transition: border-color 0.15s; overflow: hidden; min-width: 0; }
       .cal-day:hover { border-color: ${T.green}; }
       .cal-day.today { border-color: ${T.green}; background: ${T.greenBg}; }
       .cal-day.empty { background: transparent; border-color: transparent; cursor: default; }
-      .cal-daynum { font-size: 11px; font-weight: 700; color: ${T.muted}; margin-bottom: 3px; }
+      .cal-daynum { font-size: 11px; font-weight: 700; color: ${T.muted}; margin-bottom: 2px; text-align: center; }
       .cal-day.today .cal-daynum { color: ${T.greenDark}; }
-      .cal-event { border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cal-event { border-radius: 3px; font-size: 9px; font-weight: 700; padding: 1px 3px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
 
       .chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid transparent; transition: all 0.12s; }
       .chip-active { border-color: ${T.green}; background: ${T.greenBg}; color: ${T.greenDark}; }
