@@ -15,12 +15,32 @@ function InviteModal({ onClose, onDone }) {
   const invite = async () => {
     if (!email || !name) { setError('Заполните имя и email'); return }
     setLoading(true); setError('')
-    // Create staff record — user_id will be linked after they log in
-    const { error: err } = await supabase.from('staff').insert({ name, role, phone, is_active: true, email })
-    if (err) { setError('Ошибка: ' + err.message); setLoading(false); return }
-    // Send password reset so they can set their own password
-    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
-    setSuccess(true); setLoading(false)
+
+    try {
+      // Call Edge Function to create auth user + staff record
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch(
+        `https://dmvqiuminxrtcaylfcwg.supabase.co/functions/v1/create-user`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`,
+          },
+          body: JSON.stringify({ email, name, role, phone }),
+        }
+      )
+      const result = await res.json()
+      if (!res.ok || result.error) {
+        setError('Ошибка: ' + (result.error || 'Неизвестная ошибка'))
+        setLoading(false)
+        return
+      }
+      setSuccess(true)
+    } catch (e) {
+      setError('Ошибка соединения: ' + e.message)
+    }
+    setLoading(false)
   }
 
   if (success) return (
