@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles.jsx'
+import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const DURATIONS = ['30 минут', '45 минут', '1 час', '1.5 часа', '2 часа', 'Полдня', 'Весь день']
@@ -10,53 +10,31 @@ const DIRECTION_COLORS = [
 ]
 
 const WEEK_DAYS = [
-  { key: 'Пн', label: 'Пн', full: 'Понедельник' },
-  { key: 'Вт', label: 'Вт', full: 'Вторник' },
-  { key: 'Ср', label: 'Ср', full: 'Среда' },
-  { key: 'Чт', label: 'Чт', full: 'Четверг' },
-  { key: 'Пт', label: 'Пт', full: 'Пятница' },
-  { key: 'Сб', label: 'Сб', full: 'Суббота' },
-  { key: 'Вс', label: 'Вс', full: 'Воскресенье' },
+  { key: 'Пн', full: 'Понедельник' },
+  { key: 'Вт', full: 'Вторник' },
+  { key: 'Ср', full: 'Среда' },
+  { key: 'Чт', full: 'Четверг' },
+  { key: 'Пт', full: 'Пятница' },
+  { key: 'Сб', full: 'Суббота' },
+  { key: 'Вс', full: 'Воскресенье' },
 ]
 
-// Parse schedule string like "Пн/Ср 17:30, Сб 13:00" into structured slots
-// Also supports old format "Пн/Ср/Пт 10:00"
-const parseScheduleToSlots = (scheduleStr) => {
-  if (!scheduleStr) return []
+// Parse schedule "Пн/Ср 17:30, Сб 10:00" → [{day, time}]
+const parseSlots = (str) => {
+  if (!str) return []
   const slots = []
-
-  // Try new format first: "Пн/Ср 17:30, Сб 13:00"
-  const parts = scheduleStr.split(',').map(s => s.trim())
-  for (const part of parts) {
-    const match = part.match(/^([А-Яа-я/]+)\s+(\d{1,2}:\d{2})$/)
-    if (match) {
-      const days = match[1].split('/')
-      const time = match[2]
-      for (const day of days) {
-        const d = WEEK_DAYS.find(wd => wd.key === day.trim())
-        if (d) slots.push({ day: d.key, time })
-      }
-    }
-  }
-
-  // If nothing parsed, try old format "Пн/Ср/Пт 10:00"
-  if (slots.length === 0) {
-    const oldMatch = scheduleStr.match(/^([А-Яа-я/]+)\s+(\d{1,2}:\d{2})/)
-    if (oldMatch) {
-      const days = oldMatch[1].split('/')
-      const time = oldMatch[2]
-      for (const day of days) {
-        const d = WEEK_DAYS.find(wd => wd.key === day.trim())
-        if (d) slots.push({ day: d.key, time })
-      }
-    }
-  }
-
+  str.split(',').map(s => s.trim()).forEach(part => {
+    const m = part.match(/^([А-Яа-я/]+)\s+(\d{1,2}:\d{2})/)
+    if (m) m[1].split('/').forEach(d => {
+      const wd = WEEK_DAYS.find(w => w.key === d.trim())
+      if (wd) slots.push({ day: d.trim(), time: m[2], id: Math.random() })
+    })
+  })
   return slots
 }
 
-// Convert slots back to schedule string
-const slotsToSchedule = (slots) => {
+// Convert [{day, time}] → "Пн/Ср 17:30, Сб 10:00"
+const slotsToStr = (slots) => {
   if (!slots.length) return ''
   // Group by time
   const byTime = {}
@@ -64,43 +42,71 @@ const slotsToSchedule = (slots) => {
     if (!byTime[s.time]) byTime[s.time] = []
     byTime[s.time].push(s.day)
   })
-  // Sort days within each time group by WEEK_DAYS order
   const dayOrder = WEEK_DAYS.map(d => d.key)
   return Object.entries(byTime)
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([time, days]) => {
-      const sorted = days.sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b))
+      const sorted = [...new Set(days)].sort((a, b) => dayOrder.indexOf(a) - dayOrder.indexOf(b))
       return `${sorted.join('/')} ${time}`
-    })
-    .join(', ')
+    }).join(', ')
 }
 
-// Schedule builder component
+// Calculate auto prices from subscriptions for a direction
+const calcAutoPrice = (dirId, subscriptions) => {
+  const relevant = subscriptions.filter(s =>
+    s.is_active && (
+      (s.direction_ids || []).length === 0 ||
+      (s.direction_ids || []).includes(dirId)
+    )
+  )
+  // Single lesson subscriptions (разовое)
+  const singleSubs = relevant.filter(s => s.lessons_count === 1)
+  const singlePrice = singleSubs.length > 0
+    ? Math.round(singleSubs.reduce((sum, s) => sum + s.price, 0) / singleSubs.length)
+    : null
+
+  // Multi-lesson subscriptions (average price per lesson, excluding unlimited)
+  const multiSubs = relevant.filter(s => s.lessons_count > 1 && s.period !== 'Не ограничен')
+  const avgPrice = multiSubs.length > 0
+    ? Math.round(multiSubs.reduce((sum, s) => sum + Math.round(s.price / s.lessons_count), 0) / multiSubs.length)
+    : null
+
+  return { singlePrice, avgPrice, count: relevant.length }
+}
+
 function ScheduleBuilder({ slots, onChange }) {
-  const [newTime, setNewTime] = useState('10:00')
+  // Get active days
+  const activeDays = [...new Set(slots.map(s => s.day))]
 
   const toggleDay = (dayKey) => {
-    const exists = slots.find(s => s.day === dayKey)
-    if (exists) {
+    const daySlots = slots.filter(s => s.day === dayKey)
+    if (daySlots.length > 0) {
+      // Remove all slots for this day
       onChange(slots.filter(s => s.day !== dayKey))
     } else {
-      // Add with current newTime or 10:00
-      onChange([...slots, { day: dayKey, time: newTime }])
+      // Add one slot for this day
+      onChange([...slots, { day: dayKey, time: '10:00', id: Date.now() }])
     }
   }
 
-  const updateTime = (dayKey, time) => {
-    onChange(slots.map(s => s.day === dayKey ? { ...s, time } : s))
+  const addSlotForDay = (dayKey) => {
+    onChange([...slots, { day: dayKey, time: '10:00', id: Date.now() + Math.random() }])
   }
 
-  const activeDay = (dayKey) => slots.find(s => s.day === dayKey)
+  const updateSlotTime = (id, time) => {
+    onChange(slots.map(s => s.id === id ? { ...s, time } : s))
+  }
+
+  const removeSlot = (id) => {
+    onChange(slots.filter(s => s.id !== id))
+  }
 
   return (
     <div>
-      {/* Day buttons */}
+      {/* Day toggle buttons */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {WEEK_DAYS.map(d => {
-          const active = activeDay(d.key)
+          const active = activeDays.includes(d.key)
           return (
             <div key={d.key} onClick={() => toggleDay(d.key)} style={{
               width: 42, height: 42, borderRadius: 12, display: 'flex', alignItems: 'center',
@@ -109,44 +115,57 @@ function ScheduleBuilder({ slots, onChange }) {
               background: active ? T.green : T.cream,
               color: active ? 'white' : T.muted,
               border: `2px solid ${active ? T.green : T.border}`,
-            }}>
-              {d.label}
-            </div>
+            }}>{d.key}</div>
           )
         })}
       </div>
 
-      {/* Time per day */}
+      {/* Time slots per day */}
       {slots.length > 0 && (
         <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Время занятий</div>
-          {WEEK_DAYS.filter(d => activeDay(d.key)).map(d => {
-            const slot = activeDay(d.key)
+          {WEEK_DAYS.filter(d => activeDays.includes(d.key)).map(d => {
+            const daySlots = slots.filter(s => s.day === d.key)
             return (
-              <div key={d.key} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{
-                  width: 36, height: 36, borderRadius: 10, background: T.green, color: 'white',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'Nunito, sans-serif', fontWeight: 800, fontSize: 13, flexShrink: 0
-                }}>{d.label}</div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.muted, minWidth: 90 }}>{d.full}</div>
-                <input
-                  type="time"
-                  value={slot.time}
-                  onChange={e => updateTime(d.key, e.target.value)}
-                  style={{
-                    padding: '7px 10px', borderRadius: 10, border: `1.5px solid ${T.border}`,
-                    fontFamily: 'Nunito Sans, sans-serif', fontSize: 14, background: 'white',
-                    outline: 'none', color: T.ink, width: 110,
-                  }}
-                />
-                <div style={{ fontSize: 12, color: T.muted }}>
-                  начало занятия
-                </div>
-                <button onClick={() => onChange(slots.filter(s => s.day !== d.key))} style={{
-                  marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer',
-                  color: T.muted, fontSize: 16, padding: '4px',
-                }}>✕</button>
+              <div key={d.key} style={{ marginBottom: 10 }}>
+                {daySlots.map((slot, idx) => (
+                  <div key={slot.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    {/* Day badge — only on first slot */}
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10,
+                      background: idx === 0 ? T.green : T.greenLight,
+                      color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontFamily: 'Nunito, sans-serif', fontWeight: 800, fontSize: 13, flexShrink: 0
+                    }}>{d.key}</div>
+
+                    {idx === 0 && (
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.muted, minWidth: 90 }}>{d.full}</div>
+                    )}
+                    {idx > 0 && (
+                      <div style={{ fontSize: 12, color: T.muted, minWidth: 90 }}>+ занятие {idx + 1}</div>
+                    )}
+
+                    <input type="time" value={slot.time}
+                      onChange={e => updateSlotTime(slot.id, e.target.value)}
+                      style={{ padding: '7px 10px', borderRadius: 10, border: `1.5px solid ${T.border}`, fontFamily: 'Nunito Sans, sans-serif', fontSize: 14, background: 'white', outline: 'none', color: T.ink, width: 110 }}
+                    />
+                    <span style={{ fontSize: 12, color: T.muted }}>начало</span>
+
+                    {/* Add another slot button — only on last slot for this day */}
+                    {idx === daySlots.length - 1 && (
+                      <button onClick={() => addSlotForDay(d.key)} title="Добавить ещё занятие в этот день"
+                        style={{ width: 28, height: 28, borderRadius: 8, background: T.greenBg, border: `1.5px solid ${T.green}`, color: T.greenDark, cursor: 'pointer', fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        +
+                      </button>
+                    )}
+
+                    {/* Remove slot */}
+                    <button onClick={() => removeSlot(slot.id)}
+                      style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: T.muted, fontSize: 16, padding: '4px', flexShrink: 0 }}>
+                      ✕
+                    </button>
+                  </div>
+                ))}
               </div>
             )
           })}
@@ -154,15 +173,12 @@ function ScheduleBuilder({ slots, onChange }) {
       )}
 
       {slots.length === 0 && (
-        <div style={{ fontSize: 13, color: T.muted, padding: '8px 0' }}>
-          Выберите дни недели выше
-        </div>
+        <div style={{ fontSize: 13, color: T.muted }}>Выберите дни недели выше</div>
       )}
 
-      {/* Preview */}
       {slots.length > 0 && (
-        <div style={{ marginTop: 10, fontSize: 12, color: T.greenDark, fontWeight: 600 }}>
-          📅 {slotsToSchedule(slots)}
+        <div style={{ marginTop: 8, fontSize: 12, color: T.greenDark, fontWeight: 600 }}>
+          📅 {slotsToStr(slots)}
         </div>
       )}
     </div>
@@ -184,8 +200,8 @@ function ColorPicker({ value, onChange }) {
   )
 }
 
-function DirectionModal({ direction, teachers, onClose, onSave }) {
-  const initSlots = direction?.schedule ? parseScheduleToSlots(direction.schedule) : []
+function DirectionModal({ direction, teachers, subscriptions, directionId, onClose, onSave }) {
+  const initSlots = direction?.schedule ? parseSlots(direction.schedule) : []
 
   const [f, setF] = useState(direction ? {
     name: direction.name || '',
@@ -196,20 +212,21 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
     groups: (direction.groups || ['Группа 1']).join(', '),
     duration: direction.duration || '1 час',
     color: direction.color || DIRECTION_COLORS[0],
-  } : {
-    name: '', teacher_name: '', launched: '',
-    cost_abo: 0, cost_single: 0, groups: 'Группа 1',
-    duration: '1 час', color: DIRECTION_COLORS[0],
-  })
-  const [slots, setSlots] = useState(initSlots)
+  } : { name: '', teacher_name: '', launched: '', cost_abo: 0, cost_single: 0, groups: 'Группа 1', duration: '1 час', color: DIRECTION_COLORS[0] })
 
+  const [slots, setSlots] = useState(initSlots.map(s => ({ ...s, id: Math.random() })))
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
+  // Auto-calculate prices from subscriptions
+  const autoPrice = useMemo(() => {
+    if (!direction?.id && !directionId) return null
+    return calcAutoPrice(direction?.id || directionId, subscriptions || [])
+  }, [direction?.id, directionId, subscriptions])
+
   const save = () => {
-    const schedule = slotsToSchedule(slots)
     onSave({
       ...f,
-      schedule,
+      schedule: slotsToStr(slots),
       cost_abo: +f.cost_abo,
       cost_single: +f.cost_single,
       groups: f.groups.split(',').map(g => g.trim()).filter(Boolean)
@@ -223,7 +240,6 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
       <div className="form-group"><label className="form-label">Название *</label>
         <input className="form-input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="Смышлёная Панда" autoFocus />
       </div>
-
       <div className="form-row">
         <div className="form-group"><label className="form-label">Педагог</label>
           <select className="form-input" value={f.teacher_name} onChange={e => set('teacher_name', e.target.value)}>
@@ -236,7 +252,6 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
         </div>
       </div>
 
-      {/* Schedule builder */}
       <div className="form-group">
         <label className="form-label">Расписание занятий</label>
         <ScheduleBuilder slots={slots} onChange={setSlots} />
@@ -247,6 +262,43 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
           {DURATIONS.map(d => <option key={d}>{d}</option>)}
         </select>
       </div>
+
+      {/* Auto-calculated prices block */}
+      {autoPrice && autoPrice.count > 0 && (
+        <div style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.greenDark, marginBottom: 8 }}>
+            🧮 Автоматически из абонементов ({autoPrice.count} шт.)
+          </div>
+          <div style={{ display: 'flex', gap: 16 }}>
+            {autoPrice.avgPrice !== null && (
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: 'uppercase' }}>Среднее / занятие</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: T.greenDark }}>{fmt(autoPrice.avgPrice)}</div>
+              </div>
+            )}
+            {autoPrice.singlePrice !== null && (
+              <div>
+                <div style={{ fontSize: 10, color: T.muted, fontWeight: 600, textTransform: 'uppercase' }}>Разовое</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: '#c47a00' }}>{fmt(autoPrice.singlePrice)}</div>
+              </div>
+            )}
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+            {autoPrice.avgPrice !== null && (
+              <button className="btn btn-sm" style={{ background: T.green, color: 'white', fontSize: 11 }}
+                onClick={() => set('cost_abo', autoPrice.avgPrice)}>
+                Применить среднее →
+              </button>
+            )}
+            {autoPrice.singlePrice !== null && (
+              <button className="btn btn-sm btn-outline" style={{ fontSize: 11 }}
+                onClick={() => set('cost_single', autoPrice.singlePrice)}>
+                Применить разовое →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="form-row">
         <div className="form-group"><label className="form-label">Стоимость с абонементом, ₽</label>
@@ -260,7 +312,6 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
       <div className="form-group"><label className="form-label">Группы (через запятую)</label>
         <input className="form-input" value={f.groups} onChange={e => set('groups', e.target.value)} placeholder="Группа 1, Группа 2" />
       </div>
-
       <div className="form-group"><label className="form-label">Цвет направления</label>
         <ColorPicker value={f.color} onChange={v => set('color', v)} />
       </div>
@@ -268,18 +319,14 @@ function DirectionModal({ direction, teachers, onClose, onSave }) {
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, reload, isAdmin }) {
+export default function DirectionsPage({ directions, clients, teachers, subscriptions = [], reload, isAdmin }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+  const [showDetail, setShowDetail] = useState(null)
 
   const save = async (f) => {
-    if (showEdit) {
-      await supabase.from('directions').update(f).eq('id', showEdit.id)
-      setShowEdit(null)
-    } else {
-      await supabase.from('directions').insert(f)
-      setShowAdd(false)
-    }
+    if (showEdit) { await supabase.from('directions').update(f).eq('id', showEdit.id); setShowEdit(null) }
+    else { await supabase.from('directions').insert(f); setShowAdd(false) }
     reload()
   }
 
@@ -296,16 +343,15 @@ export default function DirectionsPage({ directions, clients, teachers, reload, 
           <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Новое направление</button>
         </div>
       )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))', gap: 14 }}>
         {directions.map(d => {
           const cnt = clients.filter(c => (c.direction_ids || []).includes(d.id) && c.status === 'Активен').length
           const color = d.color || DIRECTION_COLORS[0]
+          const slots = parseSlots(d.schedule || '')
 
-          // Parse schedule for display
-          const slots = parseScheduleToSlots(d.schedule || '')
-          const scheduleDisplay = slots.length > 0
-            ? slots.map(s => `${s.day} ${s.time}`).join(' · ')
-            : d.schedule || '—'
+          // Auto prices for card display
+          const auto = calcAutoPrice(d.id, subscriptions)
 
           return (
             <div key={d.id} className="card card-pad" style={{ borderTop: `4px solid ${color}` }}>
@@ -329,9 +375,7 @@ export default function DirectionsPage({ directions, clients, teachers, reload, 
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         padding: '3px 8px', borderRadius: 8, fontSize: 12, fontWeight: 700,
                         background: color + '22', color: color,
-                      }}>
-                        {s.day} {s.time}
-                      </span>
+                      }}>{s.day} {s.time}</span>
                     ))}
                   </div>
                 ) : (
@@ -340,37 +384,83 @@ export default function DirectionsPage({ directions, clients, teachers, reload, 
                 <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>⏱ {d.duration || '1 час'}</div>
               </div>
 
-              <div style={{ fontSize: 13, color: T.muted, marginBottom: 2 }}>👩‍🏫 {d.teacher_name || '—'}</div>
-              <div style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>📅 с {d.launched || '—'}</div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>👩‍🏫 {d.teacher_name || '—'}</div>
 
+              {/* Prices */}
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ flex: 1, background: T.greenBg, borderRadius: 10, padding: '8px 12px', textAlign: 'center' }}>
                   <div style={{ fontSize: 10, color: T.greenDark, fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>С абонементом</div>
-                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: T.greenDark }}>{d.cost_abo} ₽</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: T.greenDark }}>
+                    {auto.avgPrice ? fmt(auto.avgPrice) : (d.cost_abo ? fmt(d.cost_abo) : '—')}
+                  </div>
+                  {auto.avgPrice && <div style={{ fontSize: 9, color: T.muted }}>среднее из абонементов</div>}
                 </div>
                 <div style={{ flex: 1, background: '#fff4e6', borderRadius: 10, padding: '8px 12px', textAlign: 'center' }}>
                   <div style={{ fontSize: 10, color: '#c47a00', fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>Разовое</div>
-                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: '#c47a00' }}>{d.cost_single} ₽</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: '#c47a00' }}>
+                    {auto.singlePrice ? fmt(auto.singlePrice) : (d.cost_single ? fmt(d.cost_single) : '—')}
+                  </div>
                 </div>
               </div>
 
-              {(d.groups || []).length > 0 && (
-                <div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                  {(d.groups || []).map(g => <span key={g} className="badge badge-gray">{g}</span>)}
-                </div>
-              )}
+              {/* Groups + detail button */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                {(d.groups || []).map(g => <span key={g} className="badge badge-gray">{g}</span>)}
+                {auto.count > 0 && (
+                  <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', fontSize: 11 }}
+                    onClick={() => setShowDetail(d)}>
+                    Подробнее →
+                  </button>
+                )}
+              </div>
             </div>
           )
         })}
         {!directions.length && (
-          <div className="card card-pad">
-            <div className="empty"><div className="empty-icon">🎯</div><div className="empty-text">Направлений пока нет</div></div>
-          </div>
+          <div className="card card-pad"><div className="empty"><div className="empty-icon">🎯</div><div className="empty-text">Направлений пока нет</div></div></div>
         )}
       </div>
 
-      {showAdd && <DirectionModal teachers={teachers} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <DirectionModal direction={showEdit} teachers={teachers} onClose={() => setShowEdit(null)} onSave={save} />}
+      {/* Detail modal with all subscription options */}
+      {showDetail && (
+        <div className="modal-backdrop" onClick={() => setShowDetail(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">💳 Варианты оплаты — {showDetail.name}</span>
+              <button className="btn btn-ghost btn-icon" onClick={() => setShowDetail(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {subscriptions.filter(s => s.is_active && (
+                (s.direction_ids || []).length === 0 || (s.direction_ids || []).includes(showDetail.id)
+              )).map(s => (
+                <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${T.border}` }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</div>
+                    <div style={{ fontSize: 12, color: T.muted }}>
+                      {s.lessons_count} зан. · {s.period}
+                      {s.notes && ` · ${s.notes}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 18, color: T.greenDark }}>{fmt(s.price)}</div>
+                    {s.lessons_count > 1 && (
+                      <div style={{ fontSize: 11, color: T.muted }}>{fmt(Math.round(s.price / s.lessons_count))}/зан.</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {!subscriptions.filter(s => s.is_active && (
+                (s.direction_ids || []).length === 0 || (s.direction_ids || []).includes(showDetail.id)
+              )).length && (
+                <div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Абонементов пока нет</div></div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdd && <DirectionModal teachers={teachers} subscriptions={subscriptions} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <DirectionModal direction={showEdit} teachers={teachers} subscriptions={subscriptions} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
