@@ -17,30 +17,27 @@ const PAGE_TITLES = {
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
 }
 
-const PandaLogo = ({ size = 32 }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-    <circle cx="50" cy="48" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
-    <circle cx="28" cy="26" r="12" fill="#1A1A1A"/>
-    <circle cx="72" cy="26" r="12" fill="#1A1A1A"/>
-    <circle cx="38" cy="44" r="10" fill="#1A1A1A"/>
-    <circle cx="62" cy="44" r="10" fill="#1A1A1A"/>
-    <circle cx="38" cy="44" r="5" fill="white"/>
-    <circle cx="62" cy="44" r="5" fill="white"/>
-    <circle cx="39" cy="43" r="3" fill="#1A1A1A"/>
-    <circle cx="63" cy="43" r="3" fill="#1A1A1A"/>
-    <ellipse cx="50" cy="58" rx="6" ry="4" fill="#1A1A1A"/>
-    <path d="M42 65 Q50 72 58 65" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-  </svg>
+// Real logo from public/logo.svg
+const Logo = ({ size = 36 }) => (
+  <img src="/logo.svg" alt="Академия Панды" width={size} height={Math.round(size * 271/803)} style={{ flexShrink: 0, display: 'block' }} />
 )
 
-// Mobile bottom nav items
-const MOBILE_NAV = [
-  { id: 'dashboard', icon: '📊', label: 'Главная' },
-  { id: 'calendar', icon: '📅', label: 'Расписание' },
-  { id: 'clients', icon: '👨‍👧', label: 'Клиенты' },
-  { id: 'payments', icon: '💳', label: 'Оплаты' },
-  { id: 'directions', icon: '🎯', label: 'Ещё' },
-]
+// Compact panda icon for collapsed sidebar / mobile
+const PandaIcon = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+    <circle cx="50" cy="50" r="28" fill="white" stroke="#1A1A1A" strokeWidth="4"/>
+    <circle cx="28" cy="28" r="12" fill="#1A1A1A"/>
+    <circle cx="72" cy="28" r="12" fill="#1A1A1A"/>
+    <circle cx="38" cy="46" r="10" fill="#1A1A1A"/>
+    <circle cx="62" cy="46" r="10" fill="#1A1A1A"/>
+    <circle cx="38" cy="46" r="5" fill="white"/>
+    <circle cx="62" cy="46" r="5" fill="white"/>
+    <circle cx="39" cy="45" r="3" fill="#1A1A1A"/>
+    <circle cx="63" cy="45" r="3" fill="#1A1A1A"/>
+    <ellipse cx="50" cy="59" rx="6" ry="4" fill="#1A1A1A"/>
+    <path d="M42 66 Q50 73 58 66" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
+  </svg>
+)
 
 export default function CRM({ session, staff }) {
   const [page, setPage] = useState('dashboard')
@@ -86,10 +83,7 @@ export default function CRM({ session, staff }) {
 
   const logout = () => supabase.auth.signOut()
 
-  const navigate = (id) => {
-    setPage(id)
-    setMobileOpen(false)
-  }
+  const navigate = (id) => { setPage(id); setMobileOpen(false) }
 
   const nav = [
     { section: 'Главная', items: [
@@ -117,11 +111,11 @@ export default function CRM({ session, staff }) {
     <>
       <div className="sidebar-logo">
         <div className="logo-row">
-          <PandaLogo size={34} />
-          <div>
-            <div className="logo-name">PandaCRM</div>
-            <div className="logo-sub">Академия Панды</div>
-          </div>
+          {collapsed && !isMobile ? (
+            <PandaIcon size={32} />
+          ) : (
+            <Logo size={isMobile ? 140 : 160} />
+          )}
         </div>
       </div>
 
@@ -138,8 +132,8 @@ export default function CRM({ session, staff }) {
         </div>
       ))}
 
-      <div className="sidebar-user" onClick={logout} title="Выйти">
-        <div className="avatar" style={{ background: T.green, width: 30, height: 30, fontSize: 12, flexShrink: 0 }}>
+      <div className="sidebar-user" onClick={logout} title="Выйти из системы">
+        <div className="avatar" style={{ background: T.green, width: 32, height: 32, fontSize: 13, flexShrink: 0 }}>
           {(staff?.name || 'U')[0]}
         </div>
         <div className="user-info">
@@ -152,13 +146,12 @@ export default function CRM({ session, staff }) {
 
   return (
     <div className="app">
-      {/* Desktop sidebar with collapse */}
+      {/* Desktop sidebar */}
       {!isMobile && (
         <div className="sidebar-wrapper">
           <div className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
             <SidebarContent />
           </div>
-          {/* Toggle button */}
           <div className="sidebar-toggle" onClick={() => setCollapsed(c => !c)}>
             {collapsed ? '→' : '←'}
           </div>
@@ -176,7 +169,6 @@ export default function CRM({ session, staff }) {
       )}
 
       <main className="main">
-        {/* Topbar */}
         <div className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {isMobile && (
@@ -185,7 +177,7 @@ export default function CRM({ session, staff }) {
             <div className="page-title">{PAGE_TITLES[page]}</div>
           </div>
           <div className="topbar-right">
-            <span className={`badge ${ROLE_COLORS[role]}`}>{collapsed && !isMobile ? role[0] : role}</span>
+            <span className={`badge ${ROLE_COLORS[role]}`}>{role}</span>
             {!isMobile && (
               <span style={{ fontSize: 11, color: T.muted }}>
                 {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -194,7 +186,6 @@ export default function CRM({ session, staff }) {
           </div>
         </div>
 
-        {/* Content */}
         <div className="content">
           {page === 'dashboard'  && <Dashboard {...props} />}
           {page === 'calendar'   && <CalendarPage {...props} />}
@@ -207,7 +198,7 @@ export default function CRM({ session, staff }) {
           {page === 'staff'      && isDirector && <StaffPage {...props} />}
         </div>
 
-        {/* Mobile bottom navigation */}
+        {/* Mobile bottom nav */}
         {isMobile && (
           <div className="mobile-nav">
             {[
@@ -217,10 +208,10 @@ export default function CRM({ session, staff }) {
               { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
               { id: 'directions', icon: '🎯', label: 'Ещё', show: true },
             ].filter(i => i.show).map(item => (
-              <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)} style={{ position: 'relative' }}>
+              <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
                 {item.badge ? <span className="mobile-nav-badge">{item.badge}</span> : null}
                 <span className="mobile-nav-icon">{item.icon}</span>
-                <span>{item.label}</span>
+                <span className="mobile-nav-label">{item.label}</span>
               </div>
             ))}
           </div>
