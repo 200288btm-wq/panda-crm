@@ -181,7 +181,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -189,7 +189,8 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    const events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+    if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
     // Assign columns using greedy interval scheduling
@@ -313,7 +314,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
   const now = new Date()
   const firstDow = new Date(year, month, 1).getDay()
   const offset = (firstDow + 6) % 7
@@ -327,7 +328,8 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          const events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+          if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
           const today0 = new Date(); today0.setHours(0,0,0,0)
@@ -383,6 +385,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
   const [filterChild, setFilterChild] = useState('all')
+  const [onlyWithStudents, setOnlyWithStudents] = useState(false)
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
@@ -467,8 +470,15 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           </select>
         </div>
 
-        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all') && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all') }}>✕ Сбросить</button>
+        <button
+          className="btn btn-sm"
+          onClick={() => setOnlyWithStudents(v => !v)}
+          style={{ background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}`, transition:'all 0.15s' }}>
+          👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
+        </button>
+
+        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -489,7 +499,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           year={currentDate.getFullYear()} month={currentDate.getMonth()}
           directions={directions} clients={clients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
-          onDayClick={handleDayClick}
+          onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
 
@@ -499,7 +509,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           directions={directions} clients={clients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
-          onDayClick={handleDayClick}
+          onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
 

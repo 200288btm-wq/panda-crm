@@ -5,6 +5,15 @@ import { Modal } from '../components/Modal'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
+const calcBalance = (paid, visited) => {
+  const p = +paid || 0
+  const v = +visited || 0
+  const left = p - v
+  if (left <= 0) return { left, status: 'debt', label: 'Требуется оплата', color: '#e05a5a', bg: '#fde8e8' }
+  if (left === 1) return { left, status: 'warn', label: 'Последнее занятие', color: '#c47a00', bg: '#fff4e6' }
+  return { left, status: 'ok', label: `Осталось ${left} зан.`, color: '#5a9070', bg: '#e8f4ed' }
+}
+
 const calcAge = (birthday) => {
   if (!birthday) return null
   const b = new Date(birthday)
@@ -138,11 +147,28 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
           </div>
           <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 24, color: bal >= 0 ? T.greenDark : T.red }}>{fmt(Math.abs(bal))}</div>
-          <div style={{ fontSize: 11, color: T.muted }}>{bal >= 0 ? 'Баланс' : '⚠️ Долг'}</div>
-        </div>
+        {(() => {
+          const b = calcBalance(client.paid_lessons, client.visited_lessons)
+          return (
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: b.color }}>{b.left > 0 ? b.left : Math.abs(b.left)}</div>
+              <div style={{ fontSize: 11, color: b.color, fontWeight: 700 }}>{b.left >= 0 ? 'зан. осталось' : 'зан. долг'}</div>
+            </div>
+          )
+        })()}
       </div>
+      {(() => {
+        const b = calcBalance(client.paid_lessons, client.visited_lessons)
+        if (b.status !== 'ok') return (
+          <div style={{ background: b.bg, border: `1.5px solid ${b.color}44`, borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20 }}>{b.status === 'debt' ? '🔴' : '🟡'}</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: b.color }}>{b.label}</div>
+              <div style={{ fontSize: 12, color: b.color + 'aa' }}>{b.status === 'debt' ? `Посещено ${client.visited_lessons} зан., оплачено ${client.paid_lessons} зан.` : 'Осталось всего 1 занятие — пора продлевать'}</div>
+            </div>
+          </div>
+        )
+      })()}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 10, marginBottom: 16 }}>
         {[['📅 Оплачено', client.paid_lessons + ' зан.'], ['✅ Посещено', client.visited_lessons + ' зан.'], ['📌 Источник', client.source || '—'], ['🎁 Скидка', (client.discount || 0) + '%']].map(([k, v]) => (
           <div key={k} style={{ background: T.cream, borderRadius: 11, padding: '10px 12px' }}>
@@ -244,7 +270,7 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
 
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Оплачено</th><th>Баланс</th><th>Контакт</th></tr></thead>
+          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Оплачено</th><th>Статус оплаты</th><th>Контакт</th></tr></thead>
           <tbody>
             {filtered.map(c => {
               const age = calcAge(c.birthday)
