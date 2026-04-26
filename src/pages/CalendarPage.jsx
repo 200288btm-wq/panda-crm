@@ -187,30 +187,34 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   const now = new Date()
 
-  // Group events by time overlap — each group gets its own horizontal scroll row
+  // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
     const events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
-    // Group overlapping events into clusters
-    const clusters = []
-    events.forEach(ev => {
+    if (!events.length) return []
+
+    // Assign columns using greedy interval scheduling
+    const laid = events.map(e => ({ ...e, col: 0, cols: 1 }))
+    const colEnds = [] // tracks when each column is free
+
+    laid.forEach(ev => {
+      // Find first free column
+      let col = 0
+      while (col < colEnds.length && colEnds[col] > ev.timeMin) col++
+      ev.col = col
+      colEnds[col] = ev.timeMin + ev.durationMin
+    })
+
+    // Calculate max cols for each overlapping group
+    const maxCol = laid.reduce((m, e) => Math.max(m, e.col), 0)
+    // For each event, find how many columns its time range needs
+    laid.forEach(ev => {
       const evEnd = ev.timeMin + ev.durationMin
-      let placed = false
-      for (const cluster of clusters) {
-        const overlaps = cluster.some(c => {
-          const cEnd = c.timeMin + c.durationMin
-          return ev.timeMin < cEnd && evEnd > c.timeMin
-        })
-        if (overlaps) { cluster.push(ev); placed = true; break }
-      }
-      if (!placed) clusters.push([ev])
+      const colsNeeded = laid.filter(other =>
+        other.timeMin < evEnd && (other.timeMin + other.durationMin) > ev.timeMin
+      ).length
+      ev.cols = colsNeeded > 1 ? colsNeeded : 1
     })
-    // Assign col/cols within each cluster
-    const laid = []
-    clusters.forEach(cluster => {
-      cluster.forEach((ev, idx) => {
-        laid.push({ ...ev, col: idx, cols: cluster.length })
-      })
-    })
+
     return laid
   }
 
@@ -270,68 +274,30 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
               </div>
             )}
 
-            {/* Events — overlapping ones get horizontal scroll */}
-            {(() => {
-              // Find clusters of overlapping events
-              const rendered = new Set()
-              return events.map((ev, ei) => {
-                if (rendered.has(ei)) return null
-                const top = 40 + (ev.timeMin - WORK_START*60) / 60 * SLOT_HEIGHT
-                const height = Math.max(ev.durationMin / 60 * SLOT_HEIGHT - 2, 20)
+            {/* Events — side by side columns for overlaps */}
+            {events.map((ev, ei) => {
+              const top = 40 + (ev.timeMin - WORK_START*60) / 60 * SLOT_HEIGHT
+              const height = Math.max(ev.durationMin / 60 * SLOT_HEIGHT - 2, 20)
+              const cols = ev.cols || 1
+              const col = ev.col || 0
+              const colW = 100 / cols
+              const left = `calc(${col * colW}% + 4px)`
+              const width = `calc(${colW}% - 6px)`
 
-                // Find all events that overlap with this one
-                const clusterIdxs = [ei]
-                events.forEach((other, oi) => {
-                  if (oi === ei) return
-                  const evEnd = ev.timeMin + ev.durationMin
-                  const otherEnd = other.timeMin + other.durationMin
-                  if (ev.timeMin < otherEnd && evEnd > other.timeMin) clusterIdxs.push(oi)
-                })
-
-                clusterIdxs.forEach(i => rendered.add(i))
-                const cluster = clusterIdxs.map(i => events[i])
-
-                if (cluster.length > 1) {
-                  // Horizontal scroll container
-                  return (
-                    <div key={ei} style={{ position:'absolute', top, left:'4px', right:'4px', height, zIndex:3 }}>
-                      <div style={{
-                        display:'flex', gap:4, height:'100%',
-                        overflowX:'auto', overflowY:'hidden',
-                        WebkitOverflowScrolling:'touch',
-                        scrollbarWidth:'none', msOverflowStyle:'none',
-                      }}>
-                        {cluster.map((cev, ci) => (
-                          <div key={ci} onClick={() => onDayClick(date)} style={{
-                            minWidth:110, flexShrink:0, height:'100%',
-                            background: cev.color+'33', borderLeft:`3px solid ${cev.color}`,
-                            borderRadius:'0 8px 8px 0', border:`1px solid ${cev.color}44`,
-                            padding:'3px 6px', cursor:'pointer', overflow:'hidden',
-                          }}>
-                            <div style={{ fontSize:11, fontWeight:800, color:cev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{cev.name}</div>
-                            {height > 30 && <div style={{ fontSize:10, color:cev.color+'cc' }}>{cev.time} · {cev.students.length} чел.</div>}
-                            {height > 45 && <div style={{ fontSize:10, color:cev.color+'99' }}>👩‍🏫 {cev.teacher}</div>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                }
-
-                return (
-                  <div key={ei} onClick={() => onDayClick(date)} style={{
-                    position:'absolute', top, left:'4px', right:'4px', height,
-                    background: ev.color+'33', borderLeft:`3px solid ${ev.color}`,
-                    borderRadius:'0 8px 8px 0', border:`1px solid ${ev.color}44`,
-                    padding:'3px 6px', cursor:'pointer', zIndex:3, overflow:'hidden',
-                  }}>
-                    <div style={{ fontSize:11, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
-                    {height > 30 && <div style={{ fontSize:10, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
-                    {height > 45 && <div style={{ fontSize:10, color:ev.color+'99' }}>👩‍🏫 {ev.teacher}</div>}
-                  </div>
-                )
-              }).filter(Boolean)
-            })()}
+              return (
+                <div key={ei} onClick={() => onDayClick(date)} style={{
+                  position:'absolute', top, left, width, height,
+                  background: ev.color+'33', borderLeft:`3px solid ${ev.color}`,
+                  borderRadius:'0 8px 8px 0', border:`1px solid ${ev.color}44`,
+                  padding:'3px 5px', cursor:'pointer', zIndex:3, overflow:'hidden',
+                  boxSizing:'border-box',
+                }}>
+                  <div style={{ fontSize:10, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
+                  {height > 28 && <div style={{ fontSize:9, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
+                  {height > 44 && <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
+                </div>
+              )
+            })}
 
             {/* Free slots indicator */}
             {events.length === 0 && !past && (
