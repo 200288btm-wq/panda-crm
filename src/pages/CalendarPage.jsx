@@ -331,14 +331,39 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
           const today0 = new Date(); today0.setHours(0,0,0,0)
+
+          // Group events by time — same time = show side by side
+          const byTime = {}
+          events.forEach(e => {
+            if (!byTime[e.time]) byTime[e.time] = []
+            byTime[e.time].push(e)
+          })
+          const timeGroups = Object.entries(byTime).sort((a,b) => a[0].localeCompare(b[0]))
+
           return (
             <div key={i} className={`cal-day ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}>
               <div className="cal-daynum" style={{ color: dayDate > today0 ? T.muted : T.ink }}>{day}</div>
-              {events.map((e, j) => (
-                <div key={j} className="cal-event"
-                  style={{ background:e.color+'33', color:e.color, borderLeft:'3px solid '+e.color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
-                  title={e.name+' · '+e.students.length+' чел.'}>
-                  {e.time} {e.name.split(' ')[0]}
+              {timeGroups.map(([time, group], gi) => (
+                <div key={gi} style={{ marginBottom:2 }}>
+                  {group.length === 1 ? (
+                    // Single event — full width
+                    <div className="cal-event"
+                      style={{ background:group[0].color+'33', color:group[0].color, borderLeft:'3px solid '+group[0].color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
+                      title={group[0].name+' · '+group[0].students.length+' чел.'}>
+                      {time} {group[0].name.split(' ')[0]}
+                    </div>
+                  ) : (
+                    // Multiple events same time — side by side
+                    <div style={{ display:'flex', gap:1 }}>
+                      {group.map((e, ei) => (
+                        <div key={ei} className="cal-event"
+                          style={{ flex:1, minWidth:0, background:e.color+'33', color:e.color, borderLeft:'2px solid '+e.color, borderRadius:'0 3px 3px 0', paddingLeft:2, fontSize:8 }}
+                          title={e.name+' · '+e.students.length+' чел.'}>
+                          {ei === 0 ? time+' ' : ''}{e.name.split(' ')[0]}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
