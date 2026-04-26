@@ -70,7 +70,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
     // Check if this direction has a slot for this day
     const timeForDay = getTimeForDow(dow, d.schedule)
     if (!timeForDay) return
-    if (filterDir !== 'all' && String(d.id) !== filterDir) return
+    if (filterDirs.length > 0 && !filterDirs.includes(String(d.id))) return
     if (filterTeacher !== 'all') {
       const t = teachers.find(t => String(t.id) === filterTeacher)
       if (t && !(t.direction_ids||[]).includes(d.id)) return
@@ -182,24 +182,30 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   const now = new Date()
 
-  // Get events with overlap detection for a date
+  // Group events by time overlap — each group gets its own horizontal scroll row
   const getEventsWithLayout = (date) => {
     const events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
-    // Detect overlaps
-    const laid = events.map(e => ({ ...e, col: 0, cols: 1 }))
-    for (let i = 0; i < laid.length; i++) {
-      for (let j = i+1; j < laid.length; j++) {
-        const a = laid[i], b = laid[j]
-        const aEnd = a.timeMin + a.durationMin
-        const bEnd = b.timeMin + b.durationMin
-        if (a.timeMin < bEnd && aEnd > b.timeMin) {
-          // overlap
-          b.col = a.col + 1
-          a.cols = Math.max(a.cols, b.col + 1)
-          b.cols = Math.max(b.cols, b.col + 1)
-        }
+    // Group overlapping events into clusters
+    const clusters = []
+    events.forEach(ev => {
+      const evEnd = ev.timeMin + ev.durationMin
+      let placed = false
+      for (const cluster of clusters) {
+        const overlaps = cluster.some(c => {
+          const cEnd = c.timeMin + c.durationMin
+          return ev.timeMin < cEnd && evEnd > c.timeMin
+        })
+        if (overlaps) { cluster.push(ev); placed = true; break }
       }
-    }
+      if (!placed) clusters.push([ev])
+    })
+    // Assign col/cols within each cluster
+    const laid = []
+    clusters.forEach(cluster => {
+      cluster.forEach((ev, idx) => {
+        laid.push({ ...ev, col: idx, cols: cluster.length })
+      })
+    })
     return laid
   }
 
@@ -259,32 +265,68 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
               </div>
             )}
 
-            {/* Events */}
-            {events.map((ev, ei) => {
-              const top = 40 + (ev.timeMin - WORK_START*60) / 60 * SLOT_HEIGHT
-              const height = Math.max(ev.durationMin / 60 * SLOT_HEIGHT - 2, 20)
-              const width = ev.cols > 1 ? `calc(${100/ev.cols}% - 4px)` : 'calc(100% - 8px)'
-              const left = ev.cols > 1 ? `calc(${ev.col * 100/ev.cols}% + 2px)` : '4px'
-              const isOverlap = ev.cols > 1
+            {/* Events — overlapping ones get horizontal scroll */}
+            {(() => {
+              // Find clusters of overlapping events
+              const rendered = new Set()
+              return events.map((ev, ei) => {
+                if (rendered.has(ei)) return null
+                const top = 40 + (ev.timeMin - WORK_START*60) / 60 * SLOT_HEIGHT
+                const height = Math.max(ev.durationMin / 60 * SLOT_HEIGHT - 2, 20)
 
-              return (
-                <div key={ei} onClick={() => onDayClick(date)} style={{
-                  position:'absolute', top, left, width, height,
-                  background: ev.color + '33',
-                  borderLeft:`3px solid ${ev.color}`,
-                  borderRadius:'0 8px 8px 0',
-                  padding:'3px 6px', cursor:'pointer', zIndex:3,
-                  border: `1px solid ${ev.color}44`,
-                  boxShadow: 'none',
-                  overflow:'hidden',
-                }}>
+                // Find all events that overlap with this one
+                const clusterIdxs = [ei]
+                events.forEach((other, oi) => {
+                  if (oi === ei) return
+                  const evEnd = ev.timeMin + ev.durationMin
+                  const otherEnd = other.timeMin + other.durationMin
+                  if (ev.timeMin < otherEnd && evEnd > other.timeMin) clusterIdxs.push(oi)
+                })
 
-                  <div style={{ fontSize:11, fontWeight:800, color:ev.color, lineHeight:1.2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.name}</div>
-                  {height > 30 && <div style={{ fontSize:10, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
-                  {height > 45 && <div style={{ fontSize:10, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
-                </div>
-              )
-            })}
+                clusterIdxs.forEach(i => rendered.add(i))
+                const cluster = clusterIdxs.map(i => events[i])
+
+                if (cluster.length > 1) {
+                  // Horizontal scroll container
+                  return (
+                    <div key={ei} style={{ position:'absolute', top, left:'4px', right:'4px', height, zIndex:3 }}>
+                      <div style={{
+                        display:'flex', gap:4, height:'100%',
+                        overflowX:'auto', overflowY:'hidden',
+                        WebkitOverflowScrolling:'touch',
+                        scrollbarWidth:'none', msOverflowStyle:'none',
+                      }}>
+                        {cluster.map((cev, ci) => (
+                          <div key={ci} onClick={() => onDayClick(date)} style={{
+                            minWidth:110, flexShrink:0, height:'100%',
+                            background: cev.color+'33', borderLeft:`3px solid ${cev.color}`,
+                            borderRadius:'0 8px 8px 0', border:`1px solid ${cev.color}44`,
+                            padding:'3px 6px', cursor:'pointer', overflow:'hidden',
+                          }}>
+                            <div style={{ fontSize:11, fontWeight:800, color:cev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{cev.name}</div>
+                            {height > 30 && <div style={{ fontSize:10, color:cev.color+'cc' }}>{cev.time} · {cev.students.length} чел.</div>}
+                            {height > 45 && <div style={{ fontSize:10, color:cev.color+'99' }}>👩‍🏫 {cev.teacher}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                }
+
+                return (
+                  <div key={ei} onClick={() => onDayClick(date)} style={{
+                    position:'absolute', top, left:'4px', right:'4px', height,
+                    background: ev.color+'33', borderLeft:`3px solid ${ev.color}`,
+                    borderRadius:'0 8px 8px 0', border:`1px solid ${ev.color}44`,
+                    padding:'3px 6px', cursor:'pointer', zIndex:3, overflow:'hidden',
+                  }}>
+                    <div style={{ fontSize:11, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
+                    {height > 30 && <div style={{ fontSize:10, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
+                    {height > 45 && <div style={{ fontSize:10, color:ev.color+'99' }}>👩‍🏫 {ev.teacher}</div>}
+                  </div>
+                )
+              }).filter(Boolean)
+            })()}
 
             {/* Free slots indicator */}
             {events.length === 0 && !past && (
@@ -343,13 +385,14 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   const [selectedDay, setSelectedDay] = useState(null)
 
   const [filterTeacher, setFilterTeacher] = useState('all')
-  const [filterDir, setFilterDir] = useState('all')
+  const [filterDirs, setFilterDirs] = useState([]) // empty = all
   const [filterChild, setFilterChild] = useState('all')
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
   const myTeacherName = myTeacher?.name || null
   const effectiveTeacher = !isAdmin && myTeacher ? String(myTeacher.id) : filterTeacher
+  const filterDir = filterDirs.length === 1 ? filterDirs[0] : 'all' // for backward compat
 
   // Navigation
   const navigate = (dir) => {
@@ -374,11 +417,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   // Week dates
   const weekDates = view === 'week' ? Array.from({ length:7 }, (_,i) => addDays(startOfWeek(currentDate), i)) : [currentDate]
 
-  const activeClients = clients.filter(c => {
-    if (c.status !== 'Активен') return false
-    if (filterDir !== 'all') return (c.direction_ids||[]).includes(+filterDir)
-    return true
-  })
+  const activeClients = clients.filter(c => c.status === 'Активен')
 
   const handleDayClick = (date) => {
     if (view === 'month') {
@@ -413,13 +452,6 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
 
         {/* Filters */}
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Направление:</span>
-          <select style={selectStyle} value={filterDir} onChange={e => { setFilterDir(e.target.value); setFilterChild('all') }}>
-            <option value="all">Все</option>
-            {directions.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
-          </select>
-        </div>
 
         {isAdmin && (
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
@@ -439,8 +471,8 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           </select>
         </div>
 
-        {(filterDir !== 'all' || filterTeacher !== 'all' || filterChild !== 'all') && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDir('all'); setFilterTeacher('all'); setFilterChild('all') }}>✕ Сбросить</button>
+        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all') && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all') }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -475,22 +507,29 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         />
       )}
 
-      {/* Direction chips */}
+      {/* Direction chips - multiselect */}
       <div className="card card-pad" style={{ marginTop:16 }}>
-        <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14, marginBottom:10 }}>🎯 Фильтр по направлениям</div>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14 }}>🎯 Фильтр по направлениям <span style={{ fontSize:12, color:T.muted, fontWeight:400 }}>(можно выбрать несколько)</span></div>
+          {filterDirs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setFilterDirs([])}>✕ Все</button>}
+        </div>
         <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           {directions.map(d => {
-            const active = filterDir === String(d.id)
+            const active = filterDirs.includes(String(d.id))
             const color = d.color || DEFAULT_COLOR
             const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
             return (
-              <div key={d.id} onClick={() => setFilterDir(active ? 'all' : String(d.id))}
+              <div key={d.id} onClick={() => {
+                const id = String(d.id)
+                setFilterDirs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+              }}
                 style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
                 <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
                 <div>
                   <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
-                  <div style={{ fontSize:11, color:T.muted }}>{d.schedule} · {cnt} чел.</div>
+                  <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
                 </div>
+                {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
               </div>
             )
           })}
