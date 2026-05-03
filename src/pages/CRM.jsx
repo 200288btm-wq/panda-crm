@@ -11,7 +11,7 @@ import CalendarPage from './CalendarPage'
 import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
-import LeadsPage from './LeadsPage'
+import LeadsPage from './Leads'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
