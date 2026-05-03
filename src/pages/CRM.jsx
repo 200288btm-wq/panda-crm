@@ -11,11 +11,13 @@ import CalendarPage from './CalendarPage'
 import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
+import LeadsPage from './LeadsPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
+  leads: 'Заявки',
 }
 
 // Real logo from public/logo.svg
@@ -38,6 +40,7 @@ export default function CRM({ session, staff }) {
   const [staffList, setStaffList] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
   const [newCount, setNewCount] = useState(0)
+  const [leadsCount, setLeadsCount] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -53,7 +56,7 @@ export default function CRM({ session, staff }) {
   const isAdmin = role === 'Директор' || role === 'Администратор'
 
   const load = useCallback(async () => {
-    const [c, p, e, d, t, s, sub] = await Promise.all([
+    const [c, p, e, d, t, s, sub, l] = await Promise.all([
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('payments').select('*').order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
@@ -61,6 +64,7 @@ export default function CRM({ session, staff }) {
       supabase.from('teachers').select('*').order('id'),
       supabase.from('staff').select('*').order('id'),
       supabase.from('subscriptions').select('*').order('id'),
+      supabase.from('leads').select('id, status').eq('status', 'new'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -69,6 +73,7 @@ export default function CRM({ session, staff }) {
     if (t.data) setTeachers(t.data)
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
+    if (l.data) setLeadsCount(l.data.length)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -83,6 +88,7 @@ export default function CRM({ session, staff }) {
       { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
     ]},
     { section: 'Учёт', items: [
+      { id: 'leads', icon: '📋', label: 'Заявки', badge: leadsCount || null, show: isAdmin },
       { id: 'clients', icon: '👨‍👧', label: 'Клиенты', badge: newCount || null, show: isAdmin },
       { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
       { id: 'expenses', icon: '📤', label: 'Расходы', show: isDirector },
@@ -180,16 +186,17 @@ export default function CRM({ session, staff }) {
         </div>
 
         <div className="content">
-          {page === 'dashboard'  && <Dashboard {...props} />}
-          {page === 'calendar'   && <CalendarPage {...props} />}
-          {page === 'clients'    && isAdmin && <ClientsPage {...props} />}
-          {page === 'payments'   && isAdmin && <PaymentsPage {...props} />}
-          {page === 'expenses'   && isDirector && <ExpensesPage {...props} />}
-          {page === 'directions' && <DirectionsPage {...props} />}
-          {page === 'teachers'   && isAdmin && <TeachersPage {...props} />}
+          {page === 'dashboard'     && <Dashboard {...props} />}
+          {page === 'calendar'      && <CalendarPage {...props} />}
+          {page === 'leads'         && isAdmin && <LeadsPage />}
+          {page === 'clients'       && isAdmin && <ClientsPage {...props} />}
+          {page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
+          {page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
+          {page === 'directions'    && <DirectionsPage {...props} />}
+          {page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
           {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
-          {page === 'finance'    && isDirector && <FinancePage {...props} />}
-          {page === 'staff'      && isDirector && <StaffPage {...props} />}
+          {page === 'finance'       && isDirector && <FinancePage {...props} />}
+          {page === 'staff'         && isDirector && <StaffPage {...props} />}
         </div>
 
         {/* Mobile bottom nav */}
@@ -198,9 +205,9 @@ export default function CRM({ session, staff }) {
             {[
               { id: 'dashboard', icon: '📊', label: 'Главная', show: true },
               { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
+              { id: 'leads', icon: '📋', label: 'Заявки', show: isAdmin, badge: leadsCount },
               { id: 'clients', icon: '👨‍👧', label: 'Клиенты', show: isAdmin, badge: newCount },
               { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
-              { id: 'directions', icon: '🎯', label: 'Ещё', show: true },
             ].filter(i => i.show).map(item => (
               <div key={item.id} className={`mobile-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
                 {item.badge ? <span className="mobile-nav-badge">{item.badge}</span> : null}
