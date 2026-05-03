@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../supabase'
 
 const STATUS_CONFIG = {
   new:       { label: 'Новая',       color: 'bg-blue-100 text-blue-800' },
