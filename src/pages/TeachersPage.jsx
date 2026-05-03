@@ -77,6 +77,12 @@ export default function TeachersPage({ teachers, directions, reload }) {
     reload()
   }
 
+  const del = async (id, name) => {
+    if (!confirm(`Удалить педагога «${name}»?`)) return
+    await supabase.from('teachers').delete().eq('id', id)
+    reload()
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
@@ -97,7 +103,12 @@ export default function TeachersPage({ teachers, directions, reload }) {
               <td style={{ textAlign: 'center', fontFamily: 'Nunito,sans-serif', fontWeight: 800 }}>{t.lessons_count}</td>
               <td style={{ fontSize: 12, color: T.muted }}>{t.hired || '—'}</td>
               <td style={{ fontSize: 12, color: T.muted }}>{t.phone || '—'}</td>
-              <td><button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(t)}>✏️</button></td>
+              <td>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(t)}>✏️</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => del(t.id, t.name)} style={{ color: T.red }}>🗑️</button>
+                </div>
+              </td>
             </tr>
           ))}
           {!teachers.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👩‍🏫</div><div className="empty-text">Педагогов нет</div></div></td></tr>}
