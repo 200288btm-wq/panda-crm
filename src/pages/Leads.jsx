@@ -177,18 +177,24 @@ export default function Leads() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px,1fr))', gap: '8px 16px' }}>
+                    {lead.parent_name && (
+                      <div>
+                        <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Родитель</div>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>{lead.parent_name}</div>
+                      </div>
+                    )}
+                    <div>
+                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Телефон</div>
+                      <a href={`tel:${lead.parent_phone}`} style={{ fontWeight: 700, fontSize: 14, color: T.green, textDecoration: 'none' }}>
+                        {lead.parent_phone}
+                      </a>
+                    </div>
                     <div>
                       <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Ребёнок</div>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>
                         {lead.child_name || '—'}
                         {lead.child_age && <span style={{ fontWeight: 400, color: T.muted }}>, {lead.child_age}</span>}
                       </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Телефон</div>
-                      <a href={`tel:${lead.parent_phone}`} style={{ fontWeight: 700, fontSize: 14, color: T.green, textDecoration: 'none' }}>
-                        {lead.parent_phone}
-                      </a>
                     </div>
                     {lead.squad && (
                       <div>
