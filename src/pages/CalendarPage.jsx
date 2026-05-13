@@ -62,37 +62,84 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers) => {
+// Если есть подгруппы для направления — итерируемся по ним (своё расписание и педагог).
+// Если нет — fallback на старое поле d.schedule + d.teacher_name (обратная совместимость).
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups) => {
   const dow = date.getDay()
   const dayKey = DOW_TO_KEY[dow]
   const events = []
+
+  // Группируем подгруппы по direction_id для быстрого доступа
+  const groupsByDir = {}
+  ;(directionGroups || []).forEach(g => {
+    if (!groupsByDir[g.direction_id]) groupsByDir[g.direction_id] = []
+    groupsByDir[g.direction_id].push(g)
+  })
+
   directions.forEach(d => {
-    // Check if this direction has a slot for this day
-    const timeForDay = getTimeForDow(dow, d.schedule)
-    if (!timeForDay) return
-    // filterDir can be 'all', a single id string, or array of ids
+    // Применяем фильтр направления (общий для всех подгрупп)
     if (Array.isArray(filterDir)) {
       if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
     } else {
       if (filterDir !== 'all' && String(d.id) !== filterDir) return
     }
-    if (filterTeacher !== 'all') {
-      const t = teachers.find(t => String(t.id) === filterTeacher)
-      if (t && !(t.direction_ids||[]).includes(d.id)) return
-    }
     if (filterChild !== 'all') {
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
-    const timeMin = parseTime(timeForDay)
-    if (timeMin === null) return
-    let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
-    if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
-    events.push({
-      name: d.name, timeMin, time: timeForDay,
-      teacher: d.teacher_name, dirId: d.id, students,
-      color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
-      durationMin: parseDuration(d.duration),
+
+    const subgroups = groupsByDir[d.id] || []
+    // Источники "ячеек расписания": либо подгруппы, либо одна виртуальная запись из старых полей направления
+    const sources = subgroups.length
+      ? subgroups.map(sg => ({
+          schedule: sg.schedule,
+          teacher_id: sg.teacher_id,
+          teacher_name: sg.teacher_id ? (teachers.find(t => t.id === sg.teacher_id)?.name || '') : '',
+          group_name: sg.name,
+          group_id: sg.id,
+        }))
+      : [{
+          schedule: d.schedule,
+          teacher_id: null,
+          teacher_name: d.teacher_name || '',
+          group_name: null,
+          group_id: null,
+        }]
+
+    sources.forEach(src => {
+      const timeForDay = getTimeForDow(dow, src.schedule)
+      if (!timeForDay) return
+
+      // Фильтр педагога — теперь работает по teacher_id подгруппы
+      if (filterTeacher !== 'all') {
+        if (src.teacher_id) {
+          if (String(src.teacher_id) !== filterTeacher) return
+        } else {
+          // Fallback: старая логика для направлений без подгрупп
+          const t = teachers.find(t => String(t.id) === filterTeacher)
+          if (t && !(t.direction_ids||[]).includes(d.id)) return
+        }
+      }
+
+      const timeMin = parseTime(timeForDay)
+      if (timeMin === null) return
+      let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+
+      // Имя для отображения: «Направление · Подгруппа»
+      const displayName = src.group_name
+        ? `${d.name} · ${src.group_name}`
+        : d.name
+
+      events.push({
+        name: displayName,
+        baseName: d.name,
+        groupName: src.group_name,
+        timeMin, time: timeForDay,
+        teacher: src.teacher_name, dirId: d.id, groupId: src.group_id, students,
+        color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
+        durationMin: parseDuration(d.duration),
+      })
     })
   })
   events.sort((a,b) => a.timeMin - b.timeMin)
@@ -181,7 +228,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
+function TimeGrid({ dates, directions, directionGroups, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -189,7 +236,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -314,7 +361,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
+function MonthView({ year, month, directions, directionGroups, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
   const now = new Date()
   const firstDow = new Date(year, month, 1).getDay()
   const offset = (firstDow + 6) % 7
@@ -328,7 +375,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -381,6 +428,27 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
   const [selectedDay, setSelectedDay] = useState(null)
+  const [directionGroups, setDirectionGroups] = useState([])
+
+  // Загружаем подгруппы направлений (с обратной совместимостью: если таблицы нет — пустой массив)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('direction_groups')
+        .select('*')
+        .order('sort_order', { ascending: true })
+      if (cancelled) return
+      if (error) {
+        console.warn('direction_groups not available:', error.message)
+        setDirectionGroups([])
+        return
+      }
+      setDirectionGroups(data || [])
+    }
+    load()
+    return () => { cancelled = true }
+  }, [reload])
 
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
@@ -497,7 +565,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
       {view === 'month' && (
         <MonthView
           year={currentDate.getFullYear()} month={currentDate.getMonth()}
-          directions={directions} clients={clients} teachers={teachers}
+          directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
@@ -506,7 +574,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
       {(view === 'week' || view === 'day') && (
         <TimeGrid
           dates={view === 'week' ? weekDates : [currentDate]}
-          directions={directions} clients={clients} teachers={teachers}
+          directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
@@ -546,7 +614,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, directionGroups)}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={reload}
