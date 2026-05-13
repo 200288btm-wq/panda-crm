@@ -30,6 +30,12 @@ const CHANNELS = [
 
 const CHANNEL_LABELS = Object.fromEntries(CHANNELS.map(c => [c.key, c.label]))
 
+// Отряды лагеря — фиксированный список (соответствует сайту akademiya-kanikul)
+const CAMP_SQUADS = [
+  '🏙 Городские художники',
+  '🌿 Зелёная мастерская',
+]
+
 function Badge({ cfg }) {
   return (
     <span style={{
@@ -73,21 +79,28 @@ function AddLeadModal({ directions, onClose, onSave }) {
     parent_phone: '',
     child_name: '',
     child_age: '',
-    direction_id: '',
+    direction_id: '',  // для студии — id из БД
+    squad_name: '',    // для лагеря — название отряда
     status: 'new',
     notes: '',
   })
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
+  // При смене источника сбрасываем выбор группы — чтобы не остался отряд лагеря на студии
+  const setSource = (newSource) => {
+    setF(p => ({ ...p, source: newSource, direction_id: '', squad_name: '' }))
+  }
+
   const canSave = (f.parent_name.trim() || f.parent_phone.trim()) && !saving
 
   async function save() {
     if (!canSave) return
     setSaving(true)
-    const dirName = f.direction_id
-      ? (directions.find(d => d.id === +f.direction_id)?.name || null)
-      : null
+    // Для студии берём название направления из БД, для лагеря — выбранный отряд
+    const squadValue = f.source === 'camp'
+      ? (f.squad_name || null)
+      : (f.direction_id ? (directions.find(d => d.id === +f.direction_id)?.name || null) : null)
     await onSave({
       source: f.source,
       channel: f.channel,
@@ -95,7 +108,7 @@ function AddLeadModal({ directions, onClose, onSave }) {
       parent_phone: f.parent_phone.trim() || null,
       child_name: f.child_name.trim() || null,
       child_age: f.child_age ? +f.child_age : null,
-      squad: dirName,
+      squad: squadValue,
       status: f.status,
       notes: f.notes.trim() || null,
     })
@@ -115,14 +128,14 @@ function AddLeadModal({ directions, onClose, onSave }) {
       <div className="form-row">
         <div className="form-group">
           <label className="form-label">Источник</label>
-          <select className="form-input" value={f.source} onChange={e => set('source', e.target.value)}>
+          <select className="form-input" value={f.source} onChange={e => setSource(e.target.value)} autoComplete="off">
             <option value="studio">🐼 Студия</option>
             <option value="camp">🏕 Лагерь</option>
           </select>
         </div>
         <div className="form-group">
           <label className="form-label">Канал обращения</label>
-          <select className="form-input" value={f.channel} onChange={e => set('channel', e.target.value)}>
+          <select className="form-input" value={f.channel} onChange={e => set('channel', e.target.value)} autoComplete="off">
             {CHANNELS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         </div>
@@ -133,13 +146,15 @@ function AddLeadModal({ directions, onClose, onSave }) {
           <label className="form-label">Имя родителя</label>
           <input className="form-input" value={f.parent_name}
             onChange={e => set('parent_name', e.target.value)}
-            placeholder="Как обращаться" />
+            placeholder="Как обращаться"
+            autoComplete="off" />
         </div>
         <div className="form-group">
           <label className="form-label">Телефон / контакт</label>
           <input className="form-input" type="text" value={f.parent_phone}
             onChange={e => set('parent_phone', e.target.value)}
-            placeholder="+7 ___ ___-__-__ или @username" />
+            placeholder="+7 ___ ___-__-__ или @username"
+            autoComplete="off" />
         </div>
       </div>
 
@@ -148,27 +163,51 @@ function AddLeadModal({ directions, onClose, onSave }) {
           <label className="form-label">Имя ребёнка</label>
           <input className="form-input" value={f.child_name}
             onChange={e => set('child_name', e.target.value)}
-            placeholder="Например, Маша" />
+            placeholder="Например, Маша"
+            autoComplete="off" />
         </div>
         <div className="form-group">
           <label className="form-label">Возраст</label>
           <input className="form-input" type="number" min="1" max="18" value={f.child_age}
             onChange={e => set('child_age', e.target.value)}
-            placeholder="Лет" />
+            placeholder="Лет"
+            autoComplete="off" />
         </div>
       </div>
 
-      <div className="form-group">
-        <label className="form-label">Направление / отряд</label>
-        <select className="form-input" value={f.direction_id} onChange={e => set('direction_id', e.target.value)}>
-          <option value="">— Не указано —</option>
-          {directions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
-      </div>
+      {f.source === 'camp' ? (
+        <div className="form-group">
+          <label className="form-label">Отряд</label>
+          <select className="form-input" value={f.squad_name} onChange={e => set('squad_name', e.target.value)} autoComplete="off">
+            <option value="">— Не указано —</option>
+            {CAMP_SQUADS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+      ) : (
+        <div className="form-group">
+          <label className="form-label">
+            Направление
+            {directions.length === 0 && (
+              <span style={{ fontSize: 11, color: '#B45309', fontWeight: 600, marginLeft: 8 }}>
+                — список направлений пуст
+              </span>
+            )}
+          </label>
+          <select className="form-input" value={f.direction_id} onChange={e => set('direction_id', e.target.value)} autoComplete="off">
+            <option value="">— Не указано —</option>
+            {directions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          {directions.length === 0 && (
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+              Чтобы выбрать направление здесь — добавьте его в разделе «🎯 Направления».
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-group">
         <label className="form-label">Статус</label>
-        <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>
+        <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)} autoComplete="off">
           <option value="new">Новая</option>
           <option value="called">Позвонили</option>
           <option value="confirmed">Подтверждена</option>
@@ -181,7 +220,8 @@ function AddLeadModal({ directions, onClose, onSave }) {
         <textarea className="form-input" value={f.notes} rows={3}
           onChange={e => set('notes', e.target.value)}
           placeholder="Что спрашивали, договорённости, особенности…"
-          style={{ resize: 'vertical', minHeight: 60 }} />
+          style={{ resize: 'vertical', minHeight: 60 }}
+          autoComplete="off" />
       </div>
 
       <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
