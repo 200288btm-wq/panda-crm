@@ -72,14 +72,34 @@ export default function TeachersPage({ teachers, directions, reload }) {
   const [showEdit, setShowEdit] = useState(null)
 
   const save = async (f) => {
-    if (showEdit) { await supabase.from('teachers').update(f).eq('id', showEdit.id); setShowEdit(null) }
-    else { await supabase.from('teachers').insert(f); setShowAdd(false) }
+    // Чистим пустые даты — PostgreSQL не принимает '' для типа date
+    const cleaned = {
+      ...f,
+      hired: f.hired || null,
+      birthday: f.birthday || null,
+      rate: +f.rate || 0,
+      lessons_count: +f.lessons_count || 0,
+    }
+    if (!cleaned.name?.trim()) {
+      alert('Пожалуйста, укажите ФИО педагога')
+      return
+    }
+    if (showEdit) {
+      const { error } = await supabase.from('teachers').update(cleaned).eq('id', showEdit.id)
+      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      setShowEdit(null)
+    } else {
+      const { error } = await supabase.from('teachers').insert(cleaned)
+      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      setShowAdd(false)
+    }
     reload()
   }
 
   const del = async (id, name) => {
     if (!confirm(`Удалить педагога «${name}»?`)) return
-    await supabase.from('teachers').delete().eq('id', id)
+    const { error } = await supabase.from('teachers').delete().eq('id', id)
+    if (error) { alert('Ошибка удаления: ' + error.message); return }
     reload()
   }
 
