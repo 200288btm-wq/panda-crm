@@ -24,7 +24,7 @@ const calcAge = (birthday) => {
   return age
 }
 
-function ClientModal({ client, directions, onClose, onSave }) {
+export function ClientModal({ client, directions, onClose, onSave, titleOverride }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
     adult_name: client.adult_name || '',
@@ -45,7 +45,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
   const age = calcAge(f.birthday)
 
   return (
-    <Modal title={client ? `✏️ ${client.child_name}` : '+ Новый клиент'} onClose={onClose}
+    <Modal title={titleOverride || (client ? `✏️ ${client.child_name}` : '+ Новый клиент')} onClose={onClose}
       footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={() => onSave(f)}>Сохранить</button></>}>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Имя ребёнка *</label>

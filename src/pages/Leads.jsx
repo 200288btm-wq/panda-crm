@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
+import { Modal } from '../components/Modal'
+import { ClientModal } from './ClientsPage'
 
 const STATUS = {
   new:       { label: 'Новая',        bg: '#EFF6FF', color: '#1D4ED8' },
@@ -26,13 +28,37 @@ function Badge({ cfg }) {
   )
 }
 
-export default function Leads() {
+// Простая модалка подтверждения удаления
+function ConfirmDeleteModal({ lead, onClose, onConfirm }) {
+  return (
+    <Modal title="🗑 Удалить заявку?" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+          <button className="btn btn-danger" onClick={onConfirm}>Удалить</button>
+        </>
+      }>
+      <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+        Заявка от <strong>{lead.parent_name || 'Без имени'}</strong>
+        {lead.parent_phone && <> ({lead.parent_phone})</>}
+        {' '}будет удалена окончательно. Это действие нельзя отменить.
+      </div>
+      <div style={{ fontSize: 13, color: T.muted, marginTop: 10 }}>
+        Если хотите сохранить заявку, но скрыть её из списка — переведите статус в «Отменена».
+      </div>
+    </Modal>
+  )
+}
+
+export default function Leads({ directions = [], reload }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSource, setFilterSource] = useState('all')
   const [editingNote, setEditingNote] = useState(null)
   const [noteText, setNoteText] = useState('')
+  const [convertingLead, setConvertingLead] = useState(null) // заявка, которую конвертим в клиента
+  const [deletingLead, setDeletingLead] = useState(null)     // заявка, которую подтверждаем удаление
 
   useEffect(() => {
     fetchLeads()
@@ -61,9 +87,88 @@ export default function Leads() {
   }
 
   async function deleteLead(id) {
-    if (!confirm('Удалить заявку?')) return
     await supabase.from('leads').delete().eq('id', id)
     setLeads(prev => prev.filter(l => l.id !== id))
+    setDeletingLead(null)
+  }
+
+  // Преобразование заявки → объект для предзаполнения ClientModal
+  function buildClientPrefill(lead) {
+    // Пробуем сматчить направление по имени из поля squad
+    const matchedDir = lead.squad && directions.length
+      ? directions.find(d => {
+          const ln = (lead.squad || '').toLowerCase()
+          const dn = (d.name || '').toLowerCase()
+          return ln.includes(dn) || dn.includes(ln)
+        })
+      : null
+
+    // Тип контакта: если в телефоне есть @ — телеграм, иначе телефон
+    const phoneVal = lead.parent_phone || ''
+    const contactType = phoneVal.includes('@') ? 'Телеграм' : 'Телефон'
+
+    // Источник: переводим внутренний source в человеческий текст
+    const sourceLabel = lead.source === 'studio' ? 'Сайт студии'
+      : lead.source === 'camp' ? 'Сайт лагеря'
+      : ''
+
+    // Заметка, если есть, добавляется в источник через запятую (источник короткий)
+    const sourceFull = lead.notes
+      ? `${sourceLabel}${sourceLabel ? ' · ' : ''}${lead.notes}`
+      : sourceLabel
+
+    return {
+      child_name: lead.child_name || '',
+      adult_name: lead.parent_name || '',
+      status: 'Новый',
+      contacts: [{ type: contactType, val: phoneVal }],
+      start_date: new Date().toISOString().slice(0, 10),
+      source: sourceFull,
+      birthday: '',
+      sex: 'М',
+      direction_ids: matchedDir ? [matchedDir.id] : [],
+      paid_lessons: 0,
+      visited_lessons: 0,
+      balance: 0,
+      discount: 0,
+      // служебное поле для последующего апдейта статуса заявки
+      _fromLeadId: lead.id,
+    }
+  }
+
+  // Сохранение нового клиента из заявки
+  async function saveClientFromLead(formData) {
+    const leadId = convertingLead?.id
+    const cleaned = {
+      child_name: formData.child_name,
+      adult_name: formData.adult_name,
+      status: formData.status,
+      contacts: formData.contacts,
+      start_date: formData.start_date || null,
+      source: formData.source,
+      birthday: formData.birthday || null,
+      sex: formData.sex,
+      direction_ids: formData.direction_ids,
+      paid_lessons: +formData.paid_lessons || 0,
+      visited_lessons: +formData.visited_lessons || 0,
+      balance: +formData.balance || 0,
+      discount: +formData.discount || 0,
+    }
+    const { error } = await supabase.from('clients').insert(cleaned)
+    if (error) {
+      alert('Ошибка при создании клиента: ' + error.message)
+      return
+    }
+    // Автоматически переводим заявку в «Подтверждена»
+    if (leadId) {
+      await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId)
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'confirmed' } : l))
+    }
+    setConvertingLead(null)
+    // Если в Leads пришёл reload из общего стора — обновим список клиентов
+    if (typeof reload === 'function') {
+      try { await reload() } catch (e) { /* noop */ }
+    }
   }
 
   const filtered = leads.filter(l => {
@@ -241,23 +346,35 @@ export default function Leads() {
                   )}
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0, minWidth: 150 }}>
                   <select
                     className="form-input"
                     value={lead.status}
                     onChange={e => updateStatus(lead.id, e.target.value)}
-                    style={{ padding: '5px 8px', fontSize: 12, cursor: 'pointer', minWidth: 130 }}
+                    style={{ padding: '5px 8px', fontSize: 12, cursor: 'pointer' }}
                   >
                     <option value="new">Новая</option>
                     <option value="called">Позвонили</option>
                     <option value="confirmed">Подтверждена</option>
                     <option value="cancelled">Отменена</option>
                   </select>
+
+                  {/* Кнопка «В клиенты» — приоритетное действие */}
                   <button
-                    onClick={() => deleteLead(lead.id)}
-                    style={{ fontSize: 11, color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'right' }}
+                    onClick={() => setConvertingLead(lead)}
+                    className="btn btn-primary"
+                    style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700 }}
                   >
-                    удалить
+                    + В клиенты
+                  </button>
+
+                  {/* Кнопка удаления — красная, с текстом */}
+                  <button
+                    onClick={() => setDeletingLead(lead)}
+                    className="btn btn-danger"
+                    style={{ padding: '6px 10px', fontSize: 12, fontWeight: 700 }}
+                  >
+                    🗑 Удалить
                   </button>
                 </div>
 
@@ -265,6 +382,26 @@ export default function Leads() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Модалка конвертации в клиента */}
+      {convertingLead && (
+        <ClientModal
+          client={buildClientPrefill(convertingLead)}
+          directions={directions}
+          onClose={() => setConvertingLead(null)}
+          onSave={saveClientFromLead}
+          titleOverride="+ Новый клиент из заявки"
+        />
+      )}
+
+      {/* Модалка подтверждения удаления */}
+      {deletingLead && (
+        <ConfirmDeleteModal
+          lead={deletingLead}
+          onClose={() => setDeletingLead(null)}
+          onConfirm={() => deleteLead(deletingLead.id)}
+        />
       )}
     </div>
   )
