@@ -16,6 +16,20 @@ const SOURCE = {
   studio: { label: '🐼 Студия', bg: '#F5F3FF', color: '#5B21B6' },
 }
 
+// Каналы обращения — для ручных заявок (звонок/мессенджер/площадка)
+const CHANNELS = [
+  { key: 'phone',    label: '📞 Звонок' },
+  { key: 'telegram', label: '✈️ Телеграм' },
+  { key: 'whatsapp', label: '💬 WhatsApp' },
+  { key: 'vk',       label: '🟦 ВКонтакте' },
+  { key: 'avito',    label: '🟢 Авито' },
+  { key: 'instagram',label: '📷 Instagram' },
+  { key: 'referral', label: '👥 Сарафан' },
+  { key: 'other',    label: '✏️ Другое' },
+]
+
+const CHANNEL_LABELS = Object.fromEntries(CHANNELS.map(c => [c.key, c.label]))
+
 function Badge({ cfg }) {
   return (
     <span style={{
@@ -50,6 +64,133 @@ function ConfirmDeleteModal({ lead, onClose, onConfirm }) {
   )
 }
 
+// Модалка ручного добавления заявки
+function AddLeadModal({ directions, onClose, onSave }) {
+  const [f, setF] = useState({
+    source: 'studio',
+    channel: 'phone',
+    parent_name: '',
+    parent_phone: '',
+    child_name: '',
+    child_age: '',
+    direction_id: '',
+    status: 'new',
+    notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }))
+
+  const canSave = (f.parent_name.trim() || f.parent_phone.trim()) && !saving
+
+  async function save() {
+    if (!canSave) return
+    setSaving(true)
+    const dirName = f.direction_id
+      ? (directions.find(d => d.id === +f.direction_id)?.name || null)
+      : null
+    await onSave({
+      source: f.source,
+      channel: f.channel,
+      parent_name: f.parent_name.trim() || null,
+      parent_phone: f.parent_phone.trim() || null,
+      child_name: f.child_name.trim() || null,
+      child_age: f.child_age ? +f.child_age : null,
+      squad: dirName,
+      status: f.status,
+      notes: f.notes.trim() || null,
+    })
+    setSaving(false)
+  }
+
+  return (
+    <Modal title="+ Новая заявка вручную" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+          <button className="btn btn-primary" onClick={save} disabled={!canSave}>
+            {saving ? 'Сохраняем…' : 'Сохранить'}
+          </button>
+        </>
+      }>
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Источник</label>
+          <select className="form-input" value={f.source} onChange={e => set('source', e.target.value)}>
+            <option value="studio">🐼 Студия</option>
+            <option value="camp">🏕 Лагерь</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Канал обращения</label>
+          <select className="form-input" value={f.channel} onChange={e => set('channel', e.target.value)}>
+            {CHANNELS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Имя родителя</label>
+          <input className="form-input" value={f.parent_name}
+            onChange={e => set('parent_name', e.target.value)}
+            placeholder="Как обращаться" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Телефон / контакт</label>
+          <input className="form-input" type="text" value={f.parent_phone}
+            onChange={e => set('parent_phone', e.target.value)}
+            placeholder="+7 ___ ___-__-__ или @username" />
+        </div>
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Имя ребёнка</label>
+          <input className="form-input" value={f.child_name}
+            onChange={e => set('child_name', e.target.value)}
+            placeholder="Например, Маша" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Возраст</label>
+          <input className="form-input" type="number" min="1" max="18" value={f.child_age}
+            onChange={e => set('child_age', e.target.value)}
+            placeholder="Лет" />
+        </div>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Направление / отряд</label>
+        <select className="form-input" value={f.direction_id} onChange={e => set('direction_id', e.target.value)}>
+          <option value="">— Не указано —</option>
+          {directions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Статус</label>
+        <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>
+          <option value="new">Новая</option>
+          <option value="called">Позвонили</option>
+          <option value="confirmed">Подтверждена</option>
+          <option value="cancelled">Отменена</option>
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Заметка</label>
+        <textarea className="form-input" value={f.notes} rows={3}
+          onChange={e => set('notes', e.target.value)}
+          placeholder="Что спрашивали, договорённости, особенности…"
+          style={{ resize: 'vertical', minHeight: 60 }} />
+      </div>
+
+      <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>
+        Заполните имя или телефон — остальное по желанию.
+      </div>
+    </Modal>
+  )
+}
+
 export default function Leads({ directions = [], reload }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
@@ -59,6 +200,7 @@ export default function Leads({ directions = [], reload }) {
   const [noteText, setNoteText] = useState('')
   const [convertingLead, setConvertingLead] = useState(null) // заявка, которую конвертим в клиента
   const [deletingLead, setDeletingLead] = useState(null)     // заявка, которую подтверждаем удаление
+  const [adding, setAdding] = useState(false)                // открыта ли модалка ручного добавления
 
   useEffect(() => {
     fetchLeads()
@@ -92,6 +234,17 @@ export default function Leads({ directions = [], reload }) {
     setDeletingLead(null)
   }
 
+  // Сохранение ручной заявки
+  async function saveManualLead(payload) {
+    const { error } = await supabase.from('leads').insert(payload)
+    if (error) {
+      alert('Ошибка при сохранении заявки: ' + error.message)
+      return
+    }
+    setAdding(false)
+    await fetchLeads()
+  }
+
   // Преобразование заявки → объект для предзаполнения ClientModal
   function buildClientPrefill(lead) {
     // Пробуем сматчить направление по имени из поля squad
@@ -103,19 +256,23 @@ export default function Leads({ directions = [], reload }) {
         })
       : null
 
-    // Тип контакта: если в телефоне есть @ — телеграм, иначе телефон
+    // Тип контакта по каналу заявки
     const phoneVal = lead.parent_phone || ''
-    const contactType = phoneVal.includes('@') ? 'Телеграм' : 'Телефон'
+    let contactType = 'Телефон'
+    if (lead.channel === 'telegram') contactType = 'Телеграм'
+    else if (lead.channel === 'vk') contactType = 'ВКонтакте'
+    else if (lead.channel === 'whatsapp') contactType = 'WhatsApp'
+    else if (phoneVal.includes('@')) contactType = 'Телеграм'
 
-    // Источник: переводим внутренний source в человеческий текст
-    const sourceLabel = lead.source === 'studio' ? 'Сайт студии'
+    // Источник для карточки клиента
+    const baseSource = lead.source === 'studio' ? 'Сайт студии'
       : lead.source === 'camp' ? 'Сайт лагеря'
       : ''
-
-    // Заметка, если есть, добавляется в источник через запятую (источник короткий)
-    const sourceFull = lead.notes
-      ? `${sourceLabel}${sourceLabel ? ' · ' : ''}${lead.notes}`
-      : sourceLabel
+    const channelLabel = lead.channel ? (CHANNEL_LABELS[lead.channel] || '').replace(/^\S+\s+/, '') : ''
+    // Если есть канал и это не сайт (только сайт без канала) — пишем канал, иначе source
+    const sourceText = channelLabel && lead.channel
+      ? channelLabel
+      : baseSource
 
     return {
       child_name: lead.child_name || '',
@@ -123,7 +280,7 @@ export default function Leads({ directions = [], reload }) {
       status: 'Новый',
       contacts: [{ type: contactType, val: phoneVal }],
       start_date: new Date().toISOString().slice(0, 10),
-      source: sourceFull,
+      source: sourceText,
       birthday: '',
       sex: 'М',
       direction_ids: matchedDir ? [matchedDir.id] : [],
@@ -131,7 +288,6 @@ export default function Leads({ directions = [], reload }) {
       visited_lessons: 0,
       balance: 0,
       discount: 0,
-      // служебное поле для последующего апдейта статуса заявки
       _fromLeadId: lead.id,
     }
   }
@@ -159,13 +315,11 @@ export default function Leads({ directions = [], reload }) {
       alert('Ошибка при создании клиента: ' + error.message)
       return
     }
-    // Автоматически переводим заявку в «Подтверждена»
     if (leadId) {
       await supabase.from('leads').update({ status: 'confirmed' }).eq('id', leadId)
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, status: 'confirmed' } : l))
     }
     setConvertingLead(null)
-    // Если в Leads пришёл reload из общего стора — обновим список клиентов
     if (typeof reload === 'function') {
       try { await reload() } catch (e) { /* noop */ }
     }
@@ -226,8 +380,8 @@ export default function Leads({ directions = [], reload }) {
         ))}
       </div>
 
-      {/* Фильтр источника + кнопка обновить */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+      {/* Фильтр источника + кнопки */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
           { key: 'all',    label: '📋 Все' },
           { key: 'camp',   label: '🏕 Лагерь' },
@@ -248,6 +402,13 @@ export default function Leads({ directions = [], reload }) {
           onClick={fetchLeads}
         >
           🔄 Обновить
+        </button>
+        <button
+          className="btn btn-primary"
+          style={{ padding: '6px 16px', fontSize: 13 }}
+          onClick={() => setAdding(true)}
+        >
+          + Добавить заявку
         </button>
       </div>
 
@@ -275,6 +436,15 @@ export default function Leads({ directions = [], reload }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
                     {SOURCE[lead.source] && <Badge cfg={SOURCE[lead.source]} />}
+                    {lead.channel && CHANNEL_LABELS[lead.channel] && (
+                      <span style={{
+                        background: '#F3F4F6', color: '#374151',
+                        padding: '2px 10px', borderRadius: 20,
+                        fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap'
+                      }}>
+                        {CHANNEL_LABELS[lead.channel]}
+                      </span>
+                    )}
                     {STATUS[lead.status] && <Badge cfg={STATUS[lead.status]} />}
                     <span style={{ fontSize: 11, color: T.muted, marginLeft: 4 }}>
                       {formatDate(lead.created_at)}
@@ -359,7 +529,6 @@ export default function Leads({ directions = [], reload }) {
                     <option value="cancelled">Отменена</option>
                   </select>
 
-                  {/* Кнопка «В клиенты» — приоритетное действие */}
                   <button
                     onClick={() => setConvertingLead(lead)}
                     className="btn btn-primary"
@@ -368,7 +537,6 @@ export default function Leads({ directions = [], reload }) {
                     + В клиенты
                   </button>
 
-                  {/* Кнопка удаления — красная, с текстом */}
                   <button
                     onClick={() => setDeletingLead(lead)}
                     className="btn btn-danger"
@@ -382,6 +550,15 @@ export default function Leads({ directions = [], reload }) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Модалка ручного добавления заявки */}
+      {adding && (
+        <AddLeadModal
+          directions={directions}
+          onClose={() => setAdding(false)}
+          onSave={saveManualLead}
+        />
       )}
 
       {/* Модалка конвертации в клиента */}
