@@ -155,6 +155,11 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       })
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
+      // Если выбран конкретный ребёнок, но в этом занятии/подгруппе его нет —
+      // не показываем само занятие (а не показываем его пустым).
+      // Это и есть «автофильтр по ребёнку»: видны только те подгруппы, куда он записан.
+      if (filterChild !== 'all' && students.length === 0) return
+
       // Имя для отображения: «Направление · Подгруппа»
       const displayName = src.group_name
         ? `${d.name} · ${src.group_name}`
