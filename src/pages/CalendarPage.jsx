@@ -123,7 +123,26 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 
       const timeMin = parseTime(timeForDay)
       if (timeMin === null) return
-      let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+
+      // Фильтр студентов:
+      // 1. Привязан к направлению (direction_ids содержит d.id)
+      // 2. Активен
+      // 3. Если у ребёнка указаны group_ids И есть пересечение с подгруппами этого направления —
+      //    показываем только в тех подгруппах, которые он выбрал
+      //    Если group_ids нет или нет пересечения с подгруппами направления — показываем во всех
+      const directionSubgroupIds = (groupsByDir[d.id] || []).map(g => g.id)
+      let students = clients.filter(c => {
+        if (!(c.direction_ids||[]).includes(d.id)) return false
+        if (c.status !== 'Активен') return false
+        // Подгруппы этого ребёнка для текущего направления
+        const childGroupsForDir = (c.group_ids || []).filter(gid => directionSubgroupIds.includes(gid))
+        if (childGroupsForDir.length === 0) {
+          // Ребёнок не привязан к конкретной подгруппе — показываем во всех занятиях направления
+          return true
+        }
+        // Показываем только в выбранных подгруппах
+        return src.group_id && childGroupsForDir.includes(src.group_id)
+      })
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
       // Имя для отображения: «Направление · Подгруппа»
@@ -399,7 +418,7 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
                     <div className="cal-event"
                       style={{ background:group[0].color+'33', color:group[0].color, borderLeft:'3px solid '+group[0].color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
                       title={group[0].name+' · '+group[0].students.length+' чел.'}>
-                      {time} {group[0].name.split(' ')[0]}
+                      {time} {group[0].baseName.split(' ')[0]}{group[0].groupName ? ' · '+group[0].groupName : ''}
                     </div>
                   ) : (
                     // Multiple events same time — side by side
@@ -408,7 +427,7 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
                         <div key={ei} className="cal-event"
                           style={{ flex:1, minWidth:0, background:e.color+'33', color:e.color, borderLeft:'2px solid '+e.color, borderRadius:'0 3px 3px 0', paddingLeft:2, fontSize:8 }}
                           title={e.name+' · '+e.students.length+' чел.'}>
-                          {ei === 0 ? time+' ' : ''}{e.name.split(' ')[0]}
+                          {ei === 0 ? time+' ' : ''}{e.groupName ? e.groupName : e.baseName.split(' ')[0]}
                         </div>
                       ))}
                     </div>
