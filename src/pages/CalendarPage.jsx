@@ -64,7 +64,7 @@ const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7
 // Get events for a specific date
 // Если есть подгруппы для направления — итерируемся по ним (своё расписание и педагог).
 // Если нет — fallback на старое поле d.schedule + d.teacher_name (обратная совместимость).
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups) => {
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups) => {
   const dow = date.getDay()
   const dayKey = DOW_TO_KEY[dow]
   const events = []
@@ -75,6 +75,9 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
     if (!groupsByDir[g.direction_id]) groupsByDir[g.direction_id] = []
     groupsByDir[g.direction_id].push(g)
   })
+
+  // Множество выбранных подгрупп (для фильтра). Пусто = фильтр по подгруппам не активен.
+  const filterGroupSet = new Set((filterGroups || []).map(String))
 
   directions.forEach(d => {
     // Применяем фильтр направления (общий для всех подгрупп)
@@ -106,7 +109,14 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
           group_id: null,
         }]
 
+    // Фильтр по подгруппам: активен только для тех направлений, у которых
+    // в фильтре выбрана хотя бы одна подгруппа. Иначе направление показывается целиком.
+    const dirHasGroupFilter = subgroups.some(sg => filterGroupSet.has(String(sg.id)))
+
     sources.forEach(src => {
+      // Если для этого направления активен фильтр подгрупп — показываем только выбранные
+      if (dirHasGroupFilter && (!src.group_id || !filterGroupSet.has(String(src.group_id)))) return
+
       const timeForDay = getTimeForDow(dow, src.schedule)
       if (!timeForDay) return
 
@@ -247,7 +257,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, directionGroups, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
+function TimeGrid({ dates, directions, directionGroups, clients, teachers, filterDir, filterGroups, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -255,7 +265,7 @@ function TimeGrid({ dates, directions, directionGroups, clients, teachers, filte
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -380,7 +390,7 @@ function TimeGrid({ dates, directions, directionGroups, clients, teachers, filte
 }
 
 // Month view
-function MonthView({ year, month, directions, directionGroups, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
+function MonthView({ year, month, directions, directionGroups, clients, teachers, filterDir, filterGroups, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
   const now = new Date()
   const firstDow = new Date(year, month, 1).getDay()
   const offset = (firstDow + 6) % 7
@@ -394,7 +404,7 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -471,6 +481,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
 
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
+  const [filterGroups, setFilterGroups] = useState([]) // empty = все подгруппы выбранных направлений
   const [filterChild, setFilterChild] = useState('all')
   const [onlyWithStudents, setOnlyWithStudents] = useState(false)
 
@@ -564,8 +575,8 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
         </button>
 
-        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
+        {(filterDirs.length > 0 || filterGroups.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterGroups([]); setFilterTeacher('all'); setFilterChild('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -585,7 +596,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         <MonthView
           year={currentDate.getFullYear()} month={currentDate.getMonth()}
           directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers}
-          filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
+          filterDir={filterDir} filterGroups={filterGroups} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
@@ -594,35 +605,74 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         <TimeGrid
           dates={view === 'week' ? weekDates : [currentDate]}
           directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers}
-          filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
+          filterDir={filterDir} filterGroups={filterGroups} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
 
-      {/* Direction chips - multiselect */}
+      {/* Direction chips - multiselect, с подгруппами */}
       <div className="card card-pad" style={{ marginTop:16 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14 }}>🎯 Фильтр по направлениям <span style={{ fontSize:12, color:T.muted, fontWeight:400 }}>(можно выбрать несколько)</span></div>
-          {filterDirs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setFilterDirs([])}>✕ Все</button>}
+          {(filterDirs.length > 0 || filterGroups.length > 0) && <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterGroups([]) }}>✕ Все</button>}
         </div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
           {directions.map(d => {
             const active = filterDirs.includes(String(d.id))
             const color = d.color || DEFAULT_COLOR
             const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
+            const subgroups = directionGroups.filter(g => g.direction_id === d.id)
+            const selectedSubCount = subgroups.filter(sg => filterGroups.includes(String(sg.id))).length
+
+            const toggleDir = () => {
+              const id = String(d.id)
+              if (filterDirs.includes(id)) {
+                // Снимаем направление — заодно убираем его подгруппы из фильтра
+                setFilterDirs(prev => prev.filter(x => x !== id))
+                setFilterGroups(prev => prev.filter(gid => !subgroups.some(sg => String(sg.id) === gid)))
+              } else {
+                setFilterDirs(prev => [...prev, id])
+              }
+            }
+            const toggleGroup = (sgId) => {
+              const gid = String(sgId)
+              setFilterGroups(prev => prev.includes(gid) ? prev.filter(x => x !== gid) : [...prev, gid])
+            }
+
             return (
-              <div key={d.id} onClick={() => {
-                const id = String(d.id)
-                setFilterDirs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-              }}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
-                <div>
-                  <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
-                  <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
+              <div key={d.id} style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                <div onClick={toggleDir}
+                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
+                    <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
+                  </div>
+                  {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
                 </div>
-                {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
+
+                {/* Подгруппы — показываем только если направление выбрано и у него есть подгруппы */}
+                {active && subgroups.length > 0 && (
+                  <div style={{ marginLeft:10, paddingLeft:10, borderLeft:`2px solid ${color}44`, display:'flex', flexDirection:'column', gap:4 }}>
+                    <div style={{ fontSize:10, color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+                      📍 Подгруппы {selectedSubCount === 0 && <span style={{ fontWeight:500, textTransform:'none', letterSpacing:0 }}>(все)</span>}
+                    </div>
+                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                      {subgroups.map(sg => {
+                        const sgOn = filterGroups.includes(String(sg.id))
+                        return (
+                          <div key={sg.id} onClick={() => toggleGroup(sg.id)}
+                            style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, cursor:'pointer', transition:'all 0.15s',
+                              background: sgOn ? color+'33' : 'white', border:`1.5px solid ${sgOn ? color : T.border}`,
+                              color: sgOn ? color : T.muted, fontWeight:600, fontSize:11 }}>
+                            {sgOn && '✓ '}{sg.name}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
@@ -633,7 +683,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, directionGroups)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, directionGroups, filterGroups)}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={reload}
