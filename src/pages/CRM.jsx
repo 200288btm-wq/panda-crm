@@ -12,12 +12,13 @@ import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
+import AddressesPage from './AddressesPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
-  leads: 'Заявки',
+  leads: 'Заявки', addresses: 'Адреса',
 }
 
 // Real logo from public/logo.svg
@@ -39,6 +40,7 @@ export default function CRM({ session, staff }) {
   const [teachers, setTeachers] = useState([])
   const [staffList, setStaffList] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
+  const [addresses, setAddresses] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
@@ -74,6 +76,15 @@ export default function CRM({ session, staff }) {
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
+
+    // Адреса грузим отдельно — таблицы может ещё не быть (миграция не запущена)
+    const addr = await supabase.from('addresses').select('*').order('sort_order').order('id')
+    if (addr.error) {
+      console.warn('addresses not available:', addr.error.message)
+      setAddresses([])
+    } else {
+      setAddresses(addr.data || [])
+    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -95,6 +106,7 @@ export default function CRM({ session, staff }) {
     ]},
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
+      { id: 'addresses', icon: '📍', label: 'Адреса', show: isAdmin },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
     ]},
     { section: 'Управление', items: [
@@ -104,7 +116,7 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, reload: load, role, isAdmin, isDirector, staff }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff }
 
   const SidebarContent = () => (
     <>
@@ -193,6 +205,7 @@ export default function CRM({ session, staff }) {
           {page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
           {page === 'directions'    && <DirectionsPage {...props} />}
+          {page === 'addresses'     && isAdmin && <AddressesPage {...props} />}
           {page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
           {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
           {page === 'finance'       && isDirector && <FinancePage {...props} />}

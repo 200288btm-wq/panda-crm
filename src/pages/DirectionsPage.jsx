@@ -103,12 +103,10 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, teachers, onChange, onRemove, isOnly, idx }) {
+function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
-  // Если родитель сменил group._key (например, после удаления соседней) — пересоберём slots
-  // (но в типичном UX этого не нужно, просто фоллбек)
   useEffect(() => {
     setSlots(parseSlots(group.schedule || ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,6 +147,19 @@ function GroupBlock({ group, teachers, onChange, onRemove, isOnly, idx }) {
           </select>
         </div>
       </div>
+      <div className="form-group">
+        <label className="form-label">Адрес</label>
+        <select className="form-input" value={group.address_id || ''}
+          onChange={e => onChange({ ...group, address_id: e.target.value ? +e.target.value : null })}>
+          <option value="">— не указан —</option>
+          {addresses.map(a => <option key={a.id} value={a.id}>{a.name}{a.address ? ` (${a.address})` : ''}</option>)}
+        </select>
+        {addresses.length === 0 && (
+          <div style={{ fontSize:11, color:T.muted, marginTop:3 }}>
+            Чтобы выбрать адрес — добавьте его в разделе «📍 Адреса».
+          </div>
+        )}
+      </div>
       <div className="form-group" style={{ marginBottom:0 }}>
         <label className="form-label">Расписание подгруппы</label>
         <ScheduleBuilder slots={slots} compact onChange={handleSlots} />
@@ -157,7 +168,7 @@ function GroupBlock({ group, teachers, onChange, onRemove, isOnly, idx }) {
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, subscriptions, onClose, onSave }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, onClose, onSave }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -178,10 +189,11 @@ function DirectionModal({ direction, directionGroups, teachers, subscriptions, o
         id: g.id,
         name: g.name || '',
         teacher_id: g.teacher_id || null,
+        address_id: g.address_id || null,
         schedule: g.schedule || '',
       }))
     }
-    return [{ _key: `new-${Date.now()}`, name: 'Основная', teacher_id: null, schedule: '' }]
+    return [{ _key: `new-${Date.now()}`, name: 'Основная', teacher_id: null, address_id: null, schedule: '' }]
   })
 
   const set = (k,v) => setF(p => ({...p, [k]:v}))
@@ -195,7 +207,7 @@ function DirectionModal({ direction, directionGroups, teachers, subscriptions, o
     setGroups(prev => prev.map((g, i) => i === idx ? { ...newGroup, _key: g._key } : g))
   }
   const addGroup = () => {
-    setGroups(prev => [...prev, { _key: `new-${Date.now()}-${Math.random()}`, name: '', teacher_id: null, schedule: '' }])
+    setGroups(prev => [...prev, { _key: `new-${Date.now()}-${Math.random()}`, name: '', teacher_id: null, address_id: null, schedule: '' }])
   }
   const removeGroup = (idx) => {
     setGroups(prev => prev.filter((_, i) => i !== idx))
@@ -264,7 +276,7 @@ function DirectionModal({ direction, directionGroups, teachers, subscriptions, o
           У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
         </div>
         {groups.map((g, idx) => (
-          <GroupBlock key={g._key} group={g} teachers={teachers} idx={idx}
+          <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
             isOnly={groups.length === 1}
             onChange={ng => updateGroup(idx, ng)}
             onRemove={() => removeGroup(idx)} />
@@ -297,7 +309,7 @@ function DirectionModal({ direction, directionGroups, teachers, subscriptions, o
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, subscriptions=[], reload, isAdmin }) {
+export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
@@ -351,6 +363,7 @@ export default function DirectionsPage({ directions, clients, teachers, subscrip
         direction_id: directionId,
         name: g.name,
         teacher_id: g.teacher_id || null,
+        address_id: g.address_id || null,
         schedule: g.schedule || null,
         sort_order: i,
       }
@@ -422,10 +435,17 @@ export default function DirectionsPage({ directions, clients, teachers, subscrip
                   {subgroups.map(sg => {
                     const slots = parseSlots(sg.schedule || '')
                     const teacher = sg.teacher_id ? teachers.find(t => t.id === sg.teacher_id) : null
+                    const addr = sg.address_id ? addresses.find(a => a.id === sg.address_id) : null
                     return (
                       <div key={sg.id} style={{ background: color+'10', borderLeft:`3px solid ${color}`, borderRadius:8, padding:'8px 10px' }}>
                         <div style={{ fontWeight:800, fontSize:13, color:T.ink, marginBottom:3 }}>📍 {sg.name}</div>
-                        <div style={{ fontSize:12, color:T.muted, marginBottom:4 }}>👩‍🏫 {teacher?.name || '— педагог не назначен —'}</div>
+                        <div style={{ fontSize:12, color:T.muted, marginBottom:3 }}>👩‍🏫 {teacher?.name || '— педагог не назначен —'}</div>
+                        {addr && (
+                          <div style={{ fontSize:12, marginBottom:4, display:'flex', alignItems:'center', gap:4 }}>
+                            <span style={{ width:8, height:8, borderRadius:'50%', background:addr.color||'#999', display:'inline-block', flexShrink:0 }} />
+                            <span style={{ color:T.muted }}>{addr.name}</span>
+                          </div>
+                        )}
                         {slots.length > 0 ? (
                           <div style={{ display:'flex', flexWrap:'wrap', gap:3 }}>
                             {slots.map((s,i)=><span key={i} style={{ display:'inline-flex', alignItems:'center', gap:3, padding:'2px 6px', borderRadius:6, fontSize:11, fontWeight:700, background:color+'22', color }}>{s.day} {s.time}</span>)}
@@ -494,8 +514,8 @@ export default function DirectionsPage({ directions, clients, teachers, subscrip
         </div>
       )}
 
-      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} subscriptions={subscriptions} onClose={()=>setShowAdd(false)} onSave={save} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} subscriptions={subscriptions} onClose={()=>setShowEdit(null)} onSave={save} />}
+      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} onClose={()=>setShowAdd(false)} onSave={save} />}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} onClose={()=>setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
