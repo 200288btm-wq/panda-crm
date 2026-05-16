@@ -35,8 +35,19 @@ const slotsToStr = (slots) => {
   }).join(', ')
 }
 
-const calcAutoPrice = (dirId, subscriptions) => {
-  const rel = subscriptions.filter(s => s.is_active && ((s.direction_ids||[]).length === 0 || (s.direction_ids||[]).includes(dirId)))
+const calcAutoPrice = (direction, subscriptions) => {
+  if (!direction) return { singlePrice: null, avgPrice: null, count: 0 }
+  const catIds = direction.category_ids || []
+  const rel = subscriptions.filter(s => {
+    if (!s.is_active) return false
+    if (catIds.length > 0) {
+      // Новая логика: абонемент попадает, если его category_id есть в категориях направления
+      if (s.category_id && catIds.includes(s.category_id)) return true
+      return false
+    }
+    // Fallback на старую логику для направлений без категорий (legacy)
+    return (s.direction_ids||[]).length === 0 || (s.direction_ids||[]).includes(direction.id)
+  })
   const single = rel.filter(s => s.lessons_count === 1)
   const multi = rel.filter(s => s.lessons_count > 1 && s.period !== 'Не ограничен')
   return {
@@ -168,7 +179,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, onClose, onSave }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], onClose, onSave }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -176,10 +187,10 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
 
   const [f, setF] = useState(direction ? {
     name: direction.name||'', launched: direction.launched||'',
-    cost_abo: direction.cost_abo||0, cost_single: direction.cost_single||0,
     duration: direction.duration||'1 час',
     color: direction.color||DIRECTION_COLORS[0], max_capacity: direction.max_capacity||0,
-  } : { name:'', launched:'', cost_abo:0, cost_single:0, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0 })
+    category_ids: direction.category_ids || [],
+  } : { name:'', launched:'', duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -199,9 +210,10 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   const set = (k,v) => setF(p => ({...p, [k]:v}))
 
   const autoPrice = useMemo(() => {
-    if (!direction?.id) return null
-    return calcAutoPrice(direction.id, subscriptions||[])
-  }, [direction?.id, subscriptions])
+    // Считаем по выбранным категориям в форме, а не только по сохранённым в БД
+    const directionLike = { id: direction?.id, category_ids: f.category_ids || [] }
+    return calcAutoPrice(directionLike, subscriptions || [])
+  }, [direction?.id, f.category_ids, subscriptions])
 
   const updateGroup = (idx, newGroup) => {
     setGroups(prev => prev.map((g, i) => i === idx ? { ...newGroup, _key: g._key } : g))
@@ -222,10 +234,12 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     }
     onSave({
       direction: {
-        ...f,
-        cost_abo: +f.cost_abo,
-        cost_single: +f.cost_single,
-        max_capacity: +f.max_capacity,
+        name: f.name,
+        launched: f.launched,
+        duration: f.duration,
+        color: f.color,
+        max_capacity: +f.max_capacity || 0,
+        category_ids: f.category_ids || [],
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -283,28 +297,69 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         ))}
       </div>
 
+      {/* Категории стоимости */}
+      <div className="form-group">
+        <label className="form-label">Категории стоимости</label>
+        {priceCategories.length === 0 ? (
+          <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
+            Категорий пока нет. Добавь их в разделе «🎟️ Стоимость».
+          </div>
+        ) : (
+          <>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4 }}>
+              {priceCategories.map(c => {
+                const on = (f.category_ids || []).includes(c.id)
+                return (
+                  <div key={c.id} onClick={() => {
+                    const ids = f.category_ids || []
+                    set('category_ids', ids.includes(c.id) ? ids.filter(x => x !== c.id) : [...ids, c.id])
+                  }} style={{
+                    display:'inline-flex', alignItems:'center', gap:6, padding:'7px 12px',
+                    borderRadius:10, cursor:'pointer', transition:'all 0.15s',
+                    background: on ? T.greenBg : T.cream,
+                    border:`2px solid ${on ? T.green : T.border}`,
+                    color: on ? T.greenDark : T.muted,
+                    fontWeight: 700, fontSize: 12,
+                  }}>
+                    {on && '✓ '}{c.name}
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ fontSize:11, color:T.muted, marginTop:6 }}>
+              При оплате занятия будут показаны абонементы выбранных категорий
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Превью цен из выбранных категорий */}
       {autoPrice && autoPrice.count > 0 && (
         <div style={{ background:T.greenBg, borderRadius:12, padding:'12px 14px', marginBottom:14 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:T.greenDark, marginBottom:8 }}>🧮 Из абонементов ({autoPrice.count} шт.)</div>
-          <div style={{ display:'flex', gap:16, marginBottom:8 }}>
-            {autoPrice.avgPrice!==null && <div><div style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:'uppercase'}}>Среднее / занятие</div><div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:18,color:T.greenDark}}>{fmt(autoPrice.avgPrice)}</div></div>}
-            {autoPrice.singlePrice!==null && <div><div style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:'uppercase'}}>Разовое</div><div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:18,color:'#c47a00'}}>{fmt(autoPrice.singlePrice)}</div></div>}
+          <div style={{ fontSize:12, fontWeight:700, color:T.greenDark, marginBottom:8 }}>
+            💳 Цены из выбранных категорий ({autoPrice.count} абонементов)
           </div>
-          <div style={{ display:'flex', gap:8 }}>
-            {autoPrice.avgPrice!==null && <button type="button" className="btn btn-sm" style={{background:T.green,color:'white',fontSize:11}} onClick={()=>set('cost_abo',autoPrice.avgPrice)}>Применить среднее →</button>}
-            {autoPrice.singlePrice!==null && <button type="button" className="btn btn-sm btn-outline" style={{fontSize:11}} onClick={()=>set('cost_single',autoPrice.singlePrice)}>Применить разовое →</button>}
+          <div style={{ display:'flex', gap:24 }}>
+            {autoPrice.avgPrice !== null && (
+              <div>
+                <div style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:'uppercase'}}>Среднее / занятие</div>
+                <div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:20,color:T.greenDark}}>{fmt(autoPrice.avgPrice)}</div>
+              </div>
+            )}
+            {autoPrice.singlePrice !== null && (
+              <div>
+                <div style={{fontSize:10,color:T.muted,fontWeight:600,textTransform:'uppercase'}}>Разовое</div>
+                <div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:20,color:'#c47a00'}}>{fmt(autoPrice.singlePrice)}</div>
+              </div>
+            )}
           </div>
         </div>
       )}
-
-      <div className="form-row">
-        <div className="form-group"><label className="form-label">Стоимость с абонементом, ₽</label>
-          <input className="form-input" type="number" value={f.cost_abo} onChange={e=>set('cost_abo',e.target.value)} />
+      {autoPrice && autoPrice.count === 0 && (f.category_ids || []).length > 0 && (
+        <div style={{ background:'#fff4e6', borderRadius:12, padding:'10px 14px', marginBottom:14, fontSize:12, color:'#c47a00' }}>
+          ⚠️ В выбранных категориях пока нет активных абонементов. Добавь их в разделе «🎟️ Стоимость».
         </div>
-        <div className="form-group"><label className="form-label">Разовое занятие, ₽</label>
-          <input className="form-input" type="number" value={f.cost_single} onChange={e=>set('cost_single',e.target.value)} />
-        </div>
-      </div>
+      )}
     </Modal>
   )
 }
@@ -314,6 +369,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
   const [directionGroups, setDirectionGroups] = useState([])
+  const [priceCategories, setPriceCategories] = useState([])
 
   const loadGroups = async () => {
     const { data, error } = await supabase
@@ -329,7 +385,18 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     setDirectionGroups(data || [])
   }
 
-  useEffect(() => { loadGroups() }, [])
+  const loadCategories = async () => {
+    const { data, error } = await supabase
+      .from('price_categories').select('*').order('sort_order').order('id')
+    if (error) {
+      console.warn('price_categories not available:', error.message)
+      setPriceCategories([])
+      return
+    }
+    setPriceCategories(data || [])
+  }
+
+  useEffect(() => { loadGroups(); loadCategories() }, [])
 
   const save = async ({ direction: dirData, groups: groupList }) => {
     let directionId = showEdit?.id
@@ -406,7 +473,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         {directions.map(d => {
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
           const color = d.color||DIRECTION_COLORS[0]
-          const auto = calcAutoPrice(d.id, subscriptions)
+          const auto = calcAutoPrice(d, subscriptions)
           const cap = d.max_capacity||0
           const isFull = cap>0 && cnt>=cap
           const isNear = cap>0 && cnt>=cap*0.8
@@ -473,15 +540,30 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 </>
               )}
 
+              {/* Блок категорий */}
+              {(d.category_ids || []).length > 0 && (
+                <div style={{ display:'flex', flexWrap:'wrap', gap:4, marginBottom:10 }}>
+                  {(d.category_ids || []).map(cid => {
+                    const cat = priceCategories.find(c => c.id === cid)
+                    if (!cat) return null
+                    return (
+                      <span key={cid} className="badge" style={{ background: T.greenBg, color: T.greenDark, fontWeight:700 }}>
+                        🏷 {cat.name}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+
               <div style={{ display:'flex', gap:8 }}>
                 <div style={{ flex:1, background:T.greenBg, borderRadius:10, padding:'8px 12px', textAlign:'center' }}>
                   <div style={{ fontSize:10, color:T.greenDark, fontWeight:700, textTransform:'uppercase', marginBottom:2 }}>С абонементом</div>
-                  <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:18, color:T.greenDark }}>{auto.avgPrice?fmt(auto.avgPrice):(d.cost_abo?fmt(d.cost_abo):'—')}</div>
+                  <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:18, color:T.greenDark }}>{auto.avgPrice?fmt(auto.avgPrice):'—'}</div>
                   {auto.avgPrice&&<div style={{fontSize:9,color:T.muted}}>среднее из абонементов</div>}
                 </div>
                 <div style={{ flex:1, background:'#fff4e6', borderRadius:10, padding:'8px 12px', textAlign:'center' }}>
                   <div style={{ fontSize:10, color:'#c47a00', fontWeight:700, textTransform:'uppercase', marginBottom:2 }}>Разовое</div>
-                  <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:18, color:'#c47a00' }}>{auto.singlePrice?fmt(auto.singlePrice):(d.cost_single?fmt(d.cost_single):'—')}</div>
+                  <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:18, color:'#c47a00' }}>{auto.singlePrice?fmt(auto.singlePrice):'—'}</div>
                 </div>
               </div>
               {auto.count>0 && (
@@ -503,19 +585,43 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
               <button className="btn btn-ghost btn-icon" onClick={()=>setShowDetail(null)}>✕</button>
             </div>
             <div className="modal-body">
-              {subscriptions.filter(s=>s.is_active&&((s.direction_ids||[]).length===0||(s.direction_ids||[]).includes(showDetail.id))).map(s=>(
-                <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:`1px solid ${T.border}`}}>
-                  <div><div style={{fontWeight:700,fontSize:14}}>{s.name}</div><div style={{fontSize:12,color:T.muted}}>{s.lessons_count} зан. · {s.period}{s.notes?` · ${s.notes}`:''}</div></div>
-                  <div style={{textAlign:'right'}}><div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:18,color:T.greenDark}}>{fmt(s.price)}</div>{s.lessons_count>1&&<div style={{fontSize:11,color:T.muted}}>{fmt(Math.round(s.price/s.lessons_count))}/зан.</div>}</div>
-                </div>
-              ))}
+              {(() => {
+                const catIds = showDetail.category_ids || []
+                const relevant = subscriptions.filter(s => {
+                  if (!s.is_active) return false
+                  if (catIds.length > 0) return s.category_id && catIds.includes(s.category_id)
+                  // Fallback на старую логику для направлений без категорий
+                  return (s.direction_ids||[]).length === 0 || (s.direction_ids||[]).includes(showDetail.id)
+                })
+                if (relevant.length === 0) {
+                  return <div style={{ padding:'20px 0', textAlign:'center', color:T.muted, fontSize:13 }}>В категориях этого направления пока нет абонементов</div>
+                }
+                return relevant.map(s => {
+                  const cat = priceCategories.find(c => c.id === s.category_id)
+                  return (
+                    <div key={s.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 0',borderBottom:`1px solid ${T.border}`}}>
+                      <div>
+                        <div style={{fontWeight:700,fontSize:14}}>{s.name}</div>
+                        <div style={{fontSize:12,color:T.muted}}>
+                          {cat && <>🏷 {cat.name} · </>}
+                          {s.lessons_count} зан. · {s.period}{s.notes?` · ${s.notes}`:''}
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontFamily:'Nunito,sans-serif',fontWeight:900,fontSize:18,color:T.greenDark}}>{fmt(s.price)}</div>
+                        {s.lessons_count>1&&<div style={{fontSize:11,color:T.muted}}>{fmt(Math.round(s.price/s.lessons_count))}/зан.</div>}
+                      </div>
+                    </div>
+                  )
+                })
+              })()}
             </div>
           </div>
         </div>
       )}
 
-      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} onClose={()=>setShowAdd(false)} onSave={save} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} onClose={()=>setShowEdit(null)} onSave={save} />}
+      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowAdd(false)} onSave={save} />}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowEdit(null)} onSave={save} />}
     </div>
   )
 }

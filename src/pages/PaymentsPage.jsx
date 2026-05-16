@@ -25,10 +25,19 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
     if (client) setDiscount(client.discount || 0)
   }, [clientId])
 
-  // Get available subscriptions for selected direction
+  // Получаем доступные абонементы для выбранного направления.
+  // Новая логика: фильтруем по category_id абонемента и category_ids направления.
+  // Fallback: если у направления нет категорий (legacy) — используем старую логику с direction_ids.
   const availableSubs = subscriptions.filter(s => {
     if (!s.is_active) return false
     if (!dirId) return true
+    const dir = directions.find(d => d.id === +dirId)
+    const catIds = dir?.category_ids || []
+    if (catIds.length > 0) {
+      // Новая логика
+      return s.category_id && catIds.includes(s.category_id)
+    }
+    // Legacy fallback
     const dids = s.direction_ids || []
     return dids.length === 0 || dids.includes(+dirId)
   })
