@@ -62,140 +62,37 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
-// Если есть подгруппы для направления — итерируемся по ним (своё расписание и педагог).
-// Если нет — fallback на старое поле d.schedule + d.teacher_name (обратная совместимость).
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups, addresses, filterAddress, colorMode) => {
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers) => {
   const dow = date.getDay()
   const dayKey = DOW_TO_KEY[dow]
   const events = []
-
-  // Группируем подгруппы по direction_id для быстрого доступа
-  const groupsByDir = {}
-  ;(directionGroups || []).forEach(g => {
-    if (!groupsByDir[g.direction_id]) groupsByDir[g.direction_id] = []
-    groupsByDir[g.direction_id].push(g)
-  })
-
-  // Множество выбранных подгрупп (для фильтра). Пусто = фильтр по подгруппам не активен.
-  const filterGroupSet = new Set((filterGroups || []).map(String))
-
-  // Справочник адресов по id
-  const addrById = {}
-  ;(addresses || []).forEach(a => { addrById[a.id] = a })
-
   directions.forEach(d => {
-    // Применяем фильтр направления (общий для всех подгрупп)
+    // Check if this direction has a slot for this day
+    const timeForDay = getTimeForDow(dow, d.schedule)
+    if (!timeForDay) return
+    // filterDir can be 'all', a single id string, or array of ids
     if (Array.isArray(filterDir)) {
       if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
     } else {
       if (filterDir !== 'all' && String(d.id) !== filterDir) return
     }
+    if (filterTeacher !== 'all') {
+      const t = teachers.find(t => String(t.id) === filterTeacher)
+      if (t && !(t.direction_ids||[]).includes(d.id)) return
+    }
     if (filterChild !== 'all') {
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
-
-    const subgroups = groupsByDir[d.id] || []
-    // Источники "ячеек расписания": либо подгруппы, либо одна виртуальная запись из старых полей направления
-    const sources = subgroups.length
-      ? subgroups.map(sg => ({
-          schedule: sg.schedule,
-          teacher_id: sg.teacher_id,
-          teacher_name: sg.teacher_id ? (teachers.find(t => t.id === sg.teacher_id)?.name || '') : '',
-          group_name: sg.name,
-          group_id: sg.id,
-          address_id: sg.address_id || null,
-        }))
-      : [{
-          schedule: d.schedule,
-          teacher_id: null,
-          teacher_name: d.teacher_name || '',
-          group_name: null,
-          group_id: null,
-          address_id: null,
-        }]
-
-    // Фильтр по подгруппам: активен только для тех направлений, у которых
-    // в фильтре выбрана хотя бы одна подгруппа. Иначе направление показывается целиком.
-    const dirHasGroupFilter = subgroups.some(sg => filterGroupSet.has(String(sg.id)))
-
-    sources.forEach(src => {
-      // Если для этого направления активен фильтр подгрупп — показываем только выбранные
-      if (dirHasGroupFilter && (!src.group_id || !filterGroupSet.has(String(src.group_id)))) return
-
-      // Фильтр по адресу
-      if (filterAddress && filterAddress !== 'all') {
-        if (String(src.address_id || '') !== String(filterAddress)) return
-      }
-
-      const timeForDay = getTimeForDow(dow, src.schedule)
-      if (!timeForDay) return
-
-      // Фильтр педагога — теперь работает по teacher_id подгруппы
-      if (filterTeacher !== 'all') {
-        if (src.teacher_id) {
-          if (String(src.teacher_id) !== filterTeacher) return
-        } else {
-          // Fallback: старая логика для направлений без подгрупп
-          const t = teachers.find(t => String(t.id) === filterTeacher)
-          if (t && !(t.direction_ids||[]).includes(d.id)) return
-        }
-      }
-
-      const timeMin = parseTime(timeForDay)
-      if (timeMin === null) return
-
-      // Фильтр студентов:
-      // 1. Привязан к направлению (direction_ids содержит d.id)
-      // 2. Активен
-      // 3. Если у ребёнка указаны group_ids И есть пересечение с подгруппами этого направления —
-      //    показываем только в тех подгруппах, которые он выбрал
-      //    Если group_ids нет или нет пересечения с подгруппами направления — показываем во всех
-      const directionSubgroupIds = (groupsByDir[d.id] || []).map(g => g.id)
-      let students = clients.filter(c => {
-        if (!(c.direction_ids||[]).includes(d.id)) return false
-        if (c.status !== 'Активен') return false
-        // Подгруппы этого ребёнка для текущего направления
-        const childGroupsForDir = (c.group_ids || []).filter(gid => directionSubgroupIds.includes(gid))
-        if (childGroupsForDir.length === 0) {
-          // Ребёнок не привязан к конкретной подгруппе — показываем во всех занятиях направления
-          return true
-        }
-        // Показываем только в выбранных подгруппах
-        return src.group_id && childGroupsForDir.includes(src.group_id)
-      })
-      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
-
-      // Если выбран конкретный ребёнок, но в этом занятии/подгруппе его нет —
-      // не показываем само занятие (а не показываем его пустым).
-      // Это и есть «автофильтр по ребёнку»: видны только те подгруппы, куда он записан.
-      if (filterChild !== 'all' && students.length === 0) return
-
-      // Имя для отображения: «Направление · Подгруппа»
-      const displayName = src.group_name
-        ? `${d.name} · ${src.group_name}`
-        : d.name
-
-      // Адрес подгруппы
-      const addr = src.address_id ? addrById[src.address_id] : null
-      const dirColor = d.color || DEFAULT_COLOR
-      const addrColor = addr?.color || DEFAULT_COLOR
-      // Цвет события зависит от режима окраски календаря
-      const eventColor = colorMode === 'address' ? addrColor : dirColor
-
-      events.push({
-        name: displayName,
-        baseName: d.name,
-        groupName: src.group_name,
-        timeMin, time: timeForDay,
-        teacher: src.teacher_name, dirId: d.id, groupId: src.group_id, students,
-        addressId: src.address_id || null,
-        addressName: addr?.name || null,
-        addressColor: addrColor,
-        dirColor,
-        color: eventColor, duration: d.duration || '1 час',
-        durationMin: parseDuration(d.duration),
-      })
+    const timeMin = parseTime(timeForDay)
+    if (timeMin === null) return
+    let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+    if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+    events.push({
+      name: d.name, timeMin, time: timeForDay,
+      teacher: d.teacher_name, dirId: d.id, students,
+      color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
+      durationMin: parseDuration(d.duration),
     })
   })
   events.sort((a,b) => a.timeMin - b.timeMin)
@@ -250,10 +147,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}` }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{ev.name}</div>
-                <div style={{ fontSize:12, color:T.muted }}>
-                  🕐 {ev.time} · ⏱ {ev.duration} · 👩‍🏫 {ev.teacher}
-                  {ev.addressName && <> · 📍 {ev.addressName}</>}
-                </div>
+                <div style={{ fontSize:12, color:T.muted }}>🕐 {ev.time} · ⏱ {ev.duration} · 👩‍🏫 {ev.teacher}</div>
               </div>
               <span className="badge badge-green">{presentCount}/{ev.students.length}</span>
             </div>
@@ -287,7 +181,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, directionGroups, clients, teachers, addresses, filterDir, filterGroups, filterTeacher, filterChild, filterAddress, colorMode, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -295,7 +189,7 @@ function TimeGrid({ dates, directions, directionGroups, clients, teachers, addre
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups, addresses, filterAddress, colorMode)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -394,15 +288,14 @@ function TimeGrid({ dates, directions, directionGroups, clients, teachers, addre
               return (
                 <div key={ei} onClick={() => onDayClick(date)} style={{
                   position:'absolute', top, left, width, height,
-                  background: ev.color, borderLeft:`4px solid ${ev.color}`,
-                  borderRadius:'0 8px 8px 0',
-                  padding:'4px 6px', cursor:'pointer', zIndex:3, overflow:'hidden',
-                  boxSizing:'border-box', boxShadow:'0 1px 3px rgba(0,0,0,0.12)',
+                  background: ev.color+'33', borderLeft:`3px solid ${ev.color}`,
+                  borderRadius:'0 8px 8px 0', border:`1px solid ${ev.color}44`,
+                  padding:'3px 5px', cursor:'pointer', zIndex:3, overflow:'hidden',
+                  boxSizing:'border-box',
                 }}>
-                  <div style={{ fontSize:11, fontWeight:800, color:'#ffffff', lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
-                  {height > 28 && <div style={{ fontSize:9.5, fontWeight:600, color:'rgba(255,255,255,0.92)' }}>{ev.time} · {ev.students.length} чел.</div>}
-                  {height > 44 && <div style={{ fontSize:9.5, fontWeight:600, color:'rgba(255,255,255,0.85)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
-                  {height > 60 && ev.addressName && <div style={{ fontSize:9.5, fontWeight:600, color:'rgba(255,255,255,0.85)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>📍 {ev.addressName}</div>}
+                  <div style={{ fontSize:10, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
+                  {height > 28 && <div style={{ fontSize:9, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
+                  {height > 44 && <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
                 </div>
               )
             })}
@@ -421,12 +314,20 @@ function TimeGrid({ dates, directions, directionGroups, clients, teachers, addre
 }
 
 // Month view
-function MonthView({ year, month, directions, directionGroups, clients, teachers, addresses, filterDir, filterGroups, filterTeacher, filterChild, filterAddress, colorMode, onDayClick, onlyWithStudents }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
   const now = new Date()
   const firstDow = new Date(year, month, 1).getDay()
   const offset = (firstDow + 6) % 7
   const daysInMonth = new Date(year, month+1, 0).getDate()
   const cells = Array(offset).fill(null).concat(Array.from({ length:daysInMonth }, (_,i) => i+1))
+
+  // Определяем, мобильное ли устройство (≤640px)
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth <= 640)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 640)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   return (
     <div className="cal-outer">
@@ -435,7 +336,7 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, directionGroups, filterGroups, addresses, filterAddress, colorMode)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -449,26 +350,54 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
           })
           const timeGroups = Object.entries(byTime).sort((a,b) => a[0].localeCompare(b[0]))
 
+          // ===== Мобильная версия: компактный день с точками =====
+          if (isMobile) {
+            // Собираем уникальные цвета занятий в этот день (макс. 4 точки)
+            const uniqueColors = []
+            events.forEach(e => {
+              if (!uniqueColors.includes(e.color)) uniqueColors.push(e.color)
+            })
+            const dotsToShow = uniqueColors.slice(0, 4)
+            const moreCount = uniqueColors.length - dotsToShow.length
+
+            return (
+              <div key={i} className={`cal-day cal-day-mobile ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}>
+                <div className="cal-daynum-mobile" style={{ color: dayDate > today0 ? T.muted : T.ink, fontWeight: isToday ? 800 : 600 }}>{day}</div>
+                {events.length > 0 && (
+                  <div className="cal-dots">
+                    {dotsToShow.map((c, di) => (
+                      <span key={di} className="cal-dot" style={{ background: c }} />
+                    ))}
+                    {moreCount > 0 && (
+                      <span className="cal-dot-more">+{moreCount}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // ===== Десктопная версия: как было =====
           return (
             <div key={i} className={`cal-day ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}>
               <div className="cal-daynum" style={{ color: dayDate > today0 ? T.muted : T.ink }}>{day}</div>
               {timeGroups.map(([time, group], gi) => (
-                <div key={gi} style={{ marginBottom:3 }}>
+                <div key={gi} style={{ marginBottom:2 }}>
                   {group.length === 1 ? (
-                    // Single event — full width, насыщенный фон + белый текст для контраста
+                    // Single event — full width
                     <div className="cal-event"
-                      style={{ background:group[0].color, color:'#ffffff', borderRadius:4, paddingLeft:4, paddingRight:3, fontWeight:700, fontSize:9.5, lineHeight:1.35 }}
+                      style={{ background:group[0].color+'33', color:group[0].color, borderLeft:'3px solid '+group[0].color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
                       title={group[0].name+' · '+group[0].students.length+' чел.'}>
-                      {time} {group[0].baseName.split(' ')[0]}{group[0].groupName ? ' · '+group[0].groupName : ''}
+                      {time} {group[0].name.split(' ')[0]}
                     </div>
                   ) : (
                     // Multiple events same time — side by side
-                    <div style={{ display:'flex', gap:2 }}>
+                    <div style={{ display:'flex', gap:1 }}>
                       {group.map((e, ei) => (
                         <div key={ei} className="cal-event"
-                          style={{ flex:1, minWidth:0, background:e.color, color:'#ffffff', borderRadius:4, paddingLeft:3, paddingRight:2, fontSize:8.5, fontWeight:700, lineHeight:1.3 }}
+                          style={{ flex:1, minWidth:0, background:e.color+'33', color:e.color, borderLeft:'2px solid '+e.color, borderRadius:'0 3px 3px 0', paddingLeft:2, fontSize:8 }}
                           title={e.name+' · '+e.students.length+' чел.'}>
-                          {ei === 0 ? time+' ' : ''}{e.groupName ? e.groupName : e.baseName.split(' ')[0]}
+                          {ei === 0 ? time+' ' : ''}{e.name.split(' ')[0]}
                         </div>
                       ))}
                     </div>
@@ -483,39 +412,15 @@ function MonthView({ year, month, directions, directionGroups, clients, teachers
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload }) {
+export default function CalendarPage({ directions, clients, teachers, staff, role, reload }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
   const [selectedDay, setSelectedDay] = useState(null)
-  const [directionGroups, setDirectionGroups] = useState([])
-
-  // Загружаем подгруппы направлений (с обратной совместимостью: если таблицы нет — пустой массив)
-  useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      const { data, error } = await supabase
-        .from('direction_groups')
-        .select('*')
-        .order('sort_order', { ascending: true })
-      if (cancelled) return
-      if (error) {
-        console.warn('direction_groups not available:', error.message)
-        setDirectionGroups([])
-        return
-      }
-      setDirectionGroups(data || [])
-    }
-    load()
-    return () => { cancelled = true }
-  }, [reload])
 
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
-  const [filterGroups, setFilterGroups] = useState([]) // empty = все подгруппы выбранных направлений
   const [filterChild, setFilterChild] = useState('all')
-  const [filterAddress, setFilterAddress] = useState('all') // 'all' | id адреса
-  const [colorMode, setColorMode] = useState('direction') // 'direction' | 'address'
   const [onlyWithStudents, setOnlyWithStudents] = useState(false)
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
@@ -601,38 +506,6 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           </select>
         </div>
 
-        {addresses.length > 0 && (
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Адрес:</span>
-            <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>
-              <option value="all">Все</option>
-              {addresses.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-            </select>
-          </div>
-        )}
-
-        {addresses.length > 0 && (
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Цвет:</span>
-            <div style={{ display:'flex', gap:0, borderRadius:8, overflow:'hidden', border:`1.5px solid ${T.border}` }}>
-              <button
-                onClick={() => setColorMode('direction')}
-                style={{ padding:'5px 10px', fontSize:12, fontWeight:700, border:'none', cursor:'pointer',
-                  background: colorMode === 'direction' ? T.green : T.cream,
-                  color: colorMode === 'direction' ? 'white' : T.muted }}>
-                По направлениям
-              </button>
-              <button
-                onClick={() => setColorMode('address')}
-                style={{ padding:'5px 10px', fontSize:12, fontWeight:700, border:'none', cursor:'pointer',
-                  background: colorMode === 'address' ? T.green : T.cream,
-                  color: colorMode === 'address' ? 'white' : T.muted }}>
-                По адресам
-              </button>
-            </div>
-          </div>
-        )}
-
         <button
           className="btn btn-sm"
           onClick={() => setOnlyWithStudents(v => !v)}
@@ -640,8 +513,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
         </button>
 
-        {(filterDirs.length > 0 || filterGroups.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || filterAddress !== 'all' || colorMode !== 'direction' || onlyWithStudents) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterGroups([]); setFilterTeacher('all'); setFilterChild('all'); setFilterAddress('all'); setColorMode('direction'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
+        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -660,9 +533,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {view === 'month' && (
         <MonthView
           year={currentDate.getFullYear()} month={currentDate.getMonth()}
-          directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers} addresses={addresses}
-          filterDir={filterDir} filterGroups={filterGroups} filterTeacher={effectiveTeacher} filterChild={filterChild}
-          filterAddress={filterAddress} colorMode={colorMode}
+          directions={directions} clients={clients} teachers={teachers}
+          filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
@@ -670,76 +542,36 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {(view === 'week' || view === 'day') && (
         <TimeGrid
           dates={view === 'week' ? weekDates : [currentDate]}
-          directions={directions} directionGroups={directionGroups} clients={clients} teachers={teachers} addresses={addresses}
-          filterDir={filterDir} filterGroups={filterGroups} filterTeacher={effectiveTeacher} filterChild={filterChild}
-          filterAddress={filterAddress} colorMode={colorMode}
+          directions={directions} clients={clients} teachers={teachers}
+          filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
         />
       )}
 
-      {/* Direction chips - multiselect, с подгруппами */}
+      {/* Direction chips - multiselect */}
       <div className="card card-pad" style={{ marginTop:16 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14 }}>🎯 Фильтр по направлениям <span style={{ fontSize:12, color:T.muted, fontWeight:400 }}>(можно выбрать несколько)</span></div>
-          {(filterDirs.length > 0 || filterGroups.length > 0) && <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterGroups([]) }}>✕ Все</button>}
+          {filterDirs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setFilterDirs([])}>✕ Все</button>}
         </div>
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
           {directions.map(d => {
             const active = filterDirs.includes(String(d.id))
             const color = d.color || DEFAULT_COLOR
             const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
-            const subgroups = directionGroups.filter(g => g.direction_id === d.id)
-            const selectedSubCount = subgroups.filter(sg => filterGroups.includes(String(sg.id))).length
-
-            const toggleDir = () => {
-              const id = String(d.id)
-              if (filterDirs.includes(id)) {
-                // Снимаем направление — заодно убираем его подгруппы из фильтра
-                setFilterDirs(prev => prev.filter(x => x !== id))
-                setFilterGroups(prev => prev.filter(gid => !subgroups.some(sg => String(sg.id) === gid)))
-              } else {
-                setFilterDirs(prev => [...prev, id])
-              }
-            }
-            const toggleGroup = (sgId) => {
-              const gid = String(sgId)
-              setFilterGroups(prev => prev.includes(gid) ? prev.filter(x => x !== gid) : [...prev, gid])
-            }
-
             return (
-              <div key={d.id} style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                <div onClick={toggleDir}
-                  style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
-                  <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
-                    <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
-                  </div>
-                  {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
+              <div key={d.id} onClick={() => {
+                const id = String(d.id)
+                setFilterDirs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+              }}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
+                <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
+                <div>
+                  <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
+                  <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
                 </div>
-
-                {/* Подгруппы — показываем только если направление выбрано и у него есть подгруппы */}
-                {active && subgroups.length > 0 && (
-                  <div style={{ marginLeft:10, paddingLeft:10, borderLeft:`2px solid ${color}44`, display:'flex', flexDirection:'column', gap:4 }}>
-                    <div style={{ fontSize:10, color:T.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-                      📍 Подгруппы {selectedSubCount === 0 && <span style={{ fontWeight:500, textTransform:'none', letterSpacing:0 }}>(все)</span>}
-                    </div>
-                    <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                      {subgroups.map(sg => {
-                        const sgOn = filterGroups.includes(String(sg.id))
-                        return (
-                          <div key={sg.id} onClick={() => toggleGroup(sg.id)}
-                            style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, cursor:'pointer', transition:'all 0.15s',
-                              background: sgOn ? color+'33' : 'white', border:`1.5px solid ${sgOn ? color : T.border}`,
-                              color: sgOn ? color : T.muted, fontWeight:600, fontSize:11 }}>
-                            {sgOn && '✓ '}{sg.name}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
+                {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
               </div>
             )
           })}
@@ -750,7 +582,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, directionGroups, filterGroups, addresses, filterAddress, colorMode)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers)}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={reload}

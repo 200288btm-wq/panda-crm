@@ -234,6 +234,14 @@ export function GlobalStyles() {
         .cal-day { min-height: 48px; padding: 3px 2px; border-radius: 7px; }
         .cal-event { font-size: 8px; padding: 1px 2px; }
         .cal-daynum { font-size: 10px; margin-bottom: 2px; }
+
+        /* Calendar mobile compact (точки вместо карточек) */
+        .cal-day-mobile { min-height: 44px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; }
+        .cal-daynum-mobile { font-size: 13px; line-height: 1; color: ${T.ink}; }
+        .cal-day-mobile.today .cal-daynum-mobile { color: ${T.greenDark}; font-weight: 800; }
+        .cal-dots { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: center; max-width: 100%; }
+        .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .cal-dot-more { font-size: 8px; font-weight: 700; color: ${T.muted}; line-height: 1; margin-left: 1px; }
       }
 
       @supports (padding-bottom: env(safe-area-inset-bottom)) {
