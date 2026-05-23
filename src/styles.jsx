@@ -242,6 +242,21 @@ export function GlobalStyles() {
         .cal-dots { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: center; max-width: 100%; }
         .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
         .cal-dot-more { font-size: 8px; font-weight: 700; color: ${T.muted}; line-height: 1; margin-left: 1px; }
+
+        /* Calendar controls mobile compact */
+        .cal-controls { gap: 6px !important; margin-bottom: 10px !important; }
+        .cal-tabs { flex: 0 0 auto; }
+        .cal-tabs .tab { padding: 6px 10px !important; font-size: 12px !important; }
+        .cal-divider { display: none !important; }
+        .cal-nav-btn { padding: 5px 9px !important; font-size: 14px !important; min-width: 32px; }
+        .cal-title { font-size: 13px !important; min-width: auto !important; flex: 1; text-align: center !important; padding: 0 4px; }
+        .cal-today-btn { padding: 5px 8px !important; font-size: 11px !important; }
+        .cal-filter { gap: 4px !important; }
+        .cal-filter-label { display: none; }
+        .cal-filter select { padding: 5px 8px !important; font-size: 12px !important; max-width: 110px; }
+        .cal-students-btn { padding: 5px 8px !important; font-size: 12px !important; }
+        .cal-students-label { display: none; }
+        .cal-legend { display: none !important; }
       }
 
       @supports (padding-bottom: env(safe-area-inset-bottom)) {

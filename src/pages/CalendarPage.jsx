@@ -468,29 +468,29 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   return (
     <div>
       {/* Controls */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+      <div className="cal-controls" style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
         {/* View switcher */}
-        <div className="tabs" style={{ marginBottom:0 }}>
+        <div className="tabs cal-tabs" style={{ marginBottom:0 }}>
           {[['month','Месяц'],['week','Неделя'],['day','День']].map(([v,l]) => (
             <button key={v} className={`tab ${view===v?'active':''}`} onClick={() => setView(v)}>{l}</button>
           ))}
         </div>
 
-        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
+        <div className="cal-divider" style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
 
         {/* Navigation */}
-        <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>←</button>
-        <span style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, minWidth:220, textAlign:'center' }}>{getTitle()}</span>
-        <button className="btn btn-outline btn-sm" onClick={() => navigate(1)}>→</button>
-        <button className="btn btn-ghost btn-sm" onClick={goToday}>Сегодня</button>
+        <button className="btn btn-outline btn-sm cal-nav-btn" onClick={() => navigate(-1)}>←</button>
+        <span className="cal-title" style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, minWidth:220, textAlign:'center' }}>{getTitle()}</span>
+        <button className="btn btn-outline btn-sm cal-nav-btn" onClick={() => navigate(1)}>→</button>
+        <button className="btn btn-ghost btn-sm cal-today-btn" onClick={goToday}>Сегодня</button>
 
-        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
+        <div className="cal-divider" style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
 
         {/* Filters */}
 
         {isAdmin && (
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Педагог:</span>
+          <div className="cal-filter" style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span className="cal-filter-label" style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Педагог:</span>
             <select style={selectStyle} value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
               <option value="all">Все</option>
               {teachers.map(t => <option key={t.id} value={String(t.id)}>{t.name.split(' ')[0]} {t.name.split(' ')[1]?.[0]}.</option>)}
@@ -498,8 +498,8 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           </div>
         )}
 
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Ребёнок:</span>
+        <div className="cal-filter" style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span className="cal-filter-label" style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Ребёнок:</span>
           <select style={selectStyle} value={filterChild} onChange={e => setFilterChild(e.target.value)}>
             <option value="all">Все</option>
             {activeClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
@@ -507,10 +507,10 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         </div>
 
         <button
-          className="btn btn-sm"
+          className="btn btn-sm cal-students-btn"
           onClick={() => setOnlyWithStudents(v => !v)}
           style={{ background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}`, transition:'all 0.15s' }}>
-          👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
+          👥 <span className="cal-students-label">{onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}</span>
         </button>
 
         {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
@@ -520,7 +520,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
 
       {/* Legend for week/day */}
       {view !== 'month' && (
-        <div style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+        <div className="cal-legend" style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
           <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Легенда:</span>
           <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:12 }}><span style={{ width:12, height:12, background:T.greenBg, borderRadius:3, border:`2px solid ${T.green}`, display:'inline-block' }} /> Занятие</span>
           <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:12 }}><span style={{ width:12, height:12, background:'#fde8e844', borderRadius:3, border:`2px solid ${T.red}66`, display:'inline-block' }} /> ⚠️ Наложение</span>
