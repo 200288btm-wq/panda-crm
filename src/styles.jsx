@@ -189,7 +189,7 @@ export function GlobalStyles() {
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }
-        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 76px; }
         .sidebar-wrapper.mobile-open .sidebar { transform: translateX(0); }
         .sidebar-toggle { display: none !important; }
 
@@ -203,15 +203,19 @@ export function GlobalStyles() {
         .nav-item { padding: 7px 14px !important; font-size: 13px !important; gap: 9px !important; }
         .nav-icon { font-size: 15px !important; }
 
-        /* Юзер всегда виден внизу — sticky */
+        /* Юзер всегда виден внизу — fixed относительно сайдбара */
         .sidebar-user { 
           display: flex !important; 
           padding: 10px 14px !important; 
-          position: sticky; 
+          position: fixed; 
           bottom: 0; 
+          left: 0;
+          width: 260px;
           background: ${T.white}; 
-          margin-top: auto;
+          border-top: 1px solid ${T.border};
           box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
+          z-index: 5;
+          margin-top: 0;
         }
         .user-info { opacity: 1 !important; width: auto !important; min-width: 0; }
         .user-name { font-size: 13px !important; overflow: hidden; text-overflow: ellipsis; }
