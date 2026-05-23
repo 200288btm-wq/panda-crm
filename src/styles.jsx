@@ -189,13 +189,33 @@ export function GlobalStyles() {
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }
-        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; -webkit-overflow-scrolling: touch; }
         .sidebar-wrapper.mobile-open .sidebar { transform: translateX(0); }
         .sidebar-toggle { display: none !important; }
 
-        /* Sidebar user visible on mobile */
-        .sidebar-user { display: flex !important; padding: 16px 14px; }
-        .user-info { opacity: 1 !important; width: auto !important; }
+        /* Компактный логотип на мобиле */
+        .sidebar-logo { padding: 8px 12px 6px !important; }
+        .sidebar .logo-row svg, .sidebar .logo-row img { max-width: 110px !important; height: auto !important; }
+
+        /* Компактные секции и пункты — чтобы всё помещалось */
+        .nav-section { padding: 4px 0 0 !important; }
+        .nav-label { padding: 0 14px 2px !important; font-size: 9px !important; }
+        .nav-item { padding: 7px 14px !important; font-size: 13px !important; gap: 9px !important; }
+        .nav-icon { font-size: 15px !important; }
+
+        /* Юзер всегда виден внизу — sticky */
+        .sidebar-user { 
+          display: flex !important; 
+          padding: 10px 14px !important; 
+          position: sticky; 
+          bottom: 0; 
+          background: ${T.white}; 
+          margin-top: auto;
+          box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
+        }
+        .user-info { opacity: 1 !important; width: auto !important; min-width: 0; }
+        .user-name { font-size: 13px !important; overflow: hidden; text-overflow: ellipsis; }
+        .user-role { font-size: 11px !important; }
 
         .main { width: 100%; }
         .topbar { padding: 0 12px; }
@@ -234,29 +254,6 @@ export function GlobalStyles() {
         .cal-day { min-height: 48px; padding: 3px 2px; border-radius: 7px; }
         .cal-event { font-size: 8px; padding: 1px 2px; }
         .cal-daynum { font-size: 10px; margin-bottom: 2px; }
-
-        /* Calendar mobile compact (точки вместо карточек) */
-        .cal-day-mobile { min-height: 44px; padding: 4px 2px 3px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 4px; }
-        .cal-daynum-mobile { font-size: 13px; line-height: 1; color: ${T.ink}; }
-        .cal-day-mobile.today .cal-daynum-mobile { color: ${T.greenDark}; font-weight: 800; }
-        .cal-dots { display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-items: center; max-width: 100%; }
-        .cal-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-        .cal-dot-more { font-size: 8px; font-weight: 700; color: ${T.muted}; line-height: 1; margin-left: 1px; }
-
-        /* Calendar controls mobile compact */
-        .cal-controls { gap: 6px !important; margin-bottom: 10px !important; }
-        .cal-tabs { flex: 0 0 auto; }
-        .cal-tabs .tab { padding: 6px 10px !important; font-size: 12px !important; }
-        .cal-divider { display: none !important; }
-        .cal-nav-btn { padding: 5px 9px !important; font-size: 14px !important; min-width: 32px; }
-        .cal-title { font-size: 13px !important; min-width: auto !important; flex: 1; text-align: center !important; padding: 0 4px; }
-        .cal-today-btn { padding: 5px 8px !important; font-size: 11px !important; }
-        .cal-filter { gap: 4px !important; }
-        .cal-filter-label { display: none; }
-        .cal-filter select { padding: 5px 8px !important; font-size: 12px !important; max-width: 110px; }
-        .cal-students-btn { padding: 5px 8px !important; font-size: 12px !important; }
-        .cal-students-label { display: none; }
-        .cal-legend { display: none !important; }
       }
 
       @supports (padding-bottom: env(safe-area-inset-bottom)) {
