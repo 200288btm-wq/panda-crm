@@ -3,96 +3,97 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
-const PERIODS = ['Месяц', 'Пока не закончатся занятия', 'Не ограничен']
+// Fallback на случай, если таблица subscription_periods ещё не создана
+const DEFAULT_PERIODS = ['Месяц', 'Пока не закончатся занятия', 'Не ограничен']
+
+const UNIT_LABELS = {
+  day:   { one: 'день',   few: 'дня',     many: 'дней'    },
+  week:  { one: 'неделя', few: 'недели',  many: 'недель'  },
+  month: { one: 'месяц',  few: 'месяца',  many: 'месяцев' },
+}
+
+// Простое склонение для русского
+function declUnit(unit, n) {
+  const labels = UNIT_LABELS[unit]
+  if (!labels) return unit
+  const mod10 = n % 10, mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return labels.one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return labels.few
+  return labels.many
+}
+
+// Превращает {unit, value} в человекочитаемую строку: «3 месяца», «1 неделя»
+function buildPeriodLabel(unit, value) {
+  if (!unit || !value) return ''
+  return `${value} ${declUnit(unit, value)}`
+}
 
 const pricePerLesson = (price, lessons) => {
   if (!lessons || lessons === 0) return 0
   return Math.round(price / lessons)
 }
 
-// =====================================================
-// Модалка категории стоимости
-// =====================================================
-function CategoryModal({ category, onClose, onSave }) {
-  const [f, setF] = useState(category ? {
-    name: category.name || '',
-    description: category.description || '',
-  } : { name: '', description: '' })
-  const set = (k, v) => setF(p => ({ ...p, [k]: v }))
-
-  const save = () => {
-    if (!f.name.trim()) {
-      alert('Пожалуйста, укажите название категории')
-      return
-    }
-    onSave({ name: f.name.trim(), description: f.description.trim() || null })
-  }
-
-  return (
-    <Modal title={category ? `✏️ ${category.name}` : '+ Новая категория стоимости'} onClose={onClose}
-      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={save}>Сохранить</button></>}>
-      <div className="form-group">
-        <label className="form-label">Название *</label>
-        <input className="form-input" value={f.name} onChange={e => set('name', e.target.value)}
-          placeholder="60 мин до 12 чел / 120 мин до 6 чел / Основная" autoFocus />
-        <div style={{ fontSize:11, color:T.muted, marginTop:3 }}>
-          Категория объединяет абонементы со схожими условиями
-        </div>
-      </div>
-      <div className="form-group">
-        <label className="form-label">Описание</label>
-        <input className="form-input" value={f.description} onChange={e => set('description', e.target.value)}
-          placeholder="Занятия длительностью 1 час, до 12 детей" />
-      </div>
-    </Modal>
-  )
-}
-
-// =====================================================
-// Модалка абонемента
-// =====================================================
-function SubModal({ sub, categories, onClose, onSave }) {
+function SubModal({ sub, directions, periods, onClose, onSave }) {
   const [f, setF] = useState(sub ? {
     name: sub.name || '',
-    category_id: sub.category_id || (categories[0]?.id ?? null),
+    direction_ids: sub.direction_ids || [],
     price: sub.price || 0,
     lessons_count: sub.lessons_count || 1,
     period: sub.period || 'Пока не закончатся занятия',
     is_active: sub.is_active ?? true,
     notes: sub.notes || '',
   } : {
-    name: '', category_id: categories[0]?.id ?? null, price: 0, lessons_count: 1,
+    name: '', direction_ids: [], price: 0, lessons_count: 1,
     period: 'Пока не закончатся занятия', is_active: true, notes: '',
   })
+
+  // Состояние для блока «Свой период»
+  const [customMode, setCustomMode] = useState(false)
+  const [customValue, setCustomValue] = useState(1)
+  const [customUnit, setCustomUnit] = useState('month')
+  const [saveCustom, setSaveCustom] = useState(true)
+  const [busy, setBusy] = useState(false)
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const ppl = pricePerLesson(f.price, f.lessons_count)
 
-  const save = () => {
-    if (!f.name.trim()) { alert('Укажите название абонемента'); return }
-    if (!f.category_id) { alert('Выберите категорию стоимости'); return }
-    onSave(f)
+  // Сохранение: если кастомный период и галочка стоит — сначала создаём запись в каталоге,
+  // потом сохраняем абонемент с этим label
+  const handleSave = async () => {
+    setBusy(true)
+    try {
+      let periodLabel = f.period
+      if (customMode) {
+        periodLabel = buildPeriodLabel(customUnit, customValue)
+        if (saveCustom) {
+          // Пробуем добавить в каталог (если уже есть с таким label — БД сама ругнётся, мы это проглатываем)
+          const { error } = await supabase.from('subscription_periods').insert({
+            label: periodLabel,
+            unit: customUnit,
+            value: customValue,
+            is_custom: true,
+            sort_order: 100,
+          })
+          // Игнорируем ошибки уникальности (23505) и отсутствия таблицы — главное, абонемент сохранится
+          if (error && error.code !== '23505') {
+            console.warn('Не удалось сохранить период в каталог:', error)
+          }
+        }
+      }
+      await onSave({ ...f, period: periodLabel })
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <Modal title={sub ? `✏️ ${sub.name}` : '+ Новый абонемент'} onClose={onClose}
-      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={save}>Сохранить</button></>}>
+      footer={<><button className="btn btn-outline" onClick={onClose} disabled={busy}>Отмена</button><button className="btn btn-primary" onClick={handleSave} disabled={busy}>{busy ? 'Сохраняем…' : 'Сохранить'}</button></>}>
 
       <div className="form-group">
         <label className="form-label">Название абонемента *</label>
         <input className="form-input" value={f.name} onChange={e => set('name', e.target.value)}
           placeholder="Абонемент на 8 занятий" autoFocus />
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">Категория стоимости *</label>
-        <select className="form-input" value={f.category_id || ''} onChange={e => set('category_id', e.target.value ? +e.target.value : null)}>
-          {categories.length === 0 && <option value="">— нет категорий —</option>}
-          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <div style={{ fontSize:11, color:T.muted, marginTop:3 }}>
-          Этот абонемент будет доступен для оплаты на тех направлениях, где выбрана данная категория
-        </div>
       </div>
 
       <div className="form-row">
@@ -106,6 +107,7 @@ function SubModal({ sub, categories, onClose, onSave }) {
         </div>
       </div>
 
+      {/* Auto price per lesson */}
       {f.price > 0 && f.lessons_count > 0 && (
         <div style={{ background: T.greenBg, borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 18 }}>🧮</span>
@@ -121,9 +123,82 @@ function SubModal({ sub, categories, onClose, onSave }) {
 
       <div className="form-group">
         <label className="form-label">Период действия</label>
-        <select className="form-input" value={f.period} onChange={e => set('period', e.target.value)}>
-          {PERIODS.map(p => <option key={p}>{p}</option>)}
+        <select className="form-input"
+          value={customMode ? '__custom__' : f.period}
+          onChange={e => {
+            if (e.target.value === '__custom__') {
+              setCustomMode(true)
+            } else {
+              setCustomMode(false)
+              set('period', e.target.value)
+            }
+          }}>
+          {(periods && periods.length ? periods.map(p => p.label) : DEFAULT_PERIODS).map(p => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+          <option value="__custom__">➕ Свой период…</option>
         </select>
+
+        {customMode && (
+          <div style={{ marginTop: 10, padding: 12, background: T.cream, borderRadius: 12, border: `1.5px dashed ${T.border}` }}>
+            <div style={{ fontSize: 12, color: T.muted, fontWeight: 600, marginBottom: 8 }}>Свой период</div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: '0 0 90px' }}>
+                <input
+                  className="form-input"
+                  type="number"
+                  min="1"
+                  value={customValue}
+                  onChange={e => setCustomValue(Math.max(1, +e.target.value || 1))}
+                  style={{ fontSize: 16 }}
+                />
+              </div>
+              <div style={{ flex: '1 1 130px' }}>
+                <select className="form-input" value={customUnit} onChange={e => setCustomUnit(e.target.value)}>
+                  <option value="day">{declUnit('day', customValue)}</option>
+                  <option value="week">{declUnit('week', customValue)}</option>
+                  <option value="month">{declUnit('month', customValue)}</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, color: T.greenDark, fontWeight: 600 }}>
+              Получится: «{buildPeriodLabel(customUnit, customValue)}»
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={saveCustom} onChange={e => setSaveCustom(e.target.checked)}
+                style={{ accentColor: T.green, width: 16, height: 16 }} />
+              <span style={{ fontSize: 13 }}>Сохранить этот период в списке для будущих абонементов</span>
+            </label>
+          </div>
+        )}
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Направления (куда применяется)</label>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+          {directions.map(d => {
+            const on = (f.direction_ids || []).includes(d.id)
+            const color = d.color || T.green
+            return (
+              <label key={d.id} onClick={() => {
+                const ids = f.direction_ids || []
+                set('direction_ids', ids.includes(d.id) ? ids.filter(x => x !== d.id) : [...ids, d.id])
+              }} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                background: on ? color + '22' : '#f5f5f0',
+                border: `2px solid ${on ? color : T.border}`,
+                color: on ? color : T.muted, fontWeight: 700, fontSize: 12,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+                {d.name}
+              </label>
+            )
+          })}
+        </div>
+        {(f.direction_ids || []).length === 0 && (
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Если не выбрано — абонемент применяется ко всем направлениям</div>
+        )}
       </div>
 
       <div className="form-group">
@@ -143,97 +218,51 @@ function SubModal({ sub, categories, onClose, onSave }) {
   )
 }
 
-// =====================================================
-// Главная страница
-// =====================================================
 export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
-  const [showCatAdd, setShowCatAdd] = useState(false)
-  const [showCatEdit, setShowCatEdit] = useState(null)
-  const [filterCat, setFilterCat] = useState('all')
+  const [filterDir, setFilterDir] = useState('all')
+  const [periods, setPeriods] = useState([])
 
-  // Категории грузим прямо здесь, отдельно — таблицы может ещё не быть
-  const [categories, setCategories] = useState([])
-  const [catsLoading, setCatsLoading] = useState(true)
-
-  const loadCats = async () => {
+  // Загружаем каталог периодов из БД
+  const loadPeriods = async () => {
     const { data, error } = await supabase
-      .from('price_categories').select('*').order('sort_order').order('id')
+      .from('subscription_periods')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true })
     if (error) {
-      console.warn('price_categories not available:', error.message)
-      setCategories([])
+      // Если таблицы ещё нет (миграция не накатана) — молча используем fallback
+      console.warn('subscription_periods: ' + error.message)
+      setPeriods([])
     } else {
-      setCategories(data || [])
+      setPeriods(data || [])
     }
-    setCatsLoading(false)
   }
+  useEffect(() => { loadPeriods() }, [])
 
-  useEffect(() => { loadCats() }, [])
-
-  // Сохранение абонемента
   const save = async (f) => {
-    // Для совместимости: чистим поле direction_ids (старая система), его роль теперь у категорий
-    const payload = {
-      name: f.name,
-      category_id: f.category_id,
-      price: +f.price || 0,
-      lessons_count: +f.lessons_count || 1,
-      period: f.period,
-      is_active: f.is_active,
-      notes: f.notes || null,
-    }
     if (showEdit) {
-      const { error } = await supabase.from('subscriptions').update(payload).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      await supabase.from('subscriptions').update(f).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('subscriptions').insert(payload)
-      if (error) { alert('Ошибка создания: ' + error.message); return }
+      await supabase.from('subscriptions').insert(f)
       setShowAdd(false)
     }
+    await loadPeriods() // на случай, если был добавлен новый кастомный период
     reload()
   }
 
   const del = async (id, name) => {
     if (!confirm(`Удалить абонемент «${name}»?`)) return
-    const { error } = await supabase.from('subscriptions').delete().eq('id', id)
-    if (error) { alert('Ошибка удаления: ' + error.message); return }
+    await supabase.from('subscriptions').delete().eq('id', id)
     reload()
   }
 
-  // Сохранение категории
-  const saveCategory = async (f) => {
-    if (showCatEdit) {
-      const { error } = await supabase.from('price_categories').update(f).eq('id', showCatEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
-      setShowCatEdit(null)
-    } else {
-      const { error } = await supabase.from('price_categories').insert(f)
-      if (error) { alert('Ошибка создания: ' + error.message); return }
-      setShowCatAdd(false)
-    }
-    await loadCats()
-  }
-
-  const delCategory = async (id, name) => {
-    const inCat = subscriptions.filter(s => s.category_id === id).length
-    const msg = inCat > 0
-      ? `В категории «${name}» сейчас ${inCat} абонементов — они потеряют категорию. Удалить?`
-      : `Удалить категорию «${name}»?`
-    if (!confirm(msg)) return
-    const { error } = await supabase.from('price_categories').delete().eq('id', id)
-    if (error) { alert('Ошибка удаления: ' + error.message); return }
-    await loadCats()
-    reload()
-  }
-
-  // Фильтрация абонементов
   const filtered = subscriptions.filter(s => {
-    if (filterCat === 'all') return true
-    if (filterCat === 'inactive') return !s.is_active
-    if (filterCat === 'uncategorized') return !s.category_id
-    return String(s.category_id) === filterCat
+    if (filterDir === 'all') return true
+    if (filterDir === 'inactive') return !s.is_active
+    return (s.direction_ids || []).includes(+filterDir) || (s.direction_ids || []).length === 0
   })
 
   const active = subscriptions.filter(s => s.is_active)
@@ -244,62 +273,9 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
     'Не ограничен': '♾️',
   }
 
-  // Счётчик абонементов в каждой категории
-  const countInCat = (id) => subscriptions.filter(s => s.category_id === id).length
-  const uncategorizedCount = subscriptions.filter(s => !s.category_id).length
-
   return (
     <div>
-      {/* =========== Блок управления категориями =========== */}
-      <div className="card card-pad" style={{ marginBottom: 18 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 10 }}>
-          <div>
-            <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>🏷 Категории стоимости</div>
-            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
-              Объединяют абонементы со схожими условиями. У каждого направления можно выбрать одну или несколько категорий.
-            </div>
-          </div>
-          {isAdmin && (
-            <button className="btn btn-outline btn-sm" onClick={() => setShowCatAdd(true)}>
-              + Добавить категорию
-            </button>
-          )}
-        </div>
-        <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-          {catsLoading && <div style={{ fontSize:13, color:T.muted }}>Загрузка...</div>}
-          {!catsLoading && categories.length === 0 && (
-            <div style={{ fontSize:13, color:T.muted }}>
-              Категорий пока нет. Запусти миграцию или добавь первую категорию.
-            </div>
-          )}
-          {categories.map(c => {
-            const cnt = countInCat(c.id)
-            return (
-              <div key={c.id} style={{
-                display:'inline-flex', alignItems:'center', gap:8,
-                padding:'8px 12px', borderRadius:12,
-                background: T.cream, border:`1.5px solid ${T.border}`,
-              }}>
-                <div>
-                  <div style={{ fontWeight:700, fontSize:13 }}>{c.name}</div>
-                  {c.description && <div style={{ fontSize:11, color:T.muted, marginTop:1 }}>{c.description}</div>}
-                  <div style={{ fontSize:11, color:T.muted, marginTop:1 }}>{cnt} абонементов</div>
-                </div>
-                {isAdmin && (
-                  <div style={{ display:'flex', gap:2 }}>
-                    <button className="btn btn-ghost btn-sm btn-icon" style={{ fontSize:12, padding:'4px 6px' }}
-                      onClick={() => setShowCatEdit(c)}>✏️</button>
-                    <button className="btn btn-ghost btn-sm btn-icon" style={{ fontSize:12, padding:'4px 6px' }}
-                      onClick={() => delCategory(c.id, c.name)}>🗑️</button>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* =========== Stats =========== */}
+      {/* Stats */}
       <div className="stats-grid" style={{ marginBottom: 18 }}>
         <div className="stat-card">
           <div className="stat-label">Всего абонементов</div>
@@ -323,38 +299,27 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
         </div>
       </div>
 
-      {/* =========== Filters + Add =========== */}
+      {/* Filters + Add */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
         <div className="tabs" style={{ marginBottom: 0 }}>
-          <button className={`tab ${filterCat === 'all' ? 'active' : ''}`} onClick={() => setFilterCat('all')}>
-            Все
-          </button>
-          {categories.map(c => (
-            <button key={c.id} className={`tab ${filterCat === String(c.id) ? 'active' : ''}`}
-              onClick={() => setFilterCat(String(c.id))}>
-              {c.name}
-            </button>
+          <button className={`tab ${filterDir === 'all' ? 'active' : ''}`} onClick={() => setFilterDir('all')}>Все</button>
+          {directions.map(d => (
+            <button key={d.id} className={`tab ${filterDir === String(d.id) ? 'active' : ''}`}
+              onClick={() => setFilterDir(String(d.id))}>{d.name}</button>
           ))}
-          {uncategorizedCount > 0 && (
-            <button className={`tab ${filterCat === 'uncategorized' ? 'active' : ''}`}
-              onClick={() => setFilterCat('uncategorized')}>
-              Без категории
-            </button>
-          )}
         </div>
         {isAdmin && (
-          <button className="btn btn-primary" style={{ marginLeft: 'auto' }}
-            onClick={() => setShowAdd(true)} disabled={categories.length === 0}>
+          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAdd(true)}>
             + Новый абонемент
           </button>
         )}
       </div>
 
-      {/* =========== Cards grid =========== */}
+      {/* Cards grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 14 }}>
         {filtered.map(s => {
           const ppl = pricePerLesson(s.price, s.lessons_count)
-          const cat = categories.find(c => c.id === s.category_id)
+          const dirs = directions.filter(d => (s.direction_ids || []).includes(d.id))
           return (
             <div key={s.id} className="card card-pad" style={{
               borderTop: `4px solid ${s.is_active ? T.green : T.border}`,
@@ -363,16 +328,7 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div>
                   <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{s.name}</div>
-                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginTop:4 }}>
-                    {cat ? (
-                      <span className="badge" style={{ background: T.greenBg, color: T.greenDark, fontWeight:700 }}>
-                        🏷 {cat.name}
-                      </span>
-                    ) : (
-                      <span className="badge badge-gray">Без категории</span>
-                    )}
-                    {!s.is_active && <span className="badge badge-gray">Неактивен</span>}
-                  </div>
+                  {!s.is_active && <span className="badge badge-gray">Неактивен</span>}
                 </div>
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 4 }}>
@@ -382,6 +338,7 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
                 )}
               </div>
 
+              {/* Price block */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                 <div style={{ flex: 1, background: T.greenBg, borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
                   <div style={{ fontSize: 10, color: T.greenDark, fontWeight: 700, textTransform: 'uppercase', marginBottom: 2 }}>Стоимость</div>
@@ -393,10 +350,27 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
                 </div>
               </div>
 
+              {/* Info rows */}
               <div style={{ fontSize: 13, color: T.muted, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div>📚 {s.lessons_count} занятий в абонементе</div>
                 <div>{PERIOD_ICONS[s.period] || '📅'} {s.period}</div>
                 {s.notes && <div style={{ fontStyle: 'italic', fontSize: 12 }}>💬 {s.notes}</div>}
+              </div>
+
+              {/* Directions */}
+              <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {dirs.length > 0 ? dirs.map(d => (
+                  <span key={d.id} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
+                    background: (d.color || T.green) + '22', color: d.color || T.green,
+                  }}>
+                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: d.color || T.green, display: 'inline-block' }} />
+                    {d.name}
+                  </span>
+                )) : (
+                  <span className="badge badge-gray">Все направления</span>
+                )}
               </div>
             </div>
           )
@@ -406,16 +380,14 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
           <div className="card card-pad">
             <div className="empty">
               <div className="empty-icon">💳</div>
-              <div className="empty-text">Абонементов в этой категории пока нет</div>
+              <div className="empty-text">Абонементов пока нет</div>
             </div>
           </div>
         )}
       </div>
 
-      {showAdd && <SubModal categories={categories} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <SubModal sub={showEdit} categories={categories} onClose={() => setShowEdit(null)} onSave={save} />}
-      {showCatAdd && <CategoryModal onClose={() => setShowCatAdd(false)} onSave={saveCategory} />}
-      {showCatEdit && <CategoryModal category={showCatEdit} onClose={() => setShowCatEdit(null)} onSave={saveCategory} />}
+      {showAdd && <SubModal directions={directions} periods={periods} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
