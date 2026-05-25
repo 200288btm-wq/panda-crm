@@ -25,19 +25,10 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
     if (client) setDiscount(client.discount || 0)
   }, [clientId])
 
-  // Получаем доступные абонементы для выбранного направления.
-  // Новая логика: фильтруем по category_id абонемента и category_ids направления.
-  // Fallback: если у направления нет категорий (legacy) — используем старую логику с direction_ids.
+  // Get available subscriptions for selected direction
   const availableSubs = subscriptions.filter(s => {
     if (!s.is_active) return false
     if (!dirId) return true
-    const dir = directions.find(d => d.id === +dirId)
-    const catIds = dir?.category_ids || []
-    if (catIds.length > 0) {
-      // Новая логика
-      return s.category_id && catIds.includes(s.category_id)
-    }
-    // Legacy fallback
     const dids = s.direction_ids || []
     return dids.length === 0 || dids.includes(+dirId)
   })
@@ -235,10 +226,10 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
                 </td>
                 <td>
                   <div>
-                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: p.amount ? T.greenDark : T.muted }}>
-                      {p.amount ? fmt(p.amount) : 'Бесплатно'}
+                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: +p.amount > 0 ? T.greenDark : T.muted }}>
+                      {+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}
                     </span>
-                    {p.base_amount && p.base_amount !== p.amount && (
+                    {p.base_amount > 0 && p.base_amount !== p.amount && (
                       <div style={{ fontSize: 10, color: T.muted, textDecoration: 'line-through' }}>{fmt(p.base_amount)}</div>
                     )}
                   </div>

@@ -24,7 +24,7 @@ const calcAge = (birthday) => {
   return age
 }
 
-export function ClientModal({ client, directions, directionGroups = [], onClose, onSave, titleOverride }) {
+function ClientModal({ client, directions, onClose, onSave }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
     adult_name: client.adult_name || '',
@@ -35,18 +35,17 @@ export function ClientModal({ client, directions, directionGroups = [], onClose,
     birthday: client.birthday || '',
     sex: client.sex || 'М',
     direction_ids: client.direction_ids || [],
-    group_ids: client.group_ids || [],
     paid_lessons: client.paid_lessons || 0,
     visited_lessons: client.visited_lessons || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
-  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], group_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0 })
+  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0 })
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
 
   return (
-    <Modal title={titleOverride || (client ? `✏️ ${client.child_name}` : '+ Новый клиент')} onClose={onClose}
+    <Modal title={client ? `✏️ ${client.child_name}` : '+ Новый клиент'} onClose={onClose}
       footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={() => onSave(f)}>Сохранить</button></>}>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Имя ребёнка *</label>
@@ -85,71 +84,26 @@ export function ClientModal({ client, directions, directionGroups = [], onClose,
         </div>
       </div>
       <div className="form-group"><label className="form-label">Направления</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 2 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
           {directions.map(d => {
             const on = (f.direction_ids || []).includes(d.id)
             const color = d.color || DEFAULT_COLOR
-            const subgroups = directionGroups.filter(g => g.direction_id === d.id)
-            const selectedSubgroupIds = (f.group_ids || []).filter(gid => subgroups.some(sg => sg.id === gid))
-            const hasSubgroups = subgroups.length > 0
-
-            const toggleDir = () => {
-              const ids = f.direction_ids || []
-              if (ids.includes(d.id)) {
-                // Снимаем направление — заодно убираем его подгруппы из group_ids
-                const otherGroupIds = (f.group_ids || []).filter(gid => !subgroups.some(sg => sg.id === gid))
-                setF(p => ({ ...p, direction_ids: ids.filter(x => x !== d.id), group_ids: otherGroupIds }))
-              } else {
-                setF(p => ({ ...p, direction_ids: [...ids, d.id] }))
-              }
-            }
-
-            const toggleSubgroup = (sgId) => {
-              const cur = f.group_ids || []
-              setF(p => ({ ...p, group_ids: cur.includes(sgId) ? cur.filter(x => x !== sgId) : [...cur, sgId] }))
-            }
-
             return (
-              <div key={d.id}>
-                <label onClick={toggleDir} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                  borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
-                  background: on ? color + '22' : '#f5f5f0',
-                  border: `2px solid ${on ? color : T.border}`,
-                  color: on ? color : T.muted, fontWeight: 700, fontSize: 12,
-                }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-                  {d.name}
-                </label>
-
-                {/* Подгруппы — показываем только если направление выбрано и у него есть подгруппы */}
-                {on && hasSubgroups && (
-                  <div style={{ marginTop: 6, marginLeft: 14, paddingLeft: 10, borderLeft: `2px solid ${color}44` }}>
-                    <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 5 }}>
-                      📍 Подгруппы {selectedSubgroupIds.length === 0 && <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>(не выбрано — ходит на все)</span>}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {subgroups.map(sg => {
-                        const sgOn = (f.group_ids || []).includes(sg.id)
-                        return (
-                          <label key={sg.id} onClick={() => toggleSubgroup(sg.id)} style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px',
-                            borderRadius: 8, cursor: 'pointer', transition: 'all 0.15s',
-                            background: sgOn ? color + '33' : 'white',
-                            border: `1.5px solid ${sgOn ? color : T.border}`,
-                            color: sgOn ? color : T.muted, fontWeight: 600, fontSize: 11,
-                          }}>
-                            {sg.name}
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <label key={d.id} onClick={() => {
+                const ids = f.direction_ids || []
+                set('direction_ids', ids.includes(d.id) ? ids.filter(x => x !== d.id) : [...ids, d.id])
+              }} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                background: on ? color + '22' : '#f5f5f0',
+                border: `2px solid ${on ? color : T.border}`,
+                color: on ? color : T.muted, fontWeight: 700, fontSize: 12,
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+                {d.name}
+              </label>
             )
           })}
-          {!directions.length && <div style={{ fontSize: 12, color: T.muted }}>Сначала добавьте направления в разделе «🎯 Направления»</div>}
         </div>
       </div>
       <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: T.muted, lineHeight: 1.6 }}>
@@ -175,7 +129,7 @@ export function ClientModal({ client, directions, directionGroups = [], onClose,
   )
 }
 
-function ClientDetail({ client, directions, directionGroups = [], payments, onClose, onEdit }) {
+function ClientDetail({ client, directions, payments, onClose, onEdit }) {
   const [stats, setStats] = useState(null)
 
   useEffect(() => {
@@ -265,31 +219,13 @@ function ClientDetail({ client, directions, directionGroups = [], payments, onCl
       </div>
       <div className="divider" />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Направления</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
         {cDirs.map(d => {
           const color = d.color || DEFAULT_COLOR
-          const subgroups = directionGroups.filter(g => g.direction_id === d.id)
-          const selectedSubgroups = subgroups.filter(sg => (client.group_ids || []).includes(sg.id))
-          const showAll = subgroups.length > 0 && selectedSubgroups.length === 0
-          const shownSubgroups = selectedSubgroups.length > 0 ? selectedSubgroups : subgroups
-
           return (
-            <div key={d.id} style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />{d.name}
-              </span>
-              {subgroups.length > 0 && (
-                <>
-                  <span style={{ color: T.muted, fontSize: 11 }}>→</span>
-                  {shownSubgroups.map(sg => (
-                    <span key={sg.id} style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: 'white', color: color, border: `1px solid ${color}55` }}>
-                      📍 {sg.name}
-                    </span>
-                  ))}
-                  {showAll && <span style={{ fontSize: 11, color: T.muted, fontStyle: 'italic' }}>(все подгруппы)</span>}
-                </>
-              )}
-            </div>
+            <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />{d.name}
+            </span>
           )
         })}
         {!cDirs.length && <span style={{ fontSize: 13, color: T.muted }}>нет направлений</span>}
@@ -308,7 +244,7 @@ function ClientDetail({ client, directions, directionGroups = [], payments, onCl
       {cPay.length ? cPay.map(p => (
         <div key={p.id} className="fin-row">
           <div><div style={{ fontWeight: 600, fontSize: 13 }}>{p.payment_type}</div><div style={{ fontSize: 11, color: T.muted }}>{p.payment_date}</div></div>
-          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: p.amount ? T.greenDark : T.muted }}>{p.amount ? fmt(p.amount) : 'Бесплатно'}</div>
+          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
         </div>
       )) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
     </Modal>
@@ -322,24 +258,6 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
-  const [directionGroups, setDirectionGroups] = useState([])
-
-  // Загружаем подгруппы направлений (с обратной совместимостью)
-  useEffect(() => {
-    const load = async () => {
-      const { data, error } = await supabase
-        .from('direction_groups')
-        .select('*')
-        .order('sort_order', { ascending: true })
-      if (error) {
-        console.warn('direction_groups not available:', error.message)
-        setDirectionGroups([])
-        return
-      }
-      setDirectionGroups(data || [])
-    }
-    load()
-  }, [])
 
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
@@ -350,26 +268,18 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
   })
 
   const save = async (f) => {
-    // Чистим group_ids: оставляем только те, что относятся к выбранным направлениям
-    const validGroupIds = (f.group_ids || []).filter(gid => {
-      const g = directionGroups.find(x => x.id === gid)
-      return g && (f.direction_ids || []).includes(g.direction_id)
-    })
     const cleaned = {
       ...f,
-      group_ids: validGroupIds,
       paid_lessons: +f.paid_lessons || 0,
       visited_lessons: +f.visited_lessons || 0,
       balance: +f.balance || 0,
       discount: +f.discount || 0,
     }
     if (showEdit) {
-      const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('clients').insert(cleaned)
-      if (error) { alert('Ошибка создания клиента: ' + error.message); return }
+      await supabase.from('clients').insert(cleaned)
       setShowAdd(false)
     }
     await reload()
@@ -448,10 +358,10 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
         </table>
       </div>
 
-      {showAdd && <ClientModal directions={directions} directionGroups={directionGroups} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <ClientModal client={showEdit} directions={directions} directionGroups={directionGroups} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
       {showDetail && (
-        <ClientDetail client={showDetail} directions={directions} directionGroups={directionGroups} payments={payments}
+        <ClientDetail client={showDetail} directions={directions} payments={payments}
           onClose={() => setShowDetail(null)}
           onEdit={() => { setShowEdit(showDetail); setShowDetail(null) }}
         />
