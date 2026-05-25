@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, ROLE_COLORS } from '../styles.jsx'
+import { Modal } from '../components/Modal'
 import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
 import PaymentsPage from './PaymentsPage'
@@ -12,13 +13,12 @@ import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
-import AddressesPage from './AddressesPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
-  leads: 'Заявки', addresses: 'Адреса',
+  leads: 'Заявки',
 }
 
 // Real logo from public/logo.svg
@@ -31,6 +31,14 @@ const PandaIcon = ({ size = 40 }) => (
   <img src="/logo-icon.svg" alt="" width={size} height={size} style={{ flexShrink: 0, display: 'block', objectFit: 'contain' }} />
 )
 
+// Возвращает инициалы по полному имени: "Татьяна Бондаренко" -> "ТБ"
+function getInitials(fullName) {
+  if (!fullName) return 'U'
+  const parts = String(fullName).trim().split(/\s+/)
+  if (parts.length === 1) return parts[0][0].toUpperCase()
+  return (parts[0][0] + parts[1][0]).toUpperCase()
+}
+
 export default function CRM({ session, staff }) {
   const [page, setPage] = useState('dashboard')
   const [clients, setClients] = useState([])
@@ -40,18 +48,67 @@ export default function CRM({ session, staff }) {
   const [teachers, setTeachers] = useState([])
   const [staffList, setStaffList] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
-  const [addresses, setAddresses] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [pwdModalOpen, setPwdModalOpen] = useState(false)
+  const [newPwd, setNewPwd] = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+  const [pwdSaving, setPwdSaving] = useState(false)
+  const [pwdMessage, setPwdMessage] = useState(null) // { type: 'success' | 'error', text: string }
+  const userMenuRef = useRef(null)
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  // Закрытие меню юзера по клику вне
+  useEffect(() => {
+    if (!userMenuOpen) return
+    const onClick = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    document.addEventListener('touchstart', onClick)
+    return () => {
+      document.removeEventListener('mousedown', onClick)
+      document.removeEventListener('touchstart', onClick)
+    }
+  }, [userMenuOpen])
+
+  // Смена пароля через Supabase Auth
+  const changePassword = async () => {
+    setPwdMessage(null)
+    if (newPwd.length < 6) {
+      setPwdMessage({ type: 'error', text: 'Пароль должен быть не короче 6 символов' })
+      return
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdMessage({ type: 'error', text: 'Пароли не совпадают' })
+      return
+    }
+    setPwdSaving(true)
+    const { error } = await supabase.auth.updateUser({ password: newPwd })
+    setPwdSaving(false)
+    if (error) {
+      setPwdMessage({ type: 'error', text: 'Не получилось обновить пароль: ' + error.message })
+      return
+    }
+    setPwdMessage({ type: 'success', text: 'Пароль успешно обновлён' })
+    setNewPwd('')
+    setConfirmPwd('')
+    setTimeout(() => {
+      setPwdModalOpen(false)
+      setPwdMessage(null)
+    }, 1500)
+  }
 
   const role = staff?.role || 'Преподаватель'
   const isDirector = role === 'Директор'
@@ -76,15 +133,6 @@ export default function CRM({ session, staff }) {
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
-
-    // Адреса грузим отдельно — таблицы может ещё не быть (миграция не запущена)
-    const addr = await supabase.from('addresses').select('*').order('sort_order').order('id')
-    if (addr.error) {
-      console.warn('addresses not available:', addr.error.message)
-      setAddresses([])
-    } else {
-      setAddresses(addr.data || [])
-    }
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -106,7 +154,6 @@ export default function CRM({ session, staff }) {
     ]},
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
-      { id: 'addresses', icon: '📍', label: 'Адреса', show: isAdmin },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
     ]},
     { section: 'Управление', items: [
@@ -116,7 +163,7 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, reload: load, role, isAdmin, isDirector, staff }
 
   const SidebarContent = () => (
     <>
@@ -142,16 +189,6 @@ export default function CRM({ session, staff }) {
           ))}
         </div>
       ))}
-
-      <div className="sidebar-user" onClick={logout} title="Выйти из системы">
-        <div className="avatar" style={{ background: T.green, width: 32, height: 32, fontSize: 13, flexShrink: 0 }}>
-          {(staff?.name || 'U')[0]}
-        </div>
-        <div className="user-info">
-          <div className="user-name">{staff?.name || 'Пользователь'}</div>
-          <div className="user-role">{staff?.role} · Выйти</div>
-        </div>
-      </div>
     </>
   )
 
@@ -194,18 +231,55 @@ export default function CRM({ session, staff }) {
                 {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
               </span>
             )}
+
+            {/* Аватарка пользователя с выпадающим меню */}
+            <div className="user-avatar-wrapper" ref={userMenuRef} style={{ position: 'relative' }}>
+              <button
+                className="avatar user-avatar-btn"
+                onClick={() => setUserMenuOpen(o => !o)}
+                title={staff?.name || 'Пользователь'}
+                style={{ background: T.green, width: 36, height: 36, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', color: 'white', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}
+              >
+                {getInitials(staff?.name)}
+              </button>
+
+              {userMenuOpen && (
+                <div className="user-dropdown" style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, background: 'white', borderRadius: 12, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', minWidth: 240, zIndex: 100, overflow: 'hidden', border: `1px solid ${T.border}` }}>
+                  <div style={{ padding: '14px 16px', borderBottom: `1px solid ${T.border}` }}>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginBottom: 3 }}>{staff?.name || 'Пользователь'}</div>
+                    <div style={{ fontSize: 12, color: T.muted, marginBottom: 2 }}>{role}</div>
+                    <div style={{ fontSize: 11, color: T.muted, wordBreak: 'break-all' }}>{session?.user?.email}</div>
+                  </div>
+                  <button
+                    onClick={() => { setUserMenuOpen(false); setPwdModalOpen(true); setPwdMessage(null); setNewPwd(''); setConfirmPwd('') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.ink, fontFamily: 'inherit', textAlign: 'left' }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    🔑 Сменить пароль
+                  </button>
+                  <button
+                    onClick={() => { setUserMenuOpen(false); logout() }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.red, fontFamily: 'inherit', textAlign: 'left', borderTop: `1px solid ${T.border}` }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    🚪 Выйти
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="content">
           {page === 'dashboard'     && <Dashboard {...props} />}
           {page === 'calendar'      && <CalendarPage {...props} />}
-          {page === 'leads'         && isAdmin && <LeadsPage {...props} />}
+          {page === 'leads'         && isAdmin && <LeadsPage />}
           {page === 'clients'       && isAdmin && <ClientsPage {...props} />}
           {page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
           {page === 'directions'    && <DirectionsPage {...props} />}
-          {page === 'addresses'     && isAdmin && <AddressesPage {...props} />}
           {page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
           {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
           {page === 'finance'       && isDirector && <FinancePage {...props} />}
@@ -231,6 +305,50 @@ export default function CRM({ session, staff }) {
           </div>
         )}
       </main>
+
+      {/* Модалка смены пароля */}
+      {pwdModalOpen && (
+        <Modal title="Сменить пароль" onClose={() => { setPwdModalOpen(false); setPwdMessage(null) }}>
+          <div className="form-group">
+            <label className="form-label">Новый пароль</label>
+            <input
+              type="password"
+              className="form-input"
+              value={newPwd}
+              onChange={e => setNewPwd(e.target.value)}
+              placeholder="Минимум 6 символов"
+              autoComplete="new-password"
+              style={{ fontSize: 16 }}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Подтвердите пароль</label>
+            <input
+              type="password"
+              className="form-input"
+              value={confirmPwd}
+              onChange={e => setConfirmPwd(e.target.value)}
+              placeholder="Повторите новый пароль"
+              autoComplete="new-password"
+              onKeyDown={e => { if (e.key === 'Enter') changePassword() }}
+              style={{ fontSize: 16 }}
+            />
+          </div>
+          {pwdMessage && (
+            <div className={pwdMessage.type === 'success' ? 'alert alert-success' : 'alert alert-error'}>
+              {pwdMessage.text}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => { setPwdModalOpen(false); setPwdMessage(null) }} disabled={pwdSaving}>
+              Отмена
+            </button>
+            <button className="btn btn-primary" onClick={changePassword} disabled={pwdSaving || !newPwd || !confirmPwd}>
+              {pwdSaving ? 'Сохраняем…' : 'Сохранить'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

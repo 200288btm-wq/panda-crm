@@ -47,12 +47,9 @@ export function GlobalStyles() {
       .sidebar.collapsed .nav-label-text { opacity: 0; width: 0; }
       .nav-badge { margin-left: auto; background: ${T.orange}; color: white; border-radius: 99px; font-size: 10px; font-weight: 700; padding: 1px 7px; transition: opacity 0.2s; }
       .sidebar.collapsed .nav-badge { opacity: 0; }
-      .sidebar-user { margin-top: auto; padding: 12px 14px; border-top: 1px solid ${T.border}; display: flex; align-items: center; gap: 9px; cursor: pointer; overflow: hidden; white-space: nowrap; flex-shrink: 0; }
-      .sidebar-user:hover { background: ${T.cream}; }
-      .user-info { transition: opacity 0.2s; overflow: hidden; min-width: 0; }
-      .sidebar.collapsed .user-info { opacity: 0; width: 0; }
-      .user-name { font-weight: 700; font-size: 13px; line-height: 1.2; }
-      .user-role { font-size: 11px; color: ${T.muted}; }
+      .user-avatar-btn { transition: transform 0.15s, box-shadow 0.15s; }
+      .user-avatar-btn:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+      .user-avatar-btn:active { transform: scale(0.95); }
       .sidebar-toggle { position: absolute; top: 50%; transform: translateY(-50%); right: -14px; width: 28px; height: 28px; background: white; border: 1.5px solid ${T.border}; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 110; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.2s; }
       .sidebar-toggle:hover { background: ${T.greenBg}; border-color: ${T.green}; }
       .sidebar-wrapper { position: relative; flex-shrink: 0; }
@@ -189,37 +186,16 @@ export function GlobalStyles() {
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }
-        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 76px; }
+        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
         .sidebar-wrapper.mobile-open .sidebar { transform: translateX(0); }
         .sidebar-toggle { display: none !important; }
 
-        /* Компактный логотип на мобиле */
-        .sidebar-logo { padding: 8px 12px 6px !important; }
-        .sidebar .logo-row svg, .sidebar .logo-row img { max-width: 110px !important; height: auto !important; }
-
-        /* Компактные секции и пункты — чтобы всё помещалось */
-        .nav-section { padding: 4px 0 0 !important; }
-        .nav-label { padding: 0 14px 2px !important; font-size: 9px !important; }
-        .nav-item { padding: 7px 14px !important; font-size: 13px !important; gap: 9px !important; }
-        .nav-icon { font-size: 15px !important; }
-
-        /* Юзер всегда виден внизу — fixed относительно сайдбара */
-        .sidebar-user { 
-          display: flex !important; 
-          padding: 10px 14px !important; 
-          position: fixed; 
-          bottom: 0; 
-          left: 0;
-          width: 260px;
-          background: ${T.white}; 
-          border-top: 1px solid ${T.border};
-          box-shadow: 0 -4px 12px rgba(0,0,0,0.04);
-          z-index: 5;
-          margin-top: 0;
-        }
-        .user-info { opacity: 1 !important; width: auto !important; min-width: 0; }
-        .user-name { font-size: 13px !important; overflow: hidden; text-overflow: ellipsis; }
-        .user-role { font-size: 11px !important; }
+        /* Sidebar user visible on mobile */
+        .sidebar-user { display: flex !important; padding: 16px 14px; }
+        .user-info { opacity: 1 !important; width: auto !important; }
+        /* Аватар пользователя в шапке на мобиле — компактнее */
+        .user-avatar-btn { width: 32px !important; height: 32px !important; font-size: 12px !important; }
+        .user-dropdown { right: -4px !important; min-width: 220px !important; }
 
         .main { width: 100%; }
         .topbar { padding: 0 12px; }
