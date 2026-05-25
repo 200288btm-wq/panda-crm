@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, ROLE_COLORS } from '../styles.jsx'
+import { T } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
@@ -225,7 +225,6 @@ export default function CRM({ session, staff }) {
             <div className="page-title">{PAGE_TITLES[page]}</div>
           </div>
           <div className="topbar-right">
-            <span className={`badge ${ROLE_COLORS[role]}`}>{role}</span>
             {!isMobile && (
               <span style={{ fontSize: 11, color: T.muted }}>
                 {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
