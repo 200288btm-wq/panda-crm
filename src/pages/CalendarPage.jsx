@@ -100,7 +100,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 }
 
 // Attendance modal
-function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceChange }) {
+function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange }) {
   const [attendance, setAttendance] = useState({})
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
@@ -116,15 +116,24 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
     })
   }, [ds])
 
-  const toggle = async (clientId, dirId, teacherName) => {
+  const toggle = async (clientId, dirId, ev) => {
     if (!isPast) return
-    const canMark = isAdmin || (myTeacherName && teacherName === myTeacherName)
+    const canMark = isAdmin || (myTeacherName && ev.teacher === myTeacherName)
     if (!canMark) return
     const key = `${clientId}_${dirId}`
     const newVal = !attendance[key]
     setAttendance(p => ({ ...p, [key]: newVal }))
+    // Snapshot: пытаемся подтянуть teacher_id по имени (для будущей истории)
+    const teacherObj = teachers.find(t => t.name === ev.teacher)
     await supabase.from('attendance').upsert(
-      { date: ds, client_id: clientId, direction_id: dirId, present: newVal },
+      {
+        date: ds,
+        client_id: clientId,
+        direction_id: dirId,
+        present: newVal,
+        time: ev.time || null,
+        teacher_id: teacherObj?.id || null,
+      },
       { onConflict: 'date,client_id,direction_id' }
     )
     const { data: allAtt } = await supabase.from('attendance').select('*').eq('client_id', clientId).eq('present', true)
@@ -162,7 +171,7 @@ function DayModal({ date, events, onClose, isAdmin, myTeacherName, onAttendanceC
                     <div style={{ fontWeight:700, fontSize:13 }}>{s.child_name}</div>
                     <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
                   </div>
-                  <button onClick={() => toggle(s.id, ev.dirId, ev.teacher)} style={{
+                  <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
                     padding:'5px 14px', borderRadius:10, border:'none',
                     cursor: canMark ? 'pointer' : 'not-allowed',
                     fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
@@ -321,14 +330,6 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   const daysInMonth = new Date(year, month+1, 0).getDate()
   const cells = Array(offset).fill(null).concat(Array.from({ length:daysInMonth }, (_,i) => i+1))
 
-  // Определяем, мобильное ли устройство (≤640px)
-  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth <= 640)
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 640)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
   return (
     <div className="cal-outer">
       <div className="cal-header-row">{DAYS_CAL.map(d => <div key={d} className="cal-dayname">{d}</div>)}</div>
@@ -350,34 +351,6 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
           })
           const timeGroups = Object.entries(byTime).sort((a,b) => a[0].localeCompare(b[0]))
 
-          // ===== Мобильная версия: компактный день с точками =====
-          if (isMobile) {
-            // Собираем уникальные цвета занятий в этот день (макс. 4 точки)
-            const uniqueColors = []
-            events.forEach(e => {
-              if (!uniqueColors.includes(e.color)) uniqueColors.push(e.color)
-            })
-            const dotsToShow = uniqueColors.slice(0, 4)
-            const moreCount = uniqueColors.length - dotsToShow.length
-
-            return (
-              <div key={i} className={`cal-day cal-day-mobile ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}>
-                <div className="cal-daynum-mobile" style={{ color: dayDate > today0 ? T.muted : T.ink, fontWeight: isToday ? 800 : 600 }}>{day}</div>
-                {events.length > 0 && (
-                  <div className="cal-dots">
-                    {dotsToShow.map((c, di) => (
-                      <span key={di} className="cal-dot" style={{ background: c }} />
-                    ))}
-                    {moreCount > 0 && (
-                      <span className="cal-dot-more">+{moreCount}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          }
-
-          // ===== Десктопная версия: как было =====
           return (
             <div key={i} className={`cal-day ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}>
               <div className="cal-daynum" style={{ color: dayDate > today0 ? T.muted : T.ink }}>{day}</div>
@@ -468,29 +441,29 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   return (
     <div>
       {/* Controls */}
-      <div className="cal-controls" style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
         {/* View switcher */}
-        <div className="tabs cal-tabs" style={{ marginBottom:0 }}>
+        <div className="tabs" style={{ marginBottom:0 }}>
           {[['month','Месяц'],['week','Неделя'],['day','День']].map(([v,l]) => (
             <button key={v} className={`tab ${view===v?'active':''}`} onClick={() => setView(v)}>{l}</button>
           ))}
         </div>
 
-        <div className="cal-divider" style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
+        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
 
         {/* Navigation */}
-        <button className="btn btn-outline btn-sm cal-nav-btn" onClick={() => navigate(-1)}>←</button>
-        <span className="cal-title" style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, minWidth:220, textAlign:'center' }}>{getTitle()}</span>
-        <button className="btn btn-outline btn-sm cal-nav-btn" onClick={() => navigate(1)}>→</button>
-        <button className="btn btn-ghost btn-sm cal-today-btn" onClick={goToday}>Сегодня</button>
+        <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>←</button>
+        <span style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, minWidth:220, textAlign:'center' }}>{getTitle()}</span>
+        <button className="btn btn-outline btn-sm" onClick={() => navigate(1)}>→</button>
+        <button className="btn btn-ghost btn-sm" onClick={goToday}>Сегодня</button>
 
-        <div className="cal-divider" style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
+        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
 
         {/* Filters */}
 
         {isAdmin && (
-          <div className="cal-filter" style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span className="cal-filter-label" style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Педагог:</span>
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Педагог:</span>
             <select style={selectStyle} value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
               <option value="all">Все</option>
               {teachers.map(t => <option key={t.id} value={String(t.id)}>{t.name.split(' ')[0]} {t.name.split(' ')[1]?.[0]}.</option>)}
@@ -498,8 +471,8 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           </div>
         )}
 
-        <div className="cal-filter" style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span className="cal-filter-label" style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Ребёнок:</span>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Ребёнок:</span>
           <select style={selectStyle} value={filterChild} onChange={e => setFilterChild(e.target.value)}>
             <option value="all">Все</option>
             {activeClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
@@ -507,10 +480,10 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         </div>
 
         <button
-          className="btn btn-sm cal-students-btn"
+          className="btn btn-sm"
           onClick={() => setOnlyWithStudents(v => !v)}
           style={{ background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}`, transition:'all 0.15s' }}>
-          👥 <span className="cal-students-label">{onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}</span>
+          👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
         </button>
 
         {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
@@ -520,7 +493,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
 
       {/* Legend for week/day */}
       {view !== 'month' && (
-        <div className="cal-legend" style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
+        <div style={{ display:'flex', gap:12, marginBottom:12, flexWrap:'wrap', alignItems:'center' }}>
           <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Легенда:</span>
           <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:12 }}><span style={{ width:12, height:12, background:T.greenBg, borderRadius:3, border:`2px solid ${T.green}`, display:'inline-block' }} /> Занятие</span>
           <span style={{ display:'flex', alignItems:'center', gap:4, fontSize:12 }}><span style={{ width:12, height:12, background:'#fde8e844', borderRadius:3, border:`2px solid ${T.red}66`, display:'inline-block' }} /> ⚠️ Наложение</span>
@@ -583,6 +556,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
         <DayModal
           date={selectedDay}
           events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers)}
+          teachers={teachers}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={reload}

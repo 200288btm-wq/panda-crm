@@ -129,8 +129,11 @@ function ClientModal({ client, directions, onClose, onSave }) {
   )
 }
 
-function ClientDetail({ client, directions, payments, onClose, onEdit }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze }) {
   const [stats, setStats] = useState(null)
+  const [freezes, setFreezes] = useState([])
+  const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
+  const [attExpanded, setAttExpanded] = useState(false)
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -143,22 +146,43 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
       const totalPaid = (client.paid_lessons || 0) + paidFromPayments
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
 
-      // Visited = initial balance + from attendance
-      const { data: att } = await supabase.from('attendance').select('date').eq('client_id', client.id).eq('present', true)
+      // Visited = initial balance + from attendance (с деталями для раскрываемого списка)
+      const { data: att } = await supabase
+        .from('attendance')
+        .select('date, time, direction_id, teacher_id, address_id, group_id, present')
+        .eq('client_id', client.id)
+        .eq('present', true)
+        .order('date', { ascending: false })
+      setAttDetails(att || [])
       const visitedFromAtt = (att||[]).length
       const totalVisited = (client.visited_lessons || 0) + visitedFromAtt
       const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
 
       setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
+
+      // Заморозки
+      const { data: frz } = await supabase
+        .from('subscription_freezes')
+        .select('*')
+        .eq('client_id', client.id)
+        .order('start_date', { ascending: false })
+      setFreezes(frz || [])
     }
     fetchStats()
   }, [client.id])
+
   const cDirs = directions.filter(d => (client.direction_ids || []).includes(d.id))
   const cPay = payments.filter(p => p.client_id === client.id)
   const age = calcAge(client.birthday)
   const totalPaid = stats?.totalPaid ?? client.paid_lessons ?? 0
   const totalVisited = stats?.totalVisited ?? client.visited_lessons ?? 0
   const bal = calcBalance(totalPaid, totalVisited)
+
+  // Активная заморозка сейчас?
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const activeFreeze = freezes.find(f => f.start_date <= todayStr && f.end_date >= todayStr)
+  // Будущая заморозка?
+  const futureFreeze = freezes.find(f => f.start_date > todayStr)
 
   return (
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
@@ -189,6 +213,43 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
           </div>
         </div>
       )}
+
+      {/* Блок заморозки */}
+      {activeFreeze ? (
+        <div style={{ background: '#e3f2fd', border: '1.5px solid #2196f3', borderRadius: 12, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 24 }}>❄️</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: 14, color: '#1565c0' }}>
+              Абонемент заморожен до {new Date(activeFreeze.end_date).toLocaleDateString('ru-RU')}
+            </div>
+            <div style={{ fontSize: 12, color: '#1565c0aa' }}>
+              {activeFreeze.days} {activeFreeze.days === 1 ? 'день' : (activeFreeze.days < 5 ? 'дня' : 'дней')}
+              {activeFreeze.note ? ` · ${activeFreeze.note}` : ''}
+            </div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={async () => {
+            if (!confirm('Снять заморозку?')) return
+            await supabase.from('subscription_freezes').delete().eq('id', activeFreeze.id)
+            setFreezes(prev => prev.filter(f => f.id !== activeFreeze.id))
+          }}>Снять</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => onFreeze && onFreeze(client)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            ❄️ Заморозить абонемент
+          </button>
+          {futureFreeze && (
+            <span style={{ fontSize: 12, color: T.muted, alignSelf: 'center' }}>
+              Запланирована с {new Date(futureFreeze.start_date).toLocaleDateString('ru-RU')}
+            </span>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
         {/* Paid lessons */}
         <div style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px' }}>
@@ -199,15 +260,58 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
           </div>
           {stats && <div style={{ fontSize: 12, color: T.greenDark, marginTop: 2 }}>в этом мес.: <strong>{stats.monthPaid}</strong> зан.</div>}
         </div>
-        {/* Visited lessons */}
-        <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
-          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>✅ Посещено занятий</div>
+        {/* Visited lessons — кликабельный, раскрывает список */}
+        <div
+          style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s' }}
+          onClick={() => setAttExpanded(v => !v)}
+          onMouseEnter={e => e.currentTarget.style.background = '#ebe7d2'}
+          onMouseLeave={e => e.currentTarget.style.background = T.cream}
+        >
+          <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>✅ Посещено занятий</span>
+            <span style={{ fontSize: 11, color: T.muted, fontWeight: 600, textTransform: 'none' }}>{attExpanded ? '▲ свернуть' : '▼ подробнее'}</span>
+          </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
             <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 24, color: T.ink }}>{stats ? totalVisited : '...'}</span>
             <span style={{ fontSize: 12, color: T.muted }}>всего</span>
           </div>
           {stats && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>в этом мес.: <strong>{stats.monthVisited}</strong> зан.</div>}
         </div>
+      </div>
+
+      {/* Раскрытый список посещений */}
+      {attExpanded && (
+        <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}` }}>
+          <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            История посещений ({attDetails.length})
+          </div>
+          {attDetails.length === 0 ? (
+            <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Посещений пока нет</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+              {attDetails.map((a, i) => {
+                const dir = directions.find(d => d.id === a.direction_id)
+                const teacher = teachers?.find(t => t.id === a.teacher_id)
+                const address = addresses?.find(adr => adr.id === a.address_id)
+                const dirColor = dir?.color || DEFAULT_COLOR
+                const dateObj = new Date(a.date)
+                const dateStr = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })
+                return (
+                  <div key={i} style={{ background: 'white', borderRadius: 8, padding: '8px 10px', borderLeft: `3px solid ${dirColor}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, minWidth: 90 }}>{dateStr}</div>
+                    {a.time && <div style={{ fontSize: 12, color: T.muted, minWidth: 50 }}>🕐 {a.time}</div>}
+                    <div style={{ fontSize: 13, color: dirColor, fontWeight: 600 }}>{dir?.name || 'Направление удалено'}</div>
+                    {teacher && <div style={{ fontSize: 12, color: T.muted }}>👩‍🏫 {teacher.name}</div>}
+                    {address && <div style={{ fontSize: 12, color: T.muted }}>📍 {address.name}</div>}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>📌 Источник</div>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14 }}>{client.source || '—'}</div>
@@ -251,13 +355,84 @@ function ClientDetail({ client, directions, payments, onClose, onEdit }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, reload }) {
+// Модалка заморозки абонемента
+function FreezeModal({ client, onClose, onSaved }) {
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const [startDate, setStartDate] = useState(todayISO)
+  const [days, setDays] = useState(7)
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  // Конечная дата считается автоматически
+  const endDate = (() => {
+    if (!startDate || !days || days < 1) return ''
+    const d = new Date(startDate)
+    d.setDate(d.getDate() + (+days) - 1)
+    return d.toISOString().slice(0, 10)
+  })()
+
+  const save = async () => {
+    setError(null)
+    if (!startDate) return setError('Укажите дату начала')
+    if (!days || days < 1) return setError('Кол-во дней должно быть от 1')
+    setSaving(true)
+    const { error: err } = await supabase.from('subscription_freezes').insert({
+      client_id: client.id,
+      start_date: startDate,
+      end_date: endDate,
+      days: +days,
+      note: note || null,
+    })
+    setSaving(false)
+    if (err) return setError('Не удалось сохранить: ' + err.message)
+    onSaved && onSaved()
+  }
+
+  return (
+    <Modal title={`❄️ Заморозка абонемента — ${client.child_name}`} onClose={onClose}
+      footer={<><button className="btn btn-outline" onClick={onClose} disabled={saving}>Отмена</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Сохраняем…' : 'Заморозить'}</button></>}>
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Дата начала</label>
+          <input className="form-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ fontSize: 16 }} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Кол-во дней</label>
+          <input className="form-input" type="number" min="1" max="365" value={days} onChange={e => setDays(Math.max(1, +e.target.value || 1))} style={{ fontSize: 16 }} />
+        </div>
+      </div>
+      {endDate && (
+        <div style={{ background: '#e3f2fd', borderRadius: 12, padding: '10px 14px', marginBottom: 14, color: '#1565c0', fontSize: 13, fontWeight: 600 }}>
+          ❄️ Абонемент будет заморожен до {new Date(endDate).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </div>
+      )}
+      <div className="form-group">
+        <label className="form-label">Комментарий (необязательно)</label>
+        <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Например: болезнь, отпуск" style={{ fontSize: 16 }} />
+      </div>
+      {error && <div className="alert alert-error">{error}</div>}
+      <div style={{ fontSize: 12, color: T.muted, padding: '8px 0' }}>
+        💡 В период заморозки занятия не списываются с баланса. Если ребёнок придёт на занятие — отметить посещение всё равно можно, но желательно сначала снять заморозку.
+      </div>
+    </Modal>
+  )
+}
+
+export default function ClientsPage({ clients, directions, payments, teachers, reload }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
+  const [showFreeze, setShowFreeze] = useState(null) // клиент, для которого открыта модалка заморозки
+  const [addresses, setAddresses] = useState([])
+
+  // Загружаем адреса один раз (для блока истории посещений)
+  useEffect(() => {
+    supabase.from('addresses').select('*').then(({ data }) => setAddresses(data || []))
+  }, [])
 
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
@@ -361,9 +536,33 @@ export default function ClientsPage({ clients, directions, payments, reload }) {
       {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
       {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
       {showDetail && (
-        <ClientDetail client={showDetail} directions={directions} payments={payments}
+        <ClientDetail
+          client={showDetail}
+          directions={directions}
+          payments={payments}
+          teachers={teachers}
+          addresses={addresses}
           onClose={() => setShowDetail(null)}
           onEdit={() => { setShowEdit(showDetail); setShowDetail(null) }}
+          onFreeze={(c) => setShowFreeze(c)}
+        />
+      )}
+      {showFreeze && (
+        <FreezeModal
+          client={showFreeze}
+          onClose={() => setShowFreeze(null)}
+          onSaved={() => {
+            setShowFreeze(null)
+            // Закрываем и переоткрываем карточку клиента чтобы перезагрузить заморозки
+            if (showDetail) {
+              const cid = showDetail.id
+              setShowDetail(null)
+              setTimeout(() => {
+                const fresh = clients.find(c => c.id === cid)
+                if (fresh) setShowDetail(fresh)
+              }, 50)
+            }
+          }}
         />
       )}
     </div>
