@@ -202,6 +202,9 @@ export function GlobalStyles() {
         .topbar-hamburger { display: flex !important; }
         .content { padding: 12px 12px 80px; }
 
+        /* Скрыть на мобиле */
+        .hide-mobile { display: none !important; }
+
         .mobile-nav {
           display: flex; position: fixed; bottom: 0; left: 0; right: 0;
           background: white; border-top: 1px solid ${T.border};

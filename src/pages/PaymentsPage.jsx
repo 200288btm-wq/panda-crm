@@ -210,31 +210,35 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       </div>
 
       <div className="table-wrap"><table>
-        <thead><tr><th>Дата</th><th>Клиент</th><th>Тип</th><th>Направление</th><th>Скидка</th><th>Сумма</th><th>Чек</th><th></th></tr></thead>
+        <thead><tr>
+          <th>Дата</th>
+          <th>Клиент</th>
+          <th>Тип</th>
+          <th className="hide-mobile">Направление</th>
+          <th>Сумма</th>
+          <th></th>
+        </tr></thead>
         <tbody>
           {payments.map(p => {
             const c = clients.find(x => x.id === p.client_id)
             const d = directions.find(x => x.id === p.direction_id)
             return (
               <tr key={p.id}>
-                <td style={{ fontSize: 12, color: T.muted }}>{p.payment_date}</td>
+                <td style={{ fontSize: 12, color: T.muted, whiteSpace: 'nowrap' }}>{p.payment_date}</td>
                 <td style={{ fontWeight: 600 }}>{c?.child_name || '—'}</td>
                 <td><span className={`badge ${p.payment_type === 'Пробное занятие' ? 'badge-gray' : p.payment_type?.includes('скидк') ? 'badge-orange' : 'badge-green'}`}>{p.payment_type}</span></td>
-                <td style={{ fontSize: 12 }}>{d?.name || '—'}</td>
-                <td style={{ fontSize: 12 }}>
-                  {p.discount_pct ? <span className="badge badge-orange">−{p.discount_pct}%</span> : '—'}
-                </td>
+                <td className="hide-mobile" style={{ fontSize: 12 }}>{d?.name || '—'}</td>
                 <td>
-                  <div>
-                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: +p.amount > 0 ? T.greenDark : T.muted }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: +p.amount > 0 ? T.greenDark : T.muted, whiteSpace: 'nowrap' }}>
                       {+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}
                     </span>
                     {p.base_amount > 0 && p.base_amount !== p.amount && (
-                      <div style={{ fontSize: 10, color: T.muted, textDecoration: 'line-through' }}>{fmt(p.base_amount)}</div>
+                      <span style={{ fontSize: 10, color: T.muted, textDecoration: 'line-through' }}>{fmt(p.base_amount)}</span>
                     )}
+                    {p.discount_pct ? <span className="badge badge-orange" style={{ alignSelf: 'flex-start', marginTop: 2 }}>−{p.discount_pct}%</span> : null}
                   </div>
                 </td>
-                <td style={{ fontSize: 12, color: T.muted }}>{p.check_number || '—'}</td>
                 <td>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)}>✏️</button>
@@ -244,7 +248,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
               </tr>
             )
           })}
-          {!payments.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Оплат пока нет</div></div></td></tr>}
+          {!payments.length && <tr><td colSpan={6}><div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Оплат пока нет</div></div></td></tr>}
         </tbody>
       </table></div>
 
