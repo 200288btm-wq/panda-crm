@@ -62,7 +62,7 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers) => {
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = []) => {
   const dow = date.getDay()
   const dayKey = DOW_TO_KEY[dow]
   const events = []
@@ -84,14 +84,35 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
+    // Фильтр по адресу — через groups
+    if (filterAddress !== 'all') {
+      const groups = (d.groups || [])
+      const hasAddr = groups.some(g => String(g.address_id) === filterAddress)
+      if (!hasAddr) return
+    }
     const timeMin = parseTime(timeForDay)
     if (timeMin === null) return
     let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
     if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+
+    // Определяем цвет: по направлению или по адресу
+    let eventColor = d.color || DEFAULT_COLOR
+    if (colorMode === 'address') {
+      const groups = (d.groups || [])
+      // Берём первую группу с адресом (или с нужным адресом)
+      const group = filterAddress !== 'all'
+        ? groups.find(g => String(g.address_id) === filterAddress)
+        : groups.find(g => g.address_id)
+      if (group?.address_id) {
+        const addr = addresses.find(a => String(a.id) === String(group.address_id))
+        if (addr?.color) eventColor = addr.color
+      }
+    }
+
     events.push({
       name: d.name, timeMin, time: timeForDay,
       teacher: d.teacher_name, dirId: d.id, students,
-      color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
+      color: eventColor, duration: d.duration || '1 час',
       durationMin: parseDuration(d.duration),
     })
   })
@@ -190,7 +211,7 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -198,7 +219,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -323,7 +344,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses }) {
   const now = new Date()
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
   useEffect(() => {
@@ -344,7 +365,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -420,7 +441,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, staff, role, reload }) {
+export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
@@ -429,6 +450,8 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
   const [filterChild, setFilterChild] = useState('all')
+  const [filterAddress, setFilterAddress] = useState('all')
+  const [colorMode, setColorMode] = useState('direction') // 'direction' | 'address'
   const [onlyWithStudents, setOnlyWithStudents] = useState(false)
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
@@ -521,8 +544,36 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
         </button>
 
-        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || onlyWithStudents) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
+        {addresses.length > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Адрес:</span>
+            <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>
+              <option value="all">Все</option>
+              {addresses.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        {addresses.length > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Цвет:</span>
+            <div className="tabs" style={{ marginBottom:0 }}>
+              <button
+                className={`tab ${colorMode === 'direction' ? 'active' : ''}`}
+                onClick={() => setColorMode('direction')}
+                style={{ fontSize:12, padding:'4px 10px' }}
+              >По направлениям</button>
+              <button
+                className={`tab ${colorMode === 'address' ? 'active' : ''}`}
+                onClick={() => setColorMode('address')}
+                style={{ fontSize:12, padding:'4px 10px' }}
+              >По адресам</button>
+            </div>
+          </div>
+        )}
+
+        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || filterAddress !== 'all' || onlyWithStudents) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setFilterAddress('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -544,6 +595,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           directions={directions} clients={clients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
+          filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
         />
       )}
 
@@ -554,6 +606,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
+          filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
         />
       )}
 
@@ -590,7 +643,7 @@ export default function CalendarPage({ directions, clients, teachers, staff, rol
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses)}
           teachers={teachers}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
