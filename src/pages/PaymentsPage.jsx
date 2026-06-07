@@ -177,9 +177,23 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   )
 }
 
+// Сокращения типов оплаты
+const PAY_SHORT = {
+  'Абонемент':           { label: 'АБ',  cls: 'badge-green' },
+  'Разовое занятие':     { label: 'РАЗ', cls: 'badge-gray' },
+  'Абонемент со скидкой':{ label: 'АБ%', cls: 'badge-orange' },
+  'Пробное занятие':     { label: 'ПРОБ',cls: 'badge-gray' },
+}
+
 export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+
+  // Фильтры
+  const now = new Date()
+  const [filterMonth, setFilterMonth] = useState(false)
+  const [filterClient, setFilterClient] = useState('all')
+  const [filterDir, setFilterDir] = useState('all')
 
   const save = async (f) => {
     if (showEdit) {
@@ -198,57 +212,108 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
     reload()
   }
 
-  const total = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  // Применяем фильтры
+  const filtered = payments.filter(p => {
+    if (filterMonth) {
+      const d = new Date(p.payment_date)
+      if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false
+    }
+    if (filterClient !== 'all' && String(p.client_id) !== filterClient) return false
+    if (filterDir !== 'all' && String(p.direction_id) !== filterDir) return false
+    return true
+  })
+
+  const total = filtered.reduce((s, p) => s + (p.amount || 0), 0)
+
+  const selStyle = { padding:'5px 10px', borderRadius:8, border:`1.5px solid ${T.border}`, fontFamily:'Nunito Sans,sans-serif', fontSize:12, background:T.cream, outline:'none', cursor:'pointer' }
+  const monthName = now.toLocaleString('ru-RU', { month: 'long' })
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: T.greenDark }}>
+      {/* Шапка: итого + кнопка */}
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:20, color:T.greenDark }}>
           Итого: {fmt(total)}
         </div>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Новая оплата</button>
       </div>
 
+      {/* Фильтры */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:14, flexWrap:'wrap' }}>
+        <button
+          className="btn btn-sm"
+          onClick={() => setFilterMonth(v => !v)}
+          style={{ fontSize:12, padding:'5px 12px', whiteSpace:'nowrap', background: filterMonth ? T.green : T.cream, color: filterMonth ? 'white' : T.muted, border:`1.5px solid ${filterMonth ? T.green : T.border}` }}>
+          📅 {filterMonth ? `${monthName} ✓` : 'Этот месяц'}
+        </button>
+
+        <select style={selStyle} value={filterClient} onChange={e => setFilterClient(e.target.value)}>
+          <option value="all">Все клиенты</option>
+          {clients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
+        </select>
+
+        <select style={selStyle} value={filterDir} onChange={e => setFilterDir(e.target.value)}>
+          <option value="all">Все направления</option>
+          {directions.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+        </select>
+
+        {(filterMonth || filterClient !== 'all' || filterDir !== 'all') && (
+          <button className="btn btn-ghost btn-sm" style={{ fontSize:12 }}
+            onClick={() => { setFilterMonth(false); setFilterClient('all'); setFilterDir('all') }}>
+            ✕ Сбросить
+          </button>
+        )}
+      </div>
+
+      {/* Таблица */}
       <div className="table-wrap"><table>
         <thead><tr>
           <th>Дата</th>
           <th>Клиент</th>
           <th>Тип</th>
-          <th className="hide-mobile">Направление</th>
+          <th>Направление</th>
           <th>Сумма</th>
           <th></th>
         </tr></thead>
         <tbody>
-          {payments.map(p => {
+          {filtered.map(p => {
             const c = clients.find(x => x.id === p.client_id)
             const d = directions.find(x => x.id === p.direction_id)
+            const pt = PAY_SHORT[p.payment_type] || { label: p.payment_type?.slice(0,3) || '?', cls: 'badge-green' }
+            // Дата в 2 строки: год-мес / день
+            const dateParts = (p.payment_date || '').split('-')
+            const dateTop = dateParts.length === 3 ? `${dateParts[0]}-${dateParts[1]}` : p.payment_date
+            const dateBot = dateParts.length === 3 ? dateParts[2] : ''
             return (
               <tr key={p.id}>
-                <td style={{ fontSize: 12, color: T.muted, whiteSpace: 'nowrap' }}>{p.payment_date}</td>
-                <td style={{ fontWeight: 600 }}>{c?.child_name || '—'}</td>
-                <td><span className={`badge ${p.payment_type === 'Пробное занятие' ? 'badge-gray' : p.payment_type?.includes('скидк') ? 'badge-orange' : 'badge-green'}`}>{p.payment_type}</span></td>
-                <td className="hide-mobile" style={{ fontSize: 12 }}>{d?.name || '—'}</td>
+                <td style={{ fontSize:11, color:T.muted, whiteSpace:'nowrap' }}>
+                  <div>{dateTop}</div>
+                  <div style={{ fontWeight:700, fontSize:13, color:T.ink }}>{dateBot}</div>
+                </td>
+                <td style={{ fontWeight:600, fontSize:13 }}>{c?.child_name || '—'}</td>
+                <td><span className={`badge ${pt.cls}`} style={{ fontSize:11, padding:'2px 7px' }}>{pt.label}</span></td>
+                <td style={{ fontSize:12, color:T.muted }}>{d?.name || '—'}</td>
                 <td>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: +p.amount > 0 ? T.greenDark : T.muted, whiteSpace: 'nowrap' }}>
+                  <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                    <span style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:13, color:+p.amount > 0 ? T.greenDark : T.muted, whiteSpace:'nowrap' }}>
                       {+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}
                     </span>
                     {p.base_amount > 0 && p.base_amount !== p.amount && (
-                      <span style={{ fontSize: 10, color: T.muted, textDecoration: 'line-through' }}>{fmt(p.base_amount)}</span>
+                      <span style={{ fontSize:10, color:T.muted, textDecoration:'line-through' }}>{fmt(p.base_amount)}</span>
                     )}
-                    {p.discount_pct ? <span className="badge badge-orange" style={{ alignSelf: 'flex-start', marginTop: 2 }}>−{p.discount_pct}%</span> : null}
+                    {p.discount_pct ? <span className="badge badge-orange" style={{ alignSelf:'flex-start', fontSize:10, padding:'1px 6px' }}>−{p.discount_pct}%</span> : null}
                   </div>
                 </td>
                 <td>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)}>✏️</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => del(p.id)} style={{ color: T.red }}>🗑️</button>
+                  <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)} style={{ padding:'4px 8px' }}>✏️</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => del(p.id)} style={{ color:T.red, padding:'4px 8px' }}>🗑️</button>
                   </div>
                 </td>
               </tr>
             )
           })}
-          {!payments.length && <tr><td colSpan={6}><div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Оплат пока нет</div></div></td></tr>}
+          {!filtered.length && <tr><td colSpan={6}><div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Оплат нет</div></div></td></tr>}
         </tbody>
       </table></div>
 
