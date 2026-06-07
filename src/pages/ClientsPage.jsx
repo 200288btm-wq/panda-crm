@@ -426,8 +426,15 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
-  const [showFreeze, setShowFreeze] = useState(null) // клиент, для которого открыта модалка заморозки
+  const [showFreeze, setShowFreeze] = useState(null)
   const [addresses, setAddresses] = useState([])
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // Загружаем адреса один раз (для блока истории посещений)
   useEffect(() => {
@@ -483,7 +490,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         {['Все', ...STATUSES].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
       </div>
 
-      <div className="table-wrap show-desktop">
+      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
           <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th></tr></thead>
           <tbody>
@@ -534,7 +541,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       </div>
 
       {/* Мобильные карточки */}
-      <div className="show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="show-mobile" style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
         {filtered.map(c => {
           const age = calcAge(c.birthday)
           const bal = calcBalance(c.paid_lessons, c.visited_lessons)
