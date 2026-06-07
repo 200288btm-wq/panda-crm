@@ -142,7 +142,6 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       child_name: form.child_name.trim(),
       parent_name: form.parent_name.trim() || null,
       parent_phone: form.parent_phone.trim() || null,
-      child_age: form.child_age || null,
       direction_ids: form.direction_ids,
       status: form.status,
       notes: form.notes.trim() || null,
@@ -173,19 +172,18 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
           <input className="form-input" style={inp} value={form.parent_phone} onChange={e => set('parent_phone', e.target.value)} placeholder="+7..." />
         </div>
       </div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
-        <div className="form-group">
-          <label className="form-label">Возраст</label>
-          <input className="form-input" style={inp} value={form.child_age} onChange={e => set('child_age', e.target.value)} placeholder="5 лет" />
+      {lead.child_age && (
+        <div style={{ fontSize:12, color:T.muted, background:T.cream, borderRadius:8, padding:'6px 12px', marginBottom:4 }}>
+          ℹ️ Возраст из заявки: <b>{lead.child_age}</b> — дату рождения можно добавить в карточке клиента после создания
         </div>
-        <div className="form-group">
-          <label className="form-label">Статус</label>
-          <select className="form-input" style={inp} value={form.status} onChange={e => set('status', e.target.value)}>
-            <option value="Активен">Активен</option>
-            <option value="Новый">Новый</option>
-            <option value="Заморожен">Заморожен</option>
-          </select>
-        </div>
+      )}
+      <div className="form-group">
+        <label className="form-label">Статус</label>
+        <select className="form-input" style={inp} value={form.status} onChange={e => set('status', e.target.value)}>
+          <option value="Активен">Активен</option>
+          <option value="Новый">Новый</option>
+          <option value="Заморожен">Заморожен</option>
+        </select>
       </div>
       {directions && directions.length > 0 && (
         <div className="form-group">
