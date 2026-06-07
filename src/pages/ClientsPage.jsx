@@ -483,6 +483,9 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       if (c) { setShowDetail(c); setDeepLink(null) }
     }
   }, [deepLink, clients])
+
+  // Загружаем адреса один раз (для блока истории посещений)
+  useEffect(() => {
     supabase.from('addresses').select('*').then(({ data }) => setAddresses(data || []))
   }, [])
 
