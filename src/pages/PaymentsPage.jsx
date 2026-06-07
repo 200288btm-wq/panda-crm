@@ -5,8 +5,8 @@ import { Modal } from '../components/Modal'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
-function PaymentModal({ payment, clients, directions, subscriptions, onClose, onSave }) {
-  const [clientId, setClientId] = useState(payment?.client_id || '')
+function PaymentModal({ payment, clients, directions, subscriptions, onClose, onSave, preselectedClientId }) {
+  const [clientId, setClientId] = useState(payment?.client_id || preselectedClientId || '')
   const [subId, setSubId] = useState('')
   const [dirId, setDirId] = useState(payment?.direction_id || '')
   const [groupName, setGroupName] = useState(payment?.group_name || 'Группа 1')
@@ -185,9 +185,19 @@ const PAY_SHORT = {
   'Пробное занятие':     { label: 'ПРОБ',cls: 'badge-gray' },
 }
 
-export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload }) {
+export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload, deepLink, setDeepLink }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+  const [preselectedClientId, setPreselectedClientId] = useState(null)
+
+  // Автооткрытие модалки оплаты по deepLink (из карточки клиента)
+  useEffect(() => {
+    if (deepLink?.clientId) {
+      setPreselectedClientId(deepLink.clientId)
+      setShowAdd(true)
+      if (setDeepLink) setDeepLink(null)
+    }
+  }, [deepLink])
 
   // Фильтры
   const now = new Date()
@@ -317,7 +327,9 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
         </tbody>
       </table></div>
 
-      {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions}
+        preselectedClientId={preselectedClientId}
+        onClose={() => { setShowAdd(false); setPreselectedClientId(null) }} onSave={save} />}
       {showEdit && <PaymentModal payment={showEdit} clients={clients} directions={directions} subscriptions={subscriptions} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )

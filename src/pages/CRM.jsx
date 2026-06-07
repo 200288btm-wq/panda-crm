@@ -42,6 +42,7 @@ function getInitials(fullName) {
 
 export default function CRM({ session, staff }) {
   const [page, setPage] = useState('dashboard')
+  const [deepLink, setDeepLink] = useState(null) // { clientId, openPayment: bool }
   const [clients, setClients] = useState([])
   const [payments, setPayments] = useState([])
   const [expenses, setExpenses] = useState([])
@@ -143,7 +144,7 @@ export default function CRM({ session, staff }) {
 
   const logout = () => supabase.auth.signOut()
 
-  const navigate = (id) => { setPage(id); setMobileOpen(false) }
+  const navigate = (id, link = null) => { setPage(id); setMobileOpen(false); setDeepLink(link) }
 
   const nav = [
     { section: 'Главная', items: [
@@ -168,7 +169,7 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink }
 
   const SidebarContent = () => (
     <>

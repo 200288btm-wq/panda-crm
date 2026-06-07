@@ -1,6 +1,6 @@
 import { T, fmt } from '../styles.jsx'
 
-export default function Dashboard({ clients, payments, expenses, directions, isDirector }) {
+export default function Dashboard({ clients, payments, expenses, directions, isDirector, navigate }) {
   const active = clients.filter(c => c.status === 'Активен').length
   const income = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
@@ -94,7 +94,10 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
           <div className="card card-pad" style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 12 }}>🔴 Задолженности</div>
             {debtors.length ? debtors.map(c => (
-              <div key={c.id} className="fin-row">
+              <div key={c.id} className="fin-row" onClick={() => navigate && navigate('clients', { clientId: c.id })}
+                style={{ cursor: navigate ? 'pointer' : 'default', borderRadius: 8, padding: '6px 4px', margin: '0 -4px', transition: 'background 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.background = '#f5f5ee'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <div className="avatar" style={{ background: hashColor(c.child_name), width: 28, height: 28, fontSize: 11 }}>{(c.child_name || '?')[0]}</div>
                   <div>
@@ -102,7 +105,10 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
                     <div style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</div>
                   </div>
                 </div>
-                <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.red, whiteSpace: 'nowrap' }}>{c.realBalance} зан.</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.red, whiteSpace: 'nowrap' }}>{c.realBalance} зан.</span>
+                  {navigate && <span style={{ fontSize: 11, color: T.muted }}>→</span>}
+                </div>
               </div>
             )) : (
               <div className="empty" style={{ padding: '16px 0' }}>

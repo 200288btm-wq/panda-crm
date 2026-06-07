@@ -136,7 +136,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
@@ -195,6 +195,11 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
       footer={<>
         <button className="btn btn-outline btn-sm" onClick={onEdit}>✏️ Редактировать</button>
+        {onAddPayment && (
+          <button className="btn btn-primary btn-sm" onClick={() => onAddPayment(client)}>
+            💳 + Оплата
+          </button>
+        )}
         {onDelete && (
           <button className="btn btn-sm" onClick={() => onDelete(client)}
             style={{ color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444433', marginLeft:'auto' }}>
@@ -454,7 +459,7 @@ function CommentToggle({ comment }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector }) {
+export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
@@ -471,8 +476,13 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  // Загружаем адреса один раз (для блока истории посещений)
+  // Автооткрытие карточки клиента по deepLink (например из дашборда)
   useEffect(() => {
+    if (deepLink?.clientId && clients.length) {
+      const c = clients.find(x => x.id === deepLink.clientId)
+      if (c) { setShowDetail(c); setDeepLink(null) }
+    }
+  }, [deepLink, clients])
     supabase.from('addresses').select('*').then(({ data }) => setAddresses(data || []))
   }, [])
 
@@ -678,6 +688,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           onEdit={() => { setShowEdit(showDetail); setShowDetail(null) }}
           onFreeze={(c) => setShowFreeze(c)}
           onDelete={isDirector ? deleteClient : null}
+          onAddPayment={navigate ? (c) => { setShowDetail(null); navigate('payments', { clientId: c.id }) } : null}
         />
       )}
       {showFreeze && (
