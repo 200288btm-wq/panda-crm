@@ -514,9 +514,9 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       balance: +f.balance || 0,
       discount: +f.discount || 0,
       direction_ids: f.direction_ids || [],
-      // visited_lessons НЕ трогаем при редактировании — он управляется через attendance
+      birthday: f.birthday || null,
+      start_date: f.start_date || null,
     }
-    // Удаляем visited_lessons из update чтобы не затирать реальный счётчик
     if (showEdit) delete cleaned.visited_lessons
 
     if (showEdit) {
