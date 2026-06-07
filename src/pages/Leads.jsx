@@ -137,8 +137,9 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
 
   const save = async () => {
     if (!form.child_name.trim()) { setError('Укажите имя ребёнка'); return }
+    setError(null)
     setSaving(true)
-    const { error: err } = await supabase.from('clients').insert({
+    const payload = {
       child_name: form.child_name.trim(),
       adult_name: form.parent_name.trim() || null,
       contacts: form.parent_phone.trim() ? [{ type: 'Телефон', val: form.parent_phone.trim() }] : [],
@@ -148,9 +149,14 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       visited_lessons: 0,
       balance: 0,
       discount: 0,
-    })
+    }
+    const { data, error: err } = await supabase.from('clients').insert(payload).select()
     setSaving(false)
-    if (err) { setError('Ошибка: ' + err.message); return }
+    if (err) {
+      setError('Ошибка: ' + (err.message || JSON.stringify(err)))
+      return
+    }
+    // Пометить заявку подтверждённой
     await supabase.from('leads').update({ status: 'confirmed' }).eq('id', lead.id)
     onConverted()
     onClose()
