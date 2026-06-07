@@ -140,11 +140,14 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
     setSaving(true)
     const { error: err } = await supabase.from('clients').insert({
       child_name: form.child_name.trim(),
-      parent_name: form.parent_name.trim() || null,
-      parent_phone: form.parent_phone.trim() || null,
+      adult_name: form.parent_name.trim() || null,
+      contacts: form.parent_phone.trim() ? [{ type: 'Телефон', val: form.parent_phone.trim() }] : [],
       direction_ids: form.direction_ids,
       status: form.status,
-      notes: form.notes.trim() || null,
+      paid_lessons: 0,
+      visited_lessons: 0,
+      balance: 0,
+      discount: 0,
     })
     setSaving(false)
     if (err) { setError('Ошибка: ' + err.message); return }
@@ -203,11 +206,6 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
           </div>
         </div>
       )}
-      <div className="form-group">
-        <label className="form-label">Заметки</label>
-        <textarea className="form-input" style={{ ...inp, resize:'vertical', fontFamily:'inherit', lineHeight:1.4 }}
-          value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} placeholder="Доп. информация..." />
-      </div>
     </Modal>
   )
 }
