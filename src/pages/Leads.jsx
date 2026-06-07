@@ -120,7 +120,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
     child_age: lead.child_age || '',
     direction_ids: [],
     status: 'Активен',
-    notes: lead.notes || '',
+    comment: lead.notes || '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -149,7 +149,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       visited_lessons: 0,
       balance: 0,
       discount: 0,
-      comment: lead.notes ? lead.notes.trim() : null,
+      comment: form.comment.trim() || null,
     }
     const { data, error: err } = await supabase.from('clients').insert(payload).select()
     setSaving(false)
@@ -213,6 +213,12 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
           </div>
         </div>
       )}
+      <div className="form-group">
+        <label className="form-label">💬 Комментарий к клиенту</label>
+        <textarea className="form-input" style={{ ...inp, resize:'vertical', fontFamily:'inherit', lineHeight:1.5 }}
+          value={form.comment} onChange={e => set('comment', e.target.value)}
+          rows={3} placeholder="Заметки о клиенте..." />
+      </div>
     </Modal>
   )
 }
