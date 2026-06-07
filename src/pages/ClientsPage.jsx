@@ -39,7 +39,8 @@ function ClientModal({ client, directions, onClose, onSave }) {
     visited_lessons: client.visited_lessons || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
-  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0 })
+    comment: client.comment || '',
+  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
@@ -124,6 +125,12 @@ function ClientModal({ client, directions, onClose, onSave }) {
       <div className="form-group">
         <label className="form-label">Скидка, %</label>
         <input className="form-input" type="number" min="0" max="100" value={f.discount} onChange={e => set('discount', e.target.value)} placeholder="0" style={{ maxWidth: 200 }} />
+      </div>
+      <div className="form-group">
+        <label className="form-label">💬 Комментарий</label>
+        <textarea className="form-input" value={f.comment} onChange={e => set('comment', e.target.value)}
+          placeholder="Любые заметки о клиенте..." rows={3}
+          style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }} />
       </div>
     </Modal>
   )
@@ -419,6 +426,25 @@ function FreezeModal({ client, onClose, onSaved }) {
   )
 }
 
+// Раскрывающийся комментарий для мобильных карточек
+function CommentToggle({ comment }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div onClick={e => e.stopPropagation()}>
+      <button onClick={() => setOpen(v => !v)}
+        style={{ fontSize: 12, color: T.muted, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' }}>
+        <span style={{ fontSize: 14 }}>{open ? '▾' : '▸'}</span>
+        {open ? 'Скрыть комментарий' : '💬 Комментарий'}
+      </button>
+      {open && (
+        <div style={{ fontSize: 13, color: T.muted, background: T.cream, borderRadius: 8, padding: '8px 10px', marginTop: 4, lineHeight: 1.5 }}>
+          {comment}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ClientsPage({ clients, directions, payments, teachers, reload }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
@@ -492,7 +518,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
 
       <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
-          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th></tr></thead>
+          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th><th>Комментарий</th></tr></thead>
           <tbody>
             {filtered.map(c => {
               const age = calcAge(c.birthday)
@@ -532,10 +558,15 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                     </div>
                   </td>
                   <td style={{ fontSize: 12, color: T.muted }}>{(c.contacts || [])[0]?.val || '—'}</td>
+                  <td style={{ fontSize: 12, color: T.muted, maxWidth: 180 }}>
+                    {c.comment
+                      ? <span title={c.comment} style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{c.comment}</span>
+                      : '—'}
+                  </td>
                 </tr>
               )
             })}
-            {!filtered.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
+            {!filtered.length && <tr><td colSpan={9}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
           </tbody>
         </table>
       </div>
@@ -595,13 +626,18 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
               )}
 
               {/* Баланс */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: c.comment ? 8 : 0 }}>
                 <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 10px', borderRadius: 8, background: bal.bg, color: bal.color }}>
                   {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
                 </span>
                 <span style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</span>
                 {(c.discount || 0) > 0 && <span className="badge badge-orange" style={{ marginLeft: 'auto' }}>🎁 {c.discount}%</span>}
               </div>
+
+              {/* Комментарий — раскрывается по кнопке */}
+              {c.comment && (
+                <CommentToggle comment={c.comment} />
+              )}
             </div>
           )
         })}
