@@ -657,8 +657,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
                 {/* Подгруппы — появляются когда направление выбрано */}
                 {active && groups.length > 0 && (
                   <div style={{ background: color+'11', border:`2px solid ${color}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'6px 10px', display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
-                    <span style={{ fontSize:10, color: color, fontWeight:700, opacity:0.7 }}>
-                      📍 {filterGroups.filter(gid => groups.some(g => String(g.id) === gid)).length === 0 ? '(все)' : ''}
+                    <span style={{ fontSize:10, color: color, fontWeight:700, opacity:0.8, whiteSpace:'nowrap' }}>
+                      📍 ПОДГРУППЫ {filterGroups.filter(gid => groups.some(g => String(g.id) === gid)).length === 0 ? '(все)' : ''}
                     </span>
                     {groups.map(g => {
                       const gActive = filterGroups.includes(String(g.id))

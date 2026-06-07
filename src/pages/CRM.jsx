@@ -121,7 +121,7 @@ export default function CRM({ session, staff }) {
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('payments').select('*').order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
-      supabase.from('directions').select('*').order('id'),
+      supabase.from('directions').select('*, groups:direction_groups(*)').order('id'),
       supabase.from('teachers').select('*').order('id'),
       supabase.from('staff').select('*').order('id'),
       supabase.from('subscriptions').select('*').order('id'),
