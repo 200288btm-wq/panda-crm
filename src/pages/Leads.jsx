@@ -149,6 +149,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       visited_lessons: 0,
       balance: 0,
       discount: 0,
+      comment: lead.notes ? lead.notes.trim() : null,
     }
     const { data, error: err } = await supabase.from('clients').insert(payload).select()
     setSaving(false)
@@ -156,8 +157,8 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       setError('Ошибка: ' + (err.message || JSON.stringify(err)))
       return
     }
-    // Пометить заявку подтверждённой
-    await supabase.from('leads').update({ status: 'confirmed' }).eq('id', lead.id)
+    // Удаляем заявку после успешного переноса
+    await supabase.from('leads').delete().eq('id', lead.id)
     onConverted()
     onClose()
   }

@@ -136,7 +136,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
@@ -193,7 +193,16 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
 
   return (
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
-      footer={<><button className="btn btn-outline btn-sm" onClick={onEdit}>✏️ Редактировать</button><button className="btn btn-ghost btn-sm" onClick={onClose}>Закрыть</button></>}>
+      footer={<>
+        <button className="btn btn-outline btn-sm" onClick={onEdit}>✏️ Редактировать</button>
+        {onDelete && (
+          <button className="btn btn-sm" onClick={() => onDelete(client)}
+            style={{ color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444433', marginLeft:'auto' }}>
+            🗑 Удалить клиента
+          </button>
+        )}
+        <button className="btn btn-ghost btn-sm" onClick={onClose}>Закрыть</button>
+      </>}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, padding: '14px 16px', background: T.cream, borderRadius: 14 }}>
         <div className="avatar" style={{ background: hashColor(client.child_name), width: 52, height: 52, fontSize: 20 }}>{(client.child_name || '?')[0]}</div>
         <div style={{ flex: 1 }}>
@@ -445,7 +454,7 @@ function CommentToggle({ comment }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, teachers, reload }) {
+export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
@@ -490,6 +499,13 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       await supabase.from('clients').insert(cleaned)
       setShowAdd(false)
     }
+    await reload()
+  }
+
+  const deleteClient = async (c) => {
+    if (!confirm(`Удалить клиента «${c.child_name}»? Это действие нельзя отменить.`)) return
+    await supabase.from('clients').delete().eq('id', c.id)
+    setShowDetail(null)
     await reload()
   }
 
@@ -661,6 +677,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           onClose={() => setShowDetail(null)}
           onEdit={() => { setShowEdit(showDetail); setShowDetail(null) }}
           onFreeze={(c) => setShowFreeze(c)}
+          onDelete={isDirector ? deleteClient : null}
         />
       )}
       {showFreeze && (
