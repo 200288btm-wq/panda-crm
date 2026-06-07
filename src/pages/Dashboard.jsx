@@ -7,7 +7,12 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
   const profit = income - totalExp
   const avg = active ? Math.round(income / active) : 0
   const newC = clients.filter(c => c.status === 'Новый').length
-  const debtors = clients.filter(c => (c.balance || 0) < 0)
+  // Реальный баланс = оплаченные - посещённые (как в карточке клиента)
+  const debtors = clients
+    .filter(c => c.status === 'Активен')
+    .map(c => ({ ...c, realBalance: (c.paid_lessons || 0) - (c.visited_lessons || 0) }))
+    .filter(c => c.realBalance < 0)
+    .sort((a, b) => a.realBalance - b.realBalance)
 
   const hashColor = (str = '') => {
     const colors = [T.green, T.orange, '#7c3aed', '#3b82f6', '#ec4899', '#14b8a6']
@@ -92,9 +97,12 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
               <div key={c.id} className="fin-row">
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <div className="avatar" style={{ background: hashColor(c.child_name), width: 28, height: 28, fontSize: 11 }}>{(c.child_name || '?')[0]}</div>
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{c.child_name}</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{c.child_name}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</div>
+                  </div>
                 </div>
-                <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.red }}>{fmt(Math.abs(c.balance))}</span>
+                <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.red, whiteSpace: 'nowrap' }}>{c.realBalance} зан.</span>
               </div>
             )) : (
               <div className="empty" style={{ padding: '16px 0' }}>
