@@ -511,15 +511,22 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const cleaned = {
       ...f,
       paid_lessons: +f.paid_lessons || 0,
-      visited_lessons: +f.visited_lessons || 0,
       balance: +f.balance || 0,
       discount: +f.discount || 0,
+      direction_ids: f.direction_ids || [],
+      // visited_lessons НЕ трогаем при редактировании — он управляется через attendance
     }
+    // Удаляем visited_lessons из update чтобы не затирать реальный счётчик
+    if (showEdit) delete cleaned.visited_lessons
+
     if (showEdit) {
-      await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
+      const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
+      if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      await supabase.from('clients').insert(cleaned)
+      cleaned.visited_lessons = 0
+      const { error } = await supabase.from('clients').insert(cleaned)
+      if (error) { alert('Ошибка создания: ' + error.message); return }
       setShowAdd(false)
     }
     await reload()
