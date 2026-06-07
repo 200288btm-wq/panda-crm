@@ -7,10 +7,17 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
   const profit = income - totalExp
   const avg = active ? Math.round(income / active) : 0
   const newC = clients.filter(c => c.status === 'Новый').length
-  // Реальный баланс = оплаченные - посещённые (как в карточке клиента)
+  // Реальный баланс = (начальные paid_lessons + занятия из оплат) - visited_lessons
   const debtors = clients
     .filter(c => c.status === 'Активен')
-    .map(c => ({ ...c, realBalance: (c.paid_lessons || 0) - (c.visited_lessons || 0) }))
+    .map(c => {
+      const paidFromPayments = payments
+        .filter(p => p.client_id === c.id)
+        .reduce((s, p) => s + (+p.lessons_count || 0), 0)
+      const totalPaid = (c.paid_lessons || 0) + paidFromPayments
+      const totalVisited = c.visited_lessons || 0
+      return { ...c, realBalance: totalPaid - totalVisited, totalPaid, totalVisited }
+    })
     .filter(c => c.realBalance < 0)
     .sort((a, b) => a.realBalance - b.realBalance)
 
@@ -102,7 +109,7 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
                   <div className="avatar" style={{ background: hashColor(c.child_name), width: 28, height: 28, fontSize: 11 }}>{(c.child_name || '?')[0]}</div>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{c.child_name}</div>
-                    <div style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>опл. {c.totalPaid} · пос. {c.totalVisited}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
