@@ -62,15 +62,12 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = []) => {
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = []) => {
   const dow = date.getDay()
-  const dayKey = DOW_TO_KEY[dow]
   const events = []
   directions.forEach(d => {
-    // Check if this direction has a slot for this day
     const timeForDay = getTimeForDow(dow, d.schedule)
     if (!timeForDay) return
-    // filterDir can be 'all', a single id string, or array of ids
     if (Array.isArray(filterDir)) {
       if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
     } else {
@@ -84,25 +81,40 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
-    // Фильтр по адресу — через groups
+    // Фильтр по адресу
     if (filterAddress !== 'all') {
       const groups = (d.groups || [])
       const hasAddr = groups.some(g => String(g.address_id) === filterAddress)
       if (!hasAddr) return
     }
+    // Фильтр по подгруппам
+    const dirGroups = (d.groups || [])
+    const relevantFilterGroups = filterGroups.filter(gid => dirGroups.some(g => String(g.id) === gid))
+    if (relevantFilterGroups.length > 0) {
+      // Если для этого направления выбраны конкретные подгруппы — показываем только их
+      const hasGroup = relevantFilterGroups.some(gid => dirGroups.some(g => String(g.id) === gid))
+      if (!hasGroup) return
+    }
+
     const timeMin = parseTime(timeForDay)
     if (timeMin === null) return
+
     let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+    // Если выбраны подгруппы — фильтруем учеников по подгруппе
+    if (relevantFilterGroups.length > 0) {
+      students = students.filter(c => {
+        const clientGroups = (c.group_ids || [])
+        return relevantFilterGroups.some(gid => clientGroups.map(String).includes(gid))
+      })
+    }
     if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
-    // Определяем цвет: по направлению или по адресу
+    // Цвет: по направлению или по адресу
     let eventColor = d.color || DEFAULT_COLOR
     if (colorMode === 'address') {
-      const groups = (d.groups || [])
-      // Берём первую группу с адресом (или с нужным адресом)
       const group = filterAddress !== 'all'
-        ? groups.find(g => String(g.address_id) === filterAddress)
-        : groups.find(g => g.address_id)
+        ? dirGroups.find(g => String(g.address_id) === filterAddress)
+        : dirGroups.find(g => g.address_id)
       if (group?.address_id) {
         const addr = addresses.find(a => String(a.id) === String(group.address_id))
         if (addr?.color) eventColor = addr.color
@@ -211,7 +223,7 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -219,7 +231,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -344,7 +356,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups }) {
   const now = new Date()
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
   useEffect(() => {
@@ -365,7 +377,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -449,6 +461,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
 
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
+  const [filterGroups, setFilterGroups] = useState([]) // group ids selected
   const [filterChild, setFilterChild] = useState('all')
   const [filterAddress, setFilterAddress] = useState('all')
   const [colorMode, setColorMode] = useState('direction') // 'direction' | 'address'
@@ -494,86 +507,73 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
     }
   }
 
-  const selectStyle = { padding:'6px 12px', borderRadius:10, border:`1.5px solid ${T.border}`, fontFamily:'Nunito Sans,sans-serif', fontSize:13, background:T.cream, outline:'none', cursor:'pointer' }
+  const selectStyle = { padding:'5px 10px', borderRadius:8, border:`1.5px solid ${T.border}`, fontFamily:'Nunito Sans,sans-serif', fontSize:12, background:T.cream, outline:'none', cursor:'pointer', maxWidth:130 }
 
   return (
     <div>
-      {/* Controls */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        {/* View switcher */}
-        <div className="tabs" style={{ marginBottom:0 }}>
-          {[['month','Месяц'],['week','Неделя'],['day','День']].map(([v,l]) => (
-            <button key={v} className={`tab ${view===v?'active':''}`} onClick={() => setView(v)}>{l}</button>
-          ))}
+      {/* Controls — компактная карточка */}
+      <div style={{ background:'white', borderRadius:16, border:`1px solid ${T.border}`, padding:'10px 14px', marginBottom:14 }}>
+
+        {/* Строка 1: вид + навигация */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:8 }}>
+          <div className="tabs" style={{ marginBottom:0 }}>
+            {[['month','Месяц'],['week','Неделя'],['day','День']].map(([v,l]) => (
+              <button key={v} className={`tab ${view===v?'active':''}`} onClick={() => setView(v)} style={{ padding:'5px 10px', fontSize:13 }}>{l}</button>
+            ))}
+          </div>
+          <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>←</button>
+          <span style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14, flex:1, textAlign:'center', minWidth:100 }}>{getTitle()}</span>
+          <button className="btn btn-outline btn-sm" onClick={() => navigate(1)}>→</button>
+          <button className="btn btn-ghost btn-sm" onClick={goToday} style={{ fontSize:12 }}>Сегодня</button>
         </div>
 
-        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
-
-        {/* Navigation */}
-        <button className="btn btn-outline btn-sm" onClick={() => navigate(-1)}>←</button>
-        <span style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, minWidth:220, textAlign:'center' }}>{getTitle()}</span>
-        <button className="btn btn-outline btn-sm" onClick={() => navigate(1)}>→</button>
-        <button className="btn btn-ghost btn-sm" onClick={goToday}>Сегодня</button>
-
-        <div style={{ width:1, height:28, background:T.border, margin:'0 4px' }} />
-
-        {/* Filters */}
-
-        {isAdmin && (
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Педагог:</span>
-            <select style={selectStyle} value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
-              <option value="all">Все</option>
-              {teachers.map(t => <option key={t.id} value={String(t.id)}>{t.name.split(' ')[0]} {t.name.split(' ')[1]?.[0]}.</option>)}
-            </select>
-          </div>
-        )}
-
-        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-          <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Ребёнок:</span>
-          <select style={selectStyle} value={filterChild} onChange={e => setFilterChild(e.target.value)}>
-            <option value="all">Все</option>
-            {activeClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
-          </select>
-        </div>
-
-        <button
-          className="btn btn-sm"
-          onClick={() => setOnlyWithStudents(v => !v)}
-          style={{ background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}`, transition:'all 0.15s' }}>
-          👥 {onlyWithStudents ? 'Только с учениками ✓' : 'Только с учениками'}
-        </button>
-
-        {addresses.length > 0 && (
-          <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Адрес:</span>
-            <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>
-              <option value="all">Все</option>
-              {addresses.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
-            </select>
-          </div>
-        )}
-
-        {addresses.length > 0 && (
+        {/* Строка 2: фильтры */}
+        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+          {isAdmin && (
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <span style={{ fontSize:11, color:T.muted, fontWeight:600, whiteSpace:'nowrap' }}>Педагог:</span>
+              <select style={selectStyle} value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
+                <option value="all">Все</option>
+                {teachers.map(t => <option key={t.id} value={String(t.id)}>{t.name.split(' ')[0]} {t.name.split(' ')[1]?.[0]}.</option>)}
+              </select>
+            </div>
+          )}
           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ fontSize:12, color:T.muted, fontWeight:600 }}>Цвет:</span>
+            <span style={{ fontSize:11, color:T.muted, fontWeight:600, whiteSpace:'nowrap' }}>Ребёнок:</span>
+            <select style={selectStyle} value={filterChild} onChange={e => setFilterChild(e.target.value)}>
+              <option value="all">Все</option>
+              {activeClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
+            </select>
+          </div>
+          <button
+            className="btn btn-sm"
+            onClick={() => setOnlyWithStudents(v => !v)}
+            style={{ fontSize:11, padding:'5px 8px', whiteSpace:'nowrap', background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}` }}>
+            👥 {onlyWithStudents ? 'С учениками ✓' : 'С учениками'}
+          </button>
+          {addresses.length > 0 && (
+            <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+              <span style={{ fontSize:11, color:T.muted, fontWeight:600, whiteSpace:'nowrap' }}>Адрес:</span>
+              <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>
+                <option value="all">Все</option>
+                {addresses.map(a => <option key={a.id} value={String(a.id)}>{a.name}</option>)}
+              </select>
+            </div>
+          )}
+          {(filterDirs.length > 0 || filterGroups.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || filterAddress !== 'all' || onlyWithStudents) && (
+            <button className="btn btn-ghost btn-sm" style={{ fontSize:11 }} onClick={() => { setFilterDirs([]); setFilterGroups([]); setFilterTeacher('all'); setFilterChild('all'); setFilterAddress('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
+          )}
+        </div>
+
+        {/* Строка 3: переключатель цвета (только если есть адреса) */}
+        {addresses.length > 0 && (
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}44` }}>
+            <span style={{ fontSize:11, color:T.muted, fontWeight:600 }}>Цвет:</span>
             <div className="tabs" style={{ marginBottom:0 }}>
-              <button
-                className={`tab ${colorMode === 'direction' ? 'active' : ''}`}
-                onClick={() => setColorMode('direction')}
-                style={{ fontSize:12, padding:'4px 10px' }}
-              >По направлениям</button>
-              <button
-                className={`tab ${colorMode === 'address' ? 'active' : ''}`}
-                onClick={() => setColorMode('address')}
-                style={{ fontSize:12, padding:'4px 10px' }}
-              >По адресам</button>
+              <button className={`tab ${colorMode === 'direction' ? 'active' : ''}`} onClick={() => setColorMode('direction')} style={{ fontSize:12, padding:'4px 10px' }}>По направлениям</button>
+              <button className={`tab ${colorMode === 'address' ? 'active' : ''}`} onClick={() => setColorMode('address')} style={{ fontSize:12, padding:'4px 10px' }}>По адресам</button>
             </div>
           </div>
-        )}
-
-        {(filterDirs.length > 0 || filterTeacher !== 'all' || filterChild !== 'all' || filterAddress !== 'all' || onlyWithStudents) && (
-          <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterTeacher('all'); setFilterChild('all'); setFilterAddress('all'); setOnlyWithStudents(false) }}>✕ Сбросить</button>
         )}
       </div>
 
@@ -596,6 +596,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
+          filterGroups={filterGroups}
         />
       )}
 
@@ -607,32 +608,78 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
+          filterGroups={filterGroups}
         />
       )}
 
-      {/* Direction chips - multiselect */}
+      {/* Direction chips — мультиселект с подгруппами */}
       <div className="card card-pad" style={{ marginTop:16 }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:14 }}>🎯 Фильтр по направлениям <span style={{ fontSize:12, color:T.muted, fontWeight:400 }}>(можно выбрать несколько)</span></div>
-          {filterDirs.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setFilterDirs([])}>✕ Все</button>}
+          {(filterDirs.length > 0 || filterGroups.length > 0) && (
+            <button className="btn btn-ghost btn-sm" onClick={() => { setFilterDirs([]); setFilterGroups([]) }}>✕ Все</button>
+          )}
         </div>
-        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-start' }}>
           {directions.map(d => {
             const active = filterDirs.includes(String(d.id))
             const color = d.color || DEFAULT_COLOR
             const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
+            const groups = d.groups || []
             return (
-              <div key={d.id} onClick={() => {
-                const id = String(d.id)
-                setFilterDirs(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
-              }}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 14px', borderRadius:12, cursor:'pointer', transition:'all 0.15s', background: active ? color+'22' : T.cream, border:`2px solid ${active ? color : T.border}` }}>
-                <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
-                <div>
-                  <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
-                  <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
+              <div key={d.id} style={{ display:'flex', flexDirection:'column' }}>
+                {/* Чип направления */}
+                <div onClick={() => {
+                  const id = String(d.id)
+                  setFilterDirs(prev => {
+                    if (prev.includes(id)) {
+                      setFilterGroups(fg => fg.filter(gid => !groups.some(g => String(g.id) === gid)))
+                      return prev.filter(x => x !== id)
+                    }
+                    return [...prev, id]
+                  })
+                }}
+                  style={{
+                    display:'flex', alignItems:'center', gap:8, padding:'8px 14px', cursor:'pointer', transition:'all 0.15s',
+                    background: active ? color+'22' : T.cream,
+                    border:`2px solid ${active ? color : T.border}`,
+                    borderRadius: active && groups.length > 0 ? '12px 12px 0 0' : 12,
+                    borderBottom: active && groups.length > 0 ? 'none' : undefined,
+                  }}>
+                  <div style={{ width:10, height:10, borderRadius:'50%', background:color, flexShrink:0 }} />
+                  <div>
+                    <div style={{ fontWeight:700, fontSize:13, color: active ? color : T.ink }}>{d.name}</div>
+                    <div style={{ fontSize:11, color:T.muted }}>{cnt} чел.</div>
+                  </div>
+                  {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
                 </div>
-                {active && <div style={{ width:16, height:16, borderRadius:'50%', background:color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, color:'white', fontWeight:800, flexShrink:0 }}>✓</div>}
+
+                {/* Подгруппы — появляются когда направление выбрано */}
+                {active && groups.length > 0 && (
+                  <div style={{ background: color+'11', border:`2px solid ${color}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'6px 10px', display:'flex', gap:5, flexWrap:'wrap', alignItems:'center' }}>
+                    <span style={{ fontSize:10, color: color, fontWeight:700, opacity:0.7 }}>
+                      📍 {filterGroups.filter(gid => groups.some(g => String(g.id) === gid)).length === 0 ? '(все)' : ''}
+                    </span>
+                    {groups.map(g => {
+                      const gActive = filterGroups.includes(String(g.id))
+                      return (
+                        <div key={g.id} onClick={e => {
+                          e.stopPropagation()
+                          const gid = String(g.id)
+                          setFilterGroups(prev => prev.includes(gid) ? prev.filter(x => x !== gid) : [...prev, gid])
+                        }} style={{
+                          padding:'3px 10px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:700,
+                          background: gActive ? color : 'white',
+                          color: gActive ? 'white' : color,
+                          border:`1.5px solid ${color}`,
+                          transition:'all 0.12s',
+                        }}>
+                          {gActive && '✓ '}{g.name}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -643,7 +690,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)}
           teachers={teachers}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
