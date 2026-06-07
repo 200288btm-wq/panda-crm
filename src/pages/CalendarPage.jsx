@@ -325,6 +325,13 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 // Month view
 function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents }) {
   const now = new Date()
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 640)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const firstDow = new Date(year, month, 1).getDay()
   const offset = (firstDow + 6) % 7
   const daysInMonth = new Date(year, month+1, 0).getDate()
@@ -343,7 +350,37 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
           const today0 = new Date(); today0.setHours(0,0,0,0)
 
-          // Group events by time — same time = show side by side
+          if (isMobile) {
+            // Мобильный: компактные ячейки с цветными точками
+            return (
+              <div key={i} className={`cal-day ${isToday ? 'today' : ''}`} onClick={() => onDayClick(date)}
+                style={{ display:'flex', flexDirection:'column', alignItems:'center', padding:'4px 2px', minHeight:44, cursor:'pointer' }}>
+                <div className="cal-daynum" style={{
+                  color: isToday ? 'white' : dayDate > today0 ? T.muted : T.ink,
+                  background: isToday ? T.green : 'transparent',
+                  borderRadius:'50%', width:24, height:24,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontWeight: isToday ? 800 : 600, fontSize:13, flexShrink:0
+                }}>{day}</div>
+                {events.length > 0 && (
+                  <div style={{ display:'flex', gap:2, flexWrap:'wrap', justifyContent:'center', marginTop:3, maxWidth:36 }}>
+                    {events.slice(0, 4).map((e, ei) => (
+                      <div key={ei} style={{
+                        width:7, height:7, borderRadius:'50%',
+                        background: e.color || T.green,
+                        flexShrink:0
+                      }} title={`${e.time} ${e.name}`} />
+                    ))}
+                    {events.length > 4 && (
+                      <div style={{ fontSize:8, color:T.muted, lineHeight:'7px' }}>+{events.length-4}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // Desktop: полные карточки занятий
           const byTime = {}
           events.forEach(e => {
             if (!byTime[e.time]) byTime[e.time] = []
@@ -357,14 +394,12 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
               {timeGroups.map(([time, group], gi) => (
                 <div key={gi} style={{ marginBottom:2 }}>
                   {group.length === 1 ? (
-                    // Single event — full width
                     <div className="cal-event"
                       style={{ background:group[0].color+'33', color:group[0].color, borderLeft:'3px solid '+group[0].color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
                       title={group[0].name+' · '+group[0].students.length+' чел.'}>
                       {time} {group[0].name.split(' ')[0]}
                     </div>
                   ) : (
-                    // Multiple events same time — side by side
                     <div style={{ display:'flex', gap:1 }}>
                       {group.map((e, ei) => (
                         <div key={ei} className="cal-event"

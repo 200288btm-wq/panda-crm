@@ -13,12 +13,13 @@ import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
+import AddressesPage from './AddressesPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
-  leads: 'Заявки',
+  leads: 'Заявки', addresses: 'Адреса',
 }
 
 // Real logo from public/logo.svg
@@ -48,6 +49,7 @@ export default function CRM({ session, staff }) {
   const [teachers, setTeachers] = useState([])
   const [staffList, setStaffList] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
+  const [addresses, setAddresses] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [collapsed, setCollapsed] = useState(false)
@@ -115,7 +117,7 @@ export default function CRM({ session, staff }) {
   const isAdmin = role === 'Директор' || role === 'Администратор'
 
   const load = useCallback(async () => {
-    const [c, p, e, d, t, s, sub, l] = await Promise.all([
+    const [c, p, e, d, t, s, sub, l, addr] = await Promise.all([
       supabase.from('clients').select('*').order('created_at', { ascending: false }),
       supabase.from('payments').select('*').order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
@@ -124,6 +126,7 @@ export default function CRM({ session, staff }) {
       supabase.from('staff').select('*').order('id'),
       supabase.from('subscriptions').select('*').order('id'),
       supabase.from('leads').select('id, status').eq('status', 'new'),
+      supabase.from('addresses').select('*').order('id'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -133,6 +136,7 @@ export default function CRM({ session, staff }) {
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
+    if (addr.data) setAddresses(addr.data)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -155,6 +159,7 @@ export default function CRM({ session, staff }) {
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
+      { id: 'addresses', icon: '📍', label: 'Адреса', show: isAdmin },
     ]},
     { section: 'Управление', items: [
       { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
@@ -163,7 +168,7 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, reload: load, role, isAdmin, isDirector, staff }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff }
 
   const SidebarContent = () => (
     <>
@@ -274,7 +279,7 @@ export default function CRM({ session, staff }) {
         <div className="content">
           {page === 'dashboard'     && <Dashboard {...props} />}
           {page === 'calendar'      && <CalendarPage {...props} />}
-          {page === 'leads'         && isAdmin && <LeadsPage />}
+          {page === 'leads'         && isAdmin && <LeadsPage directions={directions} />}
           {page === 'clients'       && isAdmin && <ClientsPage {...props} />}
           {page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
@@ -283,6 +288,7 @@ export default function CRM({ session, staff }) {
           {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
           {page === 'finance'       && isDirector && <FinancePage {...props} />}
           {page === 'staff'         && isDirector && <StaffPage {...props} />}
+          {page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
         </div>
 
         {/* Mobile bottom nav */}

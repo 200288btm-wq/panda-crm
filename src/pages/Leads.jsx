@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
+import { Modal } from '../components/Modal'
 
 const STATUS = {
   new:       { label: 'Новая',        bg: '#EFF6FF', color: '#1D4ED8' },
@@ -26,13 +27,135 @@ function Badge({ cfg }) {
   )
 }
 
-export default function Leads() {
+// Модалка создания клиента из заявки
+function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
+  const [form, setForm] = useState({
+    child_name: lead.child_name || '',
+    parent_name: lead.parent_name || '',
+    parent_phone: lead.parent_phone || '',
+    child_age: lead.child_age || '',
+    direction_ids: [],
+    status: 'Активен',
+    notes: lead.notes || '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  const toggleDir = (id) => {
+    setForm(p => ({
+      ...p,
+      direction_ids: p.direction_ids.includes(id)
+        ? p.direction_ids.filter(x => x !== id)
+        : [...p.direction_ids, id]
+    }))
+  }
+
+  const save = async () => {
+    if (!form.child_name.trim()) { setError('Укажите имя ребёнка'); return }
+    setSaving(true)
+    const { error: err } = await supabase.from('clients').insert({
+      child_name: form.child_name.trim(),
+      parent_name: form.parent_name.trim() || null,
+      parent_phone: form.parent_phone.trim() || null,
+      child_age: form.child_age || null,
+      direction_ids: form.direction_ids,
+      status: form.status,
+      notes: form.notes.trim() || null,
+    })
+    setSaving(false)
+    if (err) { setError('Ошибка: ' + err.message); return }
+    // Пометить заявку как подтверждённую
+    await supabase.from('leads').update({ status: 'confirmed' }).eq('id', lead.id)
+    onConverted()
+    onClose()
+  }
+
+  const inputStyle = { fontSize: 16, padding: '8px 12px' }
+
+  return (
+    <Modal title="👤 Добавить клиента из заявки" onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-outline" onClick={onClose} disabled={saving}>Отмена</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving ? 'Создаём...' : '✅ Создать клиента'}
+          </button>
+        </>
+      }
+    >
+      {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
+
+      <div className="form-group">
+        <label className="form-label">Имя ребёнка *</label>
+        <input className="form-input" style={inputStyle} value={form.child_name} onChange={e => set('child_name', e.target.value)} placeholder="Иван" autoFocus />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="form-group">
+          <label className="form-label">Имя родителя</label>
+          <input className="form-input" style={inputStyle} value={form.parent_name} onChange={e => set('parent_name', e.target.value)} placeholder="Анна" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Телефон</label>
+          <input className="form-input" style={inputStyle} value={form.parent_phone} onChange={e => set('parent_phone', e.target.value)} placeholder="+7..." />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="form-group">
+          <label className="form-label">Возраст</label>
+          <input className="form-input" style={inputStyle} value={form.child_age} onChange={e => set('child_age', e.target.value)} placeholder="5 лет" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Статус</label>
+          <select className="form-input" style={inputStyle} value={form.status} onChange={e => set('status', e.target.value)}>
+            <option value="Активен">Активен</option>
+            <option value="Новый">Новый</option>
+            <option value="Заморожен">Заморожен</option>
+          </select>
+        </div>
+      </div>
+
+      {directions && directions.length > 0 && (
+        <div className="form-group">
+          <label className="form-label">Направления</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+            {directions.map(d => {
+              const active = form.direction_ids.includes(d.id)
+              return (
+                <div key={d.id} onClick={() => toggleDir(d.id)} style={{
+                  padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  background: active ? (d.color || T.green) + '22' : T.cream,
+                  border: `2px solid ${active ? (d.color || T.green) : T.border}`,
+                  color: active ? (d.color || T.green) : T.muted,
+                  transition: 'all 0.15s',
+                }}>
+                  {d.name}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="form-group">
+        <label className="form-label">Заметки</label>
+        <textarea className="form-input" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }}
+          value={form.notes} onChange={e => set('notes', e.target.value)}
+          rows={2} placeholder="Дополнительная информация..." />
+      </div>
+    </Modal>
+  )
+}
+
+export default function Leads({ directions = [] }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSource, setFilterSource] = useState('all')
   const [editingNote, setEditingNote] = useState(null)
   const [noteText, setNoteText] = useState('')
+  const [convertLead, setConvertLead] = useState(null)
 
   useEffect(() => {
     fetchLeads()
@@ -256,6 +379,13 @@ export default function Leads() {
                     <option value="cancelled">Отменена</option>
                   </select>
                   <button
+                    onClick={() => setConvertLead(lead)}
+                    style={{ fontSize: 12, color: T.green, background: T.greenBg, border: `1px solid ${T.green}44`, borderRadius: 8, cursor: 'pointer', padding: '5px 8px', fontWeight: 700, fontFamily: 'inherit' }}
+                    title="Создать клиента из этой заявки"
+                  >
+                    👤 В клиенты
+                  </button>
+                  <button
                     onClick={() => deleteLead(lead.id)}
                     style={{ fontSize: 11, color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'right' }}
                   >
@@ -267,6 +397,15 @@ export default function Leads() {
             </div>
           ))}
         </div>
+      )}
+
+      {convertLead && (
+        <ConvertLeadModal
+          lead={convertLead}
+          directions={directions}
+          onClose={() => setConvertLead(null)}
+          onConverted={() => { fetchLeads(); setConvertLead(null) }}
+        />
       )}
     </div>
   )
