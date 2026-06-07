@@ -440,6 +440,16 @@ function FreezeModal({ client, onClose, onSaved }) {
   )
 }
 
+// Считает реальный баланс с учётом payments.lessons_count
+const calcRealBalance = (client, payments) => {
+  const paidFromPayments = payments
+    .filter(p => p.client_id === client.id)
+    .reduce((s, p) => s + (+p.lessons_count || 0), 0)
+  const totalPaid = (client.paid_lessons || 0) + paidFromPayments
+  const totalVisited = client.visited_lessons || 0
+  return { totalPaid, totalVisited, bal: calcBalance(totalPaid, totalVisited) }
+}
+
 // Раскрывающийся комментарий для мобильных карточек
 function CommentToggle({ comment }) {
   const [open, setOpen] = useState(false)
@@ -551,7 +561,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           <tbody>
             {filtered.map(c => {
               const age = calcAge(c.birthday)
-              const bal = calcBalance(c.paid_lessons, c.visited_lessons)
+              const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
               return (
                 <tr key={c.id} className="tr-click" onClick={() => setShowDetail(c)}>
                   <td>
@@ -583,7 +593,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                       <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 8px', borderRadius: 8, background: bal.bg, color: bal.color, display: 'inline-block', width: 'fit-content' }}>
                         {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
                       </span>
-                      <span style={{ fontSize: 10, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</span>
+                      <span style={{ fontSize: 10, color: T.muted }}>опл. {totalPaid} · пос. {totalVisited}</span>
                     </div>
                   </td>
                   <td style={{ fontSize: 12, color: T.muted }}>{(c.contacts || [])[0]?.val || '—'}</td>
@@ -604,7 +614,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       <div className="show-mobile" style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
         {filtered.map(c => {
           const age = calcAge(c.birthday)
-          const bal = calcBalance(c.paid_lessons, c.visited_lessons)
+          const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
           const dirs = directions.filter(d => (c.direction_ids || []).includes(d.id))
           const phone = (c.contacts || []).find(ct => ct.type === 'phone' || ct.val?.startsWith('+'))?.val
           return (
@@ -659,7 +669,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                 <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 10px', borderRadius: 8, background: bal.bg, color: bal.color }}>
                   {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
                 </span>
-                <span style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</span>
+                <span style={{ fontSize: 11, color: T.muted }}>опл. {totalPaid} · пос. {totalVisited}</span>
                 {(c.discount || 0) > 0 && <span className="badge badge-orange" style={{ marginLeft: 'auto' }}>🎁 {c.discount}%</span>}
               </div>
 
