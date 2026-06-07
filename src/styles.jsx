@@ -87,6 +87,8 @@ export function GlobalStyles() {
       .stat-orange { color: ${T.orange}; }
 
       /* ── Table ── */
+      .show-mobile { display: none; }
+      .show-desktop { display: block; }
       .table-wrap { background: ${T.white}; border-radius: 14px; border: 1px solid ${T.border}; overflow: hidden; overflow-x: auto; -webkit-overflow-scrolling: touch; }
       table { width: 100%; border-collapse: collapse; min-width: 500px; }
       thead { background: ${T.cream}; }
@@ -204,6 +206,9 @@ export function GlobalStyles() {
 
         /* Скрыть на мобиле */
         .hide-mobile { display: none !important; }
+        /* Адаптивные блоки */
+        .show-desktop { display: none !important; }
+        .show-mobile { display: flex !important; }
 
         .mobile-nav {
           display: flex; position: fixed; bottom: 0; left: 0; right: 0;

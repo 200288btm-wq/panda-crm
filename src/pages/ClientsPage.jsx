@@ -483,7 +483,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         {['Все', ...STATUSES].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
       </div>
 
-      <div className="table-wrap">
+      <div className="table-wrap show-desktop">
         <table>
           <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th></tr></thead>
           <tbody>
@@ -531,6 +531,79 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
             {!filtered.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
           </tbody>
         </table>
+      </div>
+
+      {/* Мобильные карточки */}
+      <div className="show-mobile" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {filtered.map(c => {
+          const age = calcAge(c.birthday)
+          const bal = calcBalance(c.paid_lessons, c.visited_lessons)
+          const dirs = directions.filter(d => (c.direction_ids || []).includes(d.id))
+          const phone = (c.contacts || []).find(ct => ct.type === 'phone' || ct.val?.startsWith('+'))?.val
+          return (
+            <div key={c.id} className="card" onClick={() => setShowDetail(c)}
+              style={{ padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${hashColor(c.child_name)}` }}>
+              {/* Верхняя строка: аватар + имя + статус */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <div className="avatar" style={{ background: hashColor(c.child_name), width: 36, height: 36, fontSize: 14, flexShrink: 0 }}>
+                  {(c.child_name || '?')[0]}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{c.child_name}</div>
+                  {age !== null && <div style={{ fontSize: 12, color: T.muted }}>{age} лет</div>}
+                </div>
+                <span className={`badge ${STATUS_COLORS[c.status]}`}>{c.status}</span>
+              </div>
+
+              {/* Средняя строка: взрослый + телефон */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 10 }}>
+                {c.adult_name && (
+                  <div>
+                    <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>Родитель</div>
+                    <div style={{ fontSize: 13 }}>{c.adult_name}</div>
+                  </div>
+                )}
+                {phone && (
+                  <div>
+                    <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>Телефон</div>
+                    <a href={`tel:${phone}`} onClick={e => e.stopPropagation()}
+                      style={{ fontSize: 13, color: T.green, textDecoration: 'none', fontWeight: 600 }}>{phone}</a>
+                  </div>
+                )}
+              </div>
+
+              {/* Направления */}
+              {dirs.length > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {dirs.map(d => {
+                    const color = d.color || DEFAULT_COLOR
+                    return (
+                      <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700, background: color + '22', color }}>
+                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, display: 'inline-block' }} />
+                        {d.name}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Баланс */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 10px', borderRadius: 8, background: bal.bg, color: bal.color }}>
+                  {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
+                </span>
+                <span style={{ fontSize: 11, color: T.muted }}>опл. {c.paid_lessons} · пос. {c.visited_lessons}</span>
+                {(c.discount || 0) > 0 && <span className="badge badge-orange" style={{ marginLeft: 'auto' }}>🎁 {c.discount}%</span>}
+              </div>
+            </div>
+          )
+        })}
+        {!filtered.length && (
+          <div className="card" style={{ textAlign: 'center', padding: '40px 0' }}>
+            <div style={{ fontSize: 36, marginBottom: 8 }}>👤</div>
+            <div style={{ color: T.muted }}>Клиентов не найдено</div>
+          </div>
+        )}
       </div>
 
       {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
