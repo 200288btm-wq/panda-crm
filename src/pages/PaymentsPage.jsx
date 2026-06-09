@@ -88,7 +88,10 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
         {/* Group */}
         <div className="form-group"><label className="form-label">Группа</label>
           <select className="form-input" value={groupName} onChange={e => setGroupName(e.target.value)}>
-            {(dir?.groups || ['Группа 1']).map(g => <option key={g}>{g}</option>)}
+            {dir?.groups?.length
+              ? dir.groups.map(g => <option key={g.id || g.name || g} value={g.name || g}>{g.name || g}</option>)
+              : <option value="Группа 1">Группа 1</option>
+            }
           </select>
         </div>
       </div>
