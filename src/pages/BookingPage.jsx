@@ -3,8 +3,8 @@ import { supabase } from '../supabase'
 
 const TG_TOKEN = import.meta.env.VITE_TG_TOKEN
 const TG_CHAT_IDS = (import.meta.env.VITE_TG_CHAT_IDS || '').split(',').filter(Boolean)
-const VK_TOKEN = import.meta.env.VITE_VK_TOKEN   // токен сообщества ВКонтакте
-const VK_PEER_ID = import.meta.env.VITE_VK_PEER_ID // ID беседы или пользователя
+const VK_TOKEN = import.meta.env.VITE_VK_TOKEN
+const VK_PEER_IDS = (import.meta.env.VITE_VK_PEER_ID || '').split(',').filter(Boolean)
 
 const sendTelegram = async (text) => {
   if (!TG_TOKEN || !TG_CHAT_IDS.length) return
@@ -19,17 +19,19 @@ const sendTelegram = async (text) => {
 }
 
 const sendVK = async (text) => {
-  if (!VK_TOKEN || !VK_PEER_ID) return
-  try {
-    const params = new URLSearchParams({
-      peer_id: VK_PEER_ID,
-      message: text,
-      random_id: Date.now(),
-      access_token: VK_TOKEN,
-      v: '5.131',
-    })
-    await fetch(`https://api.vk.com/method/messages.send?${params}`)
-  } catch (e) { console.error('VK error', e) }
+  if (!VK_TOKEN || !VK_PEER_IDS.length) return
+  for (let i = 0; i < VK_PEER_IDS.length; i++) {
+    try {
+      const params = new URLSearchParams({
+        peer_id: VK_PEER_IDS[i].trim(),
+        message: text,
+        random_id: Date.now() + i,
+        access_token: VK_TOKEN,
+        v: '5.131',
+      })
+      await fetch(`https://api.vk.com/method/messages.send?${params}`)
+    } catch (e) { console.error('VK error', e) }
+  }
 }
 
 const DOW_NAMES = ['вс','пн','вт','ср','чт','пт','сб']
