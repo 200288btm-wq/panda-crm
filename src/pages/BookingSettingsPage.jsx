@@ -165,9 +165,9 @@ export default function BookingSettingsPage({ directions }) {
                     if (!file) return
                     const ext = file.name.split('.').pop()
                     const path = `booking-cover/cover.${ext}`
-                    const { error } = await supabase.storage.from('public').upload(path, file, { upsert: true })
+                    const { error } = await supabase.storage.from('panda-media').upload(path, file, { upsert: true })
                     if (error) { alert('Ошибка загрузки: ' + error.message); return }
-                    const { data } = supabase.storage.from('public').getPublicUrl(path)
+                    const { data } = supabase.storage.from('panda-media').getPublicUrl(path)
                     set('cover_url', data.publicUrl + '?t=' + Date.now())
                   }} />
                 📎 Загрузить файл (SVG, PNG, JPG)
