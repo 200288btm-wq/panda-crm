@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabase'
 import LoginPage from './pages/LoginPage'
 import CRM from './pages/CRM'
+import BookingPage from './pages/BookingPage'
 import { GlobalStyles, T } from './styles.jsx'
 import { checkBirthdays } from './birthdays.js'
 
@@ -107,11 +108,13 @@ export default function App() {
   return (
     <>
       <GlobalStyles />
-      {needPassword
-        ? <SetPasswordPage onDone={() => setNeedPassword(false)} />
-        : !session
-          ? <LoginPage />
-          : <CRM session={session} staff={staff} />
+      {window.location.pathname === '/zapis'
+        ? <BookingPage />
+        : needPassword
+          ? <SetPasswordPage onDone={() => setNeedPassword(false)} />
+          : !session
+            ? <LoginPage />
+            : <CRM session={session} staff={staff} />
       }
     </>
   )

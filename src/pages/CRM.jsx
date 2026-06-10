@@ -14,12 +14,13 @@ import StaffPage from './StaffPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
 import AddressesPage from './AddressesPage'
+import BookingSettingsPage from './BookingSettingsPage'
 
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
-  leads: 'Заявки', addresses: 'Адреса',
+  leads: 'Заявки', addresses: 'Адреса', booking: 'Онлайн-запись',
 }
 
 // Real logo from public/logo.svg
@@ -161,6 +162,7 @@ export default function CRM({ session, staff }) {
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
       { id: 'addresses', icon: '📍', label: 'Адреса', show: isAdmin },
+      { id: 'booking', icon: '📅', label: 'Онлайн-запись', show: isAdmin },
     ]},
     { section: 'Управление', items: [
       { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
@@ -290,6 +292,7 @@ export default function CRM({ session, staff }) {
           {page === 'finance'       && isDirector && <FinancePage {...props} />}
           {page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
+          {page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>
 
         {/* Mobile bottom nav */}
