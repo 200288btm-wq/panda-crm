@@ -3,6 +3,8 @@ import { supabase } from '../supabase'
 
 const TG_TOKEN = import.meta.env.VITE_TG_TOKEN
 const TG_CHAT_IDS = (import.meta.env.VITE_TG_CHAT_IDS || '').split(',').filter(Boolean)
+const VK_TOKEN = import.meta.env.VITE_VK_TOKEN   // токен сообщества ВКонтакте
+const VK_PEER_ID = import.meta.env.VITE_VK_PEER_ID // ID беседы или пользователя
 
 const sendTelegram = async (text) => {
   if (!TG_TOKEN || !TG_CHAT_IDS.length) return
@@ -14,6 +16,20 @@ const sendTelegram = async (text) => {
       })
     } catch (e) { console.error('TG error', e) }
   }
+}
+
+const sendVK = async (text) => {
+  if (!VK_TOKEN || !VK_PEER_ID) return
+  try {
+    const params = new URLSearchParams({
+      peer_id: VK_PEER_ID,
+      message: text,
+      random_id: Date.now(),
+      access_token: VK_TOKEN,
+      v: '5.131',
+    })
+    await fetch(`https://api.vk.com/method/messages.send?${params}`)
+  } catch (e) { console.error('VK error', e) }
 }
 
 const DOW_NAMES = ['вс','пн','вт','ср','чт','пт','сб']
@@ -104,6 +120,21 @@ export default function BookingPage() {
       form.comment ? `💭 Комментарий: ${form.comment}` : '',
       ``,
       `→ Открыть CRM: https://panda-crm.vercel.app`,
+    ].filter(Boolean).join('\n'))
+
+    // ВКонтакте — тот же текст без HTML-тегов
+    await sendVK([
+      `📅 НОВАЯ ОНЛАЙН-ЗАПИСЬ`,
+      ``,
+      `👧 ${form.name.trim()}${form.age ? `, ${form.age}` : ''}`,
+      form.parent_name ? `👩 Родитель: ${form.parent_name}` : '',
+      `📞 ${form.phone}`,
+      selectedDir ? `🎯 Программа: ${selectedDir.name}` : '',
+      selectedDates.length > 1 ? `📆 Желаемые даты: ${selectedDates.map(formatDate).join(', ')}` : `📆 Желаемая дата: ${dateStr}`,
+      form.contact_way ? `💬 Способ связи: ${form.contact_way}` : '',
+      form.comment ? `💭 Комментарий: ${form.comment}` : '',
+      ``,
+      `→ CRM: https://panda-crm.vercel.app`,
     ].filter(Boolean).join('\n'))
 
     setSubmitting(false)
