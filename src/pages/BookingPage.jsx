@@ -113,7 +113,7 @@ export default function BookingPage() {
   if (!settings) return (
     <div style={{ minHeight:'100vh', background:'#F0EDD8', display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ textAlign:'center', color:'#6b7280' }}>
-        <img src="/logo-icon.svg" alt="" style={{ width:48, marginBottom:8 }} />
+        
         <div>Загрузка...</div>
       </div>
     </div>
@@ -122,7 +122,7 @@ export default function BookingPage() {
   if (!settings.is_active) return (
     <div style={{ minHeight:'100vh', background:'#F0EDD8', display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ textAlign:'center', maxWidth:360, padding:32 }}>
-        <img src="/logo-icon.svg" alt="" style={{ width:56, marginBottom:12 }} />
+        
         <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:22, marginBottom:8 }}>Запись временно недоступна</div>
         <div style={{ color:'#6b7280', fontSize:15 }}>Пожалуйста, свяжитесь с нами напрямую для записи на занятие</div>
       </div>
@@ -201,7 +201,7 @@ export default function BookingPage() {
         )}
 
         <div style={{ textAlign:'center', marginBottom:24 }}>
-          <img src="/logo-icon.svg" alt="" style={{ width:44, marginBottom:8 }} />
+          
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:22, marginBottom:6 }}>{settings.title}</div>
           {settings.description && <div style={{ color:'#6b7280', fontSize:14, lineHeight:1.6 }}>{settings.description}</div>}
         </div>
