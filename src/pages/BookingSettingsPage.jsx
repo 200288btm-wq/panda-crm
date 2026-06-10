@@ -152,13 +152,44 @@ export default function BookingSettingsPage({ directions }) {
             rows={3} placeholder="Короткое описание — кому подходят занятия, что получит ребёнок..." />
         </div>
         <div className="form-group">
-          <label style={labelStyle}>Ссылка на обложку (URL картинки)</label>
-          <input className="form-input" style={inp} value={settings.cover_url}
-            onChange={e => set('cover_url', e.target.value)} placeholder="https://..." />
-          {settings.cover_url && (
-            <img src={settings.cover_url} alt="обложка" style={{ marginTop: 8, maxHeight: 120, borderRadius: 10, objectFit: 'cover', width: '100%' }}
-              onError={e => e.target.style.display = 'none'} />
-          )}
+          <label style={labelStyle}>Обложка страницы</label>
+          <div style={{ display:'flex', gap:8, flexDirection:'column' }}>
+            {/* Загрузка файла */}
+            <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <label style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 16px', borderRadius:10,
+                border:`1.5px solid ${T.border}`, background:T.cream, cursor:'pointer', fontSize:13, fontWeight:600, color:T.ink }}>
+                <input type="file" accept="image/svg+xml,image/png,image/jpeg,image/webp"
+                  style={{ display:'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    const ext = file.name.split('.').pop()
+                    const path = `booking-cover/cover.${ext}`
+                    const { error } = await supabase.storage.from('public').upload(path, file, { upsert: true })
+                    if (error) { alert('Ошибка загрузки: ' + error.message); return }
+                    const { data } = supabase.storage.from('public').getPublicUrl(path)
+                    set('cover_url', data.publicUrl + '?t=' + Date.now())
+                  }} />
+                📎 Загрузить файл (SVG, PNG, JPG)
+              </label>
+              <span style={{ fontSize:12, color:T.muted }}>или вставьте ссылку ниже</span>
+            </div>
+            {/* URL вручную */}
+            <input className="form-input" style={inp} value={settings.cover_url}
+              onChange={e => set('cover_url', e.target.value)} placeholder="https://..." />
+            {settings.cover_url && (
+              <div style={{ position:'relative', display:'inline-block' }}>
+                <img src={settings.cover_url} alt="обложка"
+                  style={{ maxHeight:120, borderRadius:10, objectFit:'cover', width:'100%', display:'block' }}
+                  onError={e => e.target.style.display = 'none'} />
+                <button onClick={() => set('cover_url', '')}
+                  style={{ position:'absolute', top:6, right:6, width:24, height:24, borderRadius:'50%',
+                    background:'#00000088', border:'none', color:'white', cursor:'pointer', fontSize:14, fontFamily:'inherit' }}>
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

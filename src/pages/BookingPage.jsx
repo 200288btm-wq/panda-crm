@@ -37,7 +37,7 @@ export default function BookingPage() {
   const [bookedDates, setBookedDates] = useState({}) // date → count
   const [step, setStep] = useState(1) // 1: выбор программы, 2: выбор даты, 3: форма, 4: успех
   const [selectedDir, setSelectedDir] = useState(null)
-  const [selectedDate, setSelectedDate] = useState(null)
+  const [selectedDates, setSelectedDates] = useState([]) // массив выбранных дат
   const [calMonth, setCalMonth] = useState(new Date())
   const [form, setForm] = useState({ name:'', parent_name:'', phone:'', age:'', contact_way:'', comment:'' })
   const [submitting, setSubmitting] = useState(false)
@@ -83,16 +83,15 @@ export default function BookingPage() {
       source: 'studio',
       status: 'new',
       squad: selectedDir?.name || null,
-      desired_date: selectedDate || null,
+      desired_date: selectedDates[0] || null,
+      dates: selectedDates.length > 1 ? selectedDates.map(formatDate).join(', ') : null,
     }
 
     const { error: dbErr } = await supabase.from('leads').insert(payload)
     if (dbErr) { setError('Ошибка: ' + dbErr.message); setSubmitting(false); return }
 
     // Telegram уведомление
-    const dateStr = selectedDate
-      ? (() => { const d = new Date(selectedDate + 'T12:00'); return `${d.getDate()} ${MONTH_GEN[d.getMonth()]} (${DOW_NAMES[d.getDay()]})` })()
-      : 'не выбрана'
+    const dateStr = selectedDates.length > 0 ? formatDate(selectedDates[0]) : 'не выбрана'
     await sendTelegram([
       `📅 <b>НОВАЯ ОНЛАЙН-ЗАПИСЬ</b>`,
       ``,
@@ -100,7 +99,7 @@ export default function BookingPage() {
       form.parent_name ? `👩 Родитель: ${form.parent_name}` : '',
       `📞 ${form.phone}`,
       selectedDir ? `🎯 Программа: ${selectedDir.name}` : '',
-      `📆 Желаемая дата: ${dateStr}`,
+      selectedDates.length > 1 ? `📆 Желаемые даты: ${selectedDates.map(formatDate).join(', ')}` : `📆 Желаемая дата: ${dateStr}`,
       form.contact_way ? `💬 Способ связи: ${form.contact_way}` : '',
       form.comment ? `💭 Комментарий: ${form.comment}` : '',
       ``,
@@ -114,7 +113,7 @@ export default function BookingPage() {
   if (!settings) return (
     <div style={{ minHeight:'100vh', background:'#F0EDD8', display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ textAlign:'center', color:'#6b7280' }}>
-        <div style={{ fontSize:40, marginBottom:12 }}>🐼</div>
+        <img src="/logo-icon.svg" alt="" style={{ width:48, marginBottom:8 }} />
         <div>Загрузка...</div>
       </div>
     </div>
@@ -123,7 +122,7 @@ export default function BookingPage() {
   if (!settings.is_active) return (
     <div style={{ minHeight:'100vh', background:'#F0EDD8', display:'flex', alignItems:'center', justifyContent:'center' }}>
       <div style={{ textAlign:'center', maxWidth:360, padding:32 }}>
-        <div style={{ fontSize:48, marginBottom:16 }}>🐼</div>
+        <img src="/logo-icon.svg" alt="" style={{ width:56, marginBottom:12 }} />
         <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:22, marginBottom:8 }}>Запись временно недоступна</div>
         <div style={{ color:'#6b7280', fontSize:15 }}>Пожалуйста, свяжитесь с нами напрямую для записи на занятие</div>
       </div>
@@ -156,11 +155,12 @@ export default function BookingPage() {
     return true
   }
 
-  const formatSelectedDate = (ds) => {
+  const formatDate = (ds) => {
     if (!ds) return ''
     const d = new Date(ds + 'T12:00')
     return `${d.getDate()} ${MONTH_GEN[d.getMonth()]}, ${DOW_NAMES[d.getDay()]}`
   }
+  const formatSelectedDates = () => selectedDates.map(formatDate).join(' · ')
 
   const fields = settings.required_fields || ['name','phone']
 
@@ -178,9 +178,9 @@ export default function BookingPage() {
           <div style={{ color:'#6b7280', fontSize:15, lineHeight:1.6, marginBottom:24 }}>
             Мы получили вашу заявку и свяжемся с вами в ближайшее время для подтверждения.
           </div>
-          {selectedDate && (
-            <div style={{ background:'#F0FDF4', borderRadius:12, padding:'12px 20px', marginBottom:20, fontSize:15, color:'#15803D', fontWeight:700 }}>
-              📆 {formatSelectedDate(selectedDate)}
+          {selectedDates.length > 0 && (
+            <div style={{ background:'#F0FDF4', borderRadius:12, padding:'12px 20px', marginBottom:20, fontSize:14, color:'#15803D', fontWeight:700 }}>
+              📆 {selectedDates.map(formatDate).join(' · ')}
             </div>
           )}
           <div style={{ fontSize:13, color:'#9ca3af' }}>Академия Панды · Ботанический район, Екатеринбург</div>
@@ -201,7 +201,7 @@ export default function BookingPage() {
         )}
 
         <div style={{ textAlign:'center', marginBottom:24 }}>
-          <div style={{ fontSize:32, marginBottom:8 }}>🐼</div>
+          <img src="/logo-icon.svg" alt="" style={{ width:44, marginBottom:8 }} />
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:22, marginBottom:6 }}>{settings.title}</div>
           {settings.description && <div style={{ color:'#6b7280', fontSize:14, lineHeight:1.6 }}>{settings.description}</div>}
         </div>
@@ -236,7 +236,7 @@ export default function BookingPage() {
                 const color = d.color || G
                 const days = getScheduleDays(d)
                 return (
-                  <div key={d.id} onClick={() => { setSelectedDir(d); setSelectedDate(null); setStep(2) }}
+                  <div key={d.id} onClick={() => { setSelectedDir(d); setSelectedDates([]); setStep(2) }}
                     style={{ border:`2px solid ${color}22`, borderRadius:14, padding:'14px 16px', marginBottom:10,
                       cursor:'pointer', transition:'all 0.15s', background: selectedDir?.id === d.id ? color+'11' : 'white' }}
                     onMouseEnter={e => e.currentTarget.style.borderColor = color}
@@ -292,10 +292,15 @@ export default function BookingPage() {
                   if (!day) return <div key={i} />
                   const available = isDayAvailable(day)
                   const ds = new Date(year, month, day).toISOString().slice(0,10)
-                  const isSelected = selectedDate === ds
+                  const isSelected = selectedDates.includes(ds)
                   const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
                   return (
-                    <div key={i} onClick={() => available && setSelectedDate(ds)}
+                    <div key={i} onClick={() => {
+                      if (!available) return
+                      setSelectedDates(prev =>
+                        prev.includes(ds) ? prev.filter(x => x !== ds) : [...prev, ds]
+                      )
+                    }}
                       style={{ aspectRatio:'1', display:'flex', alignItems:'center', justifyContent:'center',
                         borderRadius:'50%', fontSize:14, fontWeight: isToday ? 900 : 600,
                         cursor: available ? 'pointer' : 'default',
@@ -323,10 +328,12 @@ export default function BookingPage() {
               <button onClick={() => setStep(1)} style={{ flex:1, padding:'14px', borderRadius:14, border:'2px solid #e5e7eb', background:'white', fontWeight:700, fontSize:15, cursor:'pointer', fontFamily:'inherit' }}>
                 ← Назад
               </button>
-              <button onClick={() => setStep(3)} disabled={!selectedDate}
-                style={{ flex:2, padding:'14px', borderRadius:14, border:'none', background: selectedDate ? G : '#e5e7eb',
-                  color: selectedDate ? 'white' : '#9ca3af', fontWeight:800, fontSize:15, cursor: selectedDate ? 'pointer' : 'default', fontFamily:'inherit', transition:'all 0.15s' }}>
-                {selectedDate ? `Далее → ${formatSelectedDate(selectedDate)}` : 'Выберите дату'}
+              <button onClick={() => setStep(3)} disabled={selectedDates.length === 0}
+                style={{ flex:2, padding:'14px', borderRadius:14, border:'none', background: selectedDates.length ? G : '#e5e7eb',
+                  color: selectedDates.length ? 'white' : '#9ca3af', fontWeight:800, fontSize:15, cursor: selectedDates.length ? 'pointer' : 'default', fontFamily:'inherit', transition:'all 0.15s' }}>
+                {selectedDates.length
+                  ? `Далее → ${selectedDates.length > 1 ? selectedDates.length + ' дней' : formatDate(selectedDates[0])}`
+                  : 'Выберите даты'}
               </button>
             </div>
           </div>
@@ -337,9 +344,9 @@ export default function BookingPage() {
           <div>
             <div style={cardStyle}>
               <div style={{ fontWeight:800, fontSize:16, marginBottom:4 }}>Ваши данные</div>
-              {selectedDate && (
+              {selectedDates.length > 0 && (
                 <div style={{ background:'#F0FDF4', borderRadius:10, padding:'8px 14px', marginBottom:14, fontSize:13, color:'#15803D', fontWeight:600 }}>
-                  📆 {formatSelectedDate(selectedDate)} · {selectedDir?.name}
+                  📆 {selectedDates.length > 1 ? selectedDates.map(formatDate).join(' · ') : formatDate(selectedDates[0])} · {selectedDir?.name}
                 </div>
               )}
 
