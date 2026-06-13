@@ -37,7 +37,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const dir = directions.find(d => d.id === +dirId)
 
   // Calculate final price
-  const basePrice = useCustomPrice ? +customPrice : (selectedSub?.price || 0)
+  const basePrice = (useCustomPrice || subId === 'custom') ? +customPrice : (selectedSub?.price || 0)
   const discountAmt = Math.round(basePrice * discount / 100)
   const finalPrice = basePrice - discountAmt
 
@@ -98,7 +98,11 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
       {/* Subscription selector */}
       <div className="form-group"><label className="form-label">Абонемент</label>
-        <select className="form-input" value={subId} onChange={e => { setSubId(e.target.value); setUseCustomPrice(!e.target.value) }}>
+        <select className="form-input" value={subId} onChange={e => {
+          const val = e.target.value
+          setSubId(val)
+          setUseCustomPrice(val === 'custom' || val === '')
+        }}>
           <option value="">— выбрать абонемент —</option>
           {availableSubs.map(s => (
             <option key={s.id} value={s.id}>
