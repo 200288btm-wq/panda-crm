@@ -183,7 +183,7 @@ export default function BookingPage() {
     if (d < minDate || d > maxDate) return false
     const dow = d.getDay()
     if (scheduleDays.length > 0 && !scheduleDays.includes(dow)) return false
-    const ds = d.toISOString().slice(0,10)
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
     if ((bookedDates[ds] || 0) >= (settings.max_per_slot || 10)) return false
     return true
   }
@@ -324,7 +324,7 @@ export default function BookingPage() {
                 {cells.map((day, i) => {
                   if (!day) return <div key={i} />
                   const available = isDayAvailable(day)
-                  const ds = new Date(year, month, day).toISOString().slice(0,10)
+                  const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
                   const isSelected = selectedDates.includes(ds)
                   const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
                   return (
