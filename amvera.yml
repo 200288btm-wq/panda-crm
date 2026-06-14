@@ -10,5 +10,5 @@ build:
     dist: /
 
 run:
-  command: npx serve -s /app -l 80
+  command: npx --yes serve@14 -s /app -l 80
   containerPort: 80
