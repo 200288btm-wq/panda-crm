@@ -5,10 +5,10 @@ meta:
     version: "20"
 
 build:
-  additionalCommands: npm run build && npm install -g serve
+  additionalCommands: npm run build
   artifacts:
     dist: /
 
 run:
-  command: serve -s /app -l 80
+  command: npx serve -s /app -l 80
   containerPort: 80
