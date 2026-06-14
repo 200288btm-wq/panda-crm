@@ -5,10 +5,10 @@ meta:
     version: "20"
 
 build:
-  additionalCommands: npm run build
+  additionalCommands: npm install && npm run build && cp -r node_modules dist/node_modules
   artifacts:
     dist: /
 
 run:
-  command: npx --yes serve@14 -s /app -l 80
+  command: node /app/node_modules/vite/bin/vite.js preview --outDir /app --port 80 --host 0.0.0.0
   containerPort: 80
