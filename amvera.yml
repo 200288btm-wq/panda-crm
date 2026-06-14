@@ -5,11 +5,10 @@ meta:
     version: "20"
 
 build:
-  additionalCommands: npm run build
+  additionalCommands: npm run build && npm install -g serve
   artifacts:
     dist: /
 
 run:
-  scriptName: preview
-  scriptArguments: --port 80 --host
+  command: serve -s /app -l 80
   containerPort: 80
