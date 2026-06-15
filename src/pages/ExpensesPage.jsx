@@ -99,7 +99,7 @@ export default function ExpensesPage({ expenses, directions, reload }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: T.red }}>Итого: {fmt(total)}</div>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: "#E8734A" }}>Итого: {fmt(total)}</div>
         <button className="btn btn-danger" onClick={() => setShowAdd(true)}>+ Добавить расход</button>
       </div>
       <div className="table-wrap"><table>
@@ -114,7 +114,7 @@ export default function ExpensesPage({ expenses, directions, reload }) {
                 <td><span className={`badge ${e.category === 'Периодичный' ? 'badge-blue' : 'badge-gray'}`}>{e.category}</span></td>
                 <td style={{ fontSize: 12, color: T.muted }}>{d?.name || 'Общий'}</td>
                 <td style={{ fontSize: 12, color: T.muted }}>{e.comment || '—'}</td>
-                <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.red }}>{fmt(e.amount)}</span></td>
+                <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: "#E8734A" }}>{fmt(e.amount)}</span></td>
                 <td>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(e)}>✏️</button>
