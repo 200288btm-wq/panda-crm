@@ -45,7 +45,11 @@ export default function LoginPage() {
       redirectTo: window.location.origin + '/?reset=true',
     })
     if (error) {
-      setError('Ошибка: ' + error.message)
+      if (error.message.includes('rate limit')) {
+        setError('Слишком много запросов. Попробуйте через час.')
+      } else {
+        setError('Ошибка отправки: ' + error.message)
+      }
     } else {
       setMode('sent')
     }
