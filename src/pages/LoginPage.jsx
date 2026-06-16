@@ -45,7 +45,7 @@ export default function LoginPage() {
       redirectTo: window.location.origin + '/?reset=true',
     })
     if (error) {
-      setError('Ошибка отправки. Проверьте email.')
+      setError('Ошибка: ' + error.message)
     } else {
       setMode('sent')
     }
