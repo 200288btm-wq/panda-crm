@@ -28,18 +28,14 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    // Проверяем существует ли пользователь — пробуем войти с заведомо неверным паролем
-    // Если пользователь не существует — Supabase вернёт "Invalid login credentials" или похожее
-    // Если существует — тоже вернёт ошибку пароля, но другую
-    const { error: checkError } = await supabase.auth.signInWithPassword({
-      email,
-      password: '___check___nonexistent___',
-    })
+    // Проверяем есть ли пользователь в таблице staff
+    const { data: staffData } = await supabase
+      .from('staff')
+      .select('id')
+      .eq('email', email.trim().toLowerCase())
+      .maybeSingle()
 
-    if (checkError && checkError.message === 'Invalid login credentials') {
-      // Пользователь существует, просто пароль неверный — это нормально, продолжаем
-    } else if (checkError) {
-      // Другая ошибка — скорее всего пользователь не найден
+    if (!staffData) {
       setError(`Пользователь с адресом ${email} не найден в системе`)
       setLoading(false)
       return
