@@ -32,7 +32,7 @@ export default function LoginPage() {
     const { data: staffData } = await supabase
       .from('staff')
       .select('id')
-      .eq('email', email.trim().toLowerCase())
+      .ilike('email', email.trim())
       .maybeSingle()
 
     if (!staffData) {
