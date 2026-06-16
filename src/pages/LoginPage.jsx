@@ -27,8 +27,27 @@ export default function LoginPage() {
     if (!email) { setError('Введите email'); return }
     setLoading(true)
     setError('')
+
+    // Проверяем существует ли пользователь через попытку входа с неверным паролем
+    // Supabase не раскрывает через resetPasswordForEmail найден ли email
+    // Поэтому проверяем через signInWithOtp — если email не зарегистрирован, вернёт ошибку
+    const { error: checkError } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false }
+    })
+
+    // Если ошибка содержит "not found" или "not registered" — пользователь не найден
+    if (checkError && (checkError.message.toLowerCase().includes('not found') ||
+        checkError.message.toLowerCase().includes('signups not allowed') ||
+        checkError.status === 422 || checkError.status === 400)) {
+      setError(`Пользователь с адресом ${email} не найден в системе`)
+      setLoading(false)
+      return
+    }
+
+    const redirectTo = window.location.origin + '/index.html?reset=true'
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin + '/?reset=true',
+      redirectTo,
     })
     if (error) {
       setError('Ошибка отправки. Проверьте email.')
