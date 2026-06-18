@@ -28,20 +28,7 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    // Проверяем есть ли пользователь в таблице staff
-    const { data: staffData } = await supabase
-      .from('staff')
-      .select('id')
-      .ilike('email', email.trim())
-      .maybeSingle()
-
-    if (!staffData) {
-      setError(`Пользователь с адресом ${email} не найден в системе`)
-      setLoading(false)
-      return
-    }
-
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: window.location.origin + '/?reset=true',
     })
     if (error) {
