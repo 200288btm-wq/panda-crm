@@ -41,7 +41,7 @@ function getInitials(fullName) {
   return (parts[0][0] + parts[1][0]).toUpperCase()
 }
 
-export default function CRM({ session, staff }) {
+export default function CRM({ session, staff, studio, studios, onSwitchStudio }) {
   const [page, setPage] = useState('dashboard')
   const [deepLink, setDeepLink] = useState(null) // { clientId, openPayment: bool }
   const [clients, setClients] = useState([])
@@ -171,7 +171,7 @@ export default function CRM({ session, staff }) {
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id }
 
   const SidebarContent = () => (
     <>
@@ -231,6 +231,11 @@ export default function CRM({ session, staff }) {
               <button className="topbar-hamburger" onClick={() => setMobileOpen(true)}>☰</button>
             )}
             <div className="page-title">{PAGE_TITLES[page]}</div>
+            {studio && (
+              <div style={{ fontSize: 12, color: T.muted, background: T.cream, borderRadius: 8, padding: '3px 10px', fontWeight: 600 }}>
+                🏫 {studio.name}
+              </div>
+            )}
           </div>
           <div className="topbar-right">
             {!isMobile && (
@@ -265,6 +270,21 @@ export default function CRM({ session, staff }) {
                   >
                     🔑 Сменить пароль
                   </button>
+                  {studios && studios.length > 1 && (
+                    <div style={{ borderTop: `1px solid ${T.border}`, padding: '8px 0' }}>
+                      <div style={{ fontSize: 11, color: T.muted, fontWeight: 700, padding: '4px 16px 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>Мои студии</div>
+                      {studios.map(s => (
+                        <button key={s.id}
+                          onClick={() => { setUserMenuOpen(false); onSwitchStudio && onSwitchStudio(s) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: s.id === studio?.id ? T.green : T.ink, fontFamily: 'inherit', textAlign: 'left', fontWeight: s.id === studio?.id ? 700 : 400 }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                        >
+                          {s.id === studio?.id ? '✅' : '🏫'} {s.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <button
                     onClick={() => { setUserMenuOpen(false); logout() }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.red, fontFamily: 'inherit', textAlign: 'left', borderTop: `1px solid ${T.border}` }}

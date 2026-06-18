@@ -3,60 +3,131 @@ import { supabase } from '../supabase'
 import { T, ROLES, ROLE_COLORS, hashColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
-function InviteModal({ onClose, onDone }) {
+// Генерация случайного кода приглашения
+function generateCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+function InviteModal({ onClose, onDone, studioId, currentUserId }) {
+  const [step, setStep] = useState('form') // form | checking | result_email | result_code
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
   const [role, setRole] = useState('Администратор')
   const [phone, setPhone] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
+  const [generatedCode, setGeneratedCode] = useState('')
 
   const invite = async () => {
     if (!email || !name) { setError('Заполните имя и email'); return }
     setLoading(true); setError('')
 
     try {
-      // Call Edge Function to create auth user + staff record
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch(
-        `https://dmvqiuminxrtcaylfcwg.supabase.co/functions/v1/create-user`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
-          },
-          body: JSON.stringify({ email, name, role, phone }),
+      // Проверяем — есть ли такой email в staff (любой студии)
+      const { data: existingStaff } = await supabase
+        .from('staff')
+        .select('id, email')
+        .ilike('email', email.trim())
+        .maybeSingle()
+
+      if (existingStaff) {
+        // Пользователь уже зарегистрирован — генерируем код
+        const code = generateCode()
+        const { error: invErr } = await supabase
+          .from('invitations')
+          .insert({
+            studio_id: studioId,
+            email: email.trim().toLowerCase(),
+            code,
+            role,
+            invited_by: currentUserId,
+            expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          })
+
+        if (invErr) throw invErr
+
+        // Создаём запись в staff заранее (без user_id — привяжется при входе)
+        await supabase.from('staff').insert({
+          studio_id: studioId,
+          name: name.trim(),
+          role,
+          phone: phone.trim(),
+          email: email.trim().toLowerCase(),
+          is_active: true,
+        })
+
+        setGeneratedCode(code)
+        setStep('result_code')
+      } else {
+        // Новый пользователь — отправляем email через Edge Function
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch(
+          `https://dmvqiuminxrtcaylfcwg.supabase.co/functions/v1/create-user`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify({ email, name, role, phone, studio_id: studioId }),
+          }
+        )
+        const result = await res.json()
+        if (!res.ok || result.error) {
+          setError('Ошибка: ' + (result.error || 'Неизвестная ошибка'))
+          setLoading(false)
+          return
         }
-      )
-      const result = await res.json()
-      if (!res.ok || result.error) {
-        setError('Ошибка: ' + (result.error || 'Неизвестная ошибка'))
-        setLoading(false)
-        return
+        setStep('result_email')
       }
-      setSuccess(true)
     } catch (e) {
-      setError('Ошибка соединения: ' + e.message)
+      setError('Ошибка: ' + e.message)
     }
     setLoading(false)
   }
 
-  if (success) return (
-    <Modal title="✅ Сотрудник добавлен" onClose={() => { onDone(); onClose() }}
+  if (step === 'result_email') return (
+    <Modal title="✅ Приглашение отправлено" onClose={() => { onDone(); onClose() }}
       footer={<button className="btn btn-primary" onClick={() => { onDone(); onClose() }}>Готово</button>}>
       <div style={{ textAlign: 'center', padding: '20px 0' }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🎉</div>
-        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>{name} добавлен</div>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>📨</div>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>{name} приглашён</div>
         <div style={{ fontSize: 13, color: T.muted, lineHeight: 1.7, background: T.cream, borderRadius: 12, padding: '12px 16px', textAlign: 'left' }}>
           <strong style={{ color: T.ink }}>Что делать дальше:</strong><br />
-          1. Сотруднику отправлена ссылка на <strong>{email}</strong><br />
-          2. Пусть перейдёт по ссылке и установит пароль<br />
-          3. После входа в систему аккаунт привяжется автоматически<br />
+          1. Сотруднику отправлено письмо на <strong>{email}</strong><br />
+          2. Пусть перейдёт по ссылке, зарегистрируется и войдёт<br />
+          3. После входа выберет «Войти по коду приглашения» если нужно<br />
           <br />
           <strong style={{ color: T.orange }}>⚠️ Если письмо не пришло:</strong><br />
-          Попросите сотрудника нажать «Забыли пароль?» на странице входа
+          Попросите сотрудника зарегистрироваться самостоятельно на странице входа
+        </div>
+      </div>
+    </Modal>
+  )
+
+  if (step === 'result_code') return (
+    <Modal title="✅ Код приглашения создан" onClose={() => { onDone(); onClose() }}
+      footer={<button className="btn btn-primary" onClick={() => { onDone(); onClose() }}>Готово</button>}>
+      <div style={{ textAlign: 'center', padding: '20px 0' }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔑</div>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 16, marginBottom: 8 }}>
+          {name} уже зарегистрирован
+        </div>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+          Пользователь с адресом <strong>{email}</strong> уже есть в системе.<br />
+          Передайте ему этот код — он действует 24 часа:
+        </div>
+        <div style={{
+          fontSize: 32, fontFamily: 'monospace', fontWeight: 900, letterSpacing: 6,
+          background: T.greenBg, color: T.greenDark, borderRadius: 14, padding: '16px 24px',
+          marginBottom: 12, border: `2px solid ${T.green}33`
+        }}>
+          {generatedCode}
+        </div>
+        <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+          Сотрудник вводит этот код в своём кабинете<br />
+          в разделе «Добавить студию»
         </div>
       </div>
     </Modal>
@@ -64,12 +135,12 @@ function InviteModal({ onClose, onDone }) {
 
   return (
     <Modal title="+ Новый сотрудник" onClose={onClose}
-      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={invite} disabled={loading}>{loading ? 'Добавление...' : 'Добавить'}</button></>}>
+      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={invite} disabled={loading}>{loading ? 'Проверка...' : 'Добавить'}</button></>}>
       {error && <div className="alert alert-error">{error}</div>}
       <div className="form-group"><label className="form-label">Имя и фамилия *</label>
         <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="Иванова Мария Алексеевна" autoFocus />
       </div>
-      <div className="form-group"><label className="form-label">Email для входа *</label>
+      <div className="form-group"><label className="form-label">Email *</label>
         <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="maria@example.com" />
       </div>
       <div className="form-row">
@@ -83,10 +154,7 @@ function InviteModal({ onClose, onDone }) {
         </div>
       </div>
       <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-        <strong style={{ color: T.ink }}>Доступ по ролям:</strong><br />
-        🟣 <strong>Директор</strong> — полный доступ<br />
-        🔵 <strong>Администратор</strong> — клиенты, оплаты, расписание<br />
-        🟢 <strong>Преподаватель</strong> — только расписание
+        Если пользователь уже зарегистрирован — система автоматически сгенерирует код приглашения вместо письма.
       </div>
     </Modal>
   )
@@ -130,26 +198,13 @@ function EditStaffModal({ member, onClose, onSave }) {
   )
 }
 
-export default function StaffPage({ staffList, reload }) {
+export default function StaffPage({ staffList, reload, studioId, currentUserId }) {
   const [showInvite, setShowInvite] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
-  const [authUsers, setAuthUsers] = useState({}) // email -> confirmed status
-
-  // Load auth user statuses
-  useEffect(() => {
-    // We can check who has user_id linked (= has logged in at least once)
-    const linked = {}
-    staffList.forEach(s => { linked[s.id] = !!s.user_id })
-    setAuthUsers(linked)
-  }, [staffList])
 
   const save = async (f) => {
     const { error } = await supabase.from('staff').update({
-      name: f.name,
-      role: f.role,
-      phone: f.phone,
-      email: f.email,
-      is_active: f.is_active,
+      name: f.name, role: f.role, phone: f.phone, email: f.email, is_active: f.is_active,
     }).eq('id', showEdit.id)
     if (error) { alert('Ошибка сохранения: ' + error.message); return }
     setShowEdit(null); reload()
@@ -184,7 +239,6 @@ export default function StaffPage({ staffList, reload }) {
         <button className="btn btn-primary" onClick={() => setShowInvite(true)}>+ Добавить сотрудника</button>
       </div>
 
-      {/* Role cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
         {[
           { role: 'Директор', icon: '👑', color: '#7c3aed', bg: '#f5f3ff', desc: 'Полный доступ ко всем данным, финансам и настройкам' },
@@ -202,48 +256,40 @@ export default function StaffPage({ staffList, reload }) {
         ))}
       </div>
 
-      {/* Staff table */}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Сотрудник</th><th>Роль</th><th>Email</th><th>Телефон</th><th>Вход</th><th>Статус</th><th>Добавлен</th><th></th></tr></thead>
           <tbody>
-            {staffList.map(s => {
-              const hasLinked = !!s.user_id
-              return (
-                <tr key={s.id}>
-                  <td>
-                    <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-                      <div className="avatar" style={{ background: s.is_active ? hashColor(s.name) : '#d1d5db', width: 34, height: 34, fontSize: 13 }}>
-                        {(s.name || '?')[0]}
-                      </div>
-                      <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</div>
+            {staffList.map(s => (
+              <tr key={s.id}>
+                <td>
+                  <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+                    <div className="avatar" style={{ background: s.is_active ? hashColor(s.name) : '#d1d5db', width: 34, height: 34, fontSize: 13 }}>
+                      {(s.name || '?')[0]}
                     </div>
-                  </td>
-                  <td><span className={`badge ${ROLE_COLORS[s.role] || 'badge-gray'}`}>{s.role}</span></td>
-                  <td style={{ fontSize: 12, color: T.muted }}>{s.email || '—'}</td>
-                  <td style={{ fontSize: 12, color: T.muted }}>{s.phone || '—'}</td>
-                  <td>
-                    {hasLinked
-                      ? <span className="badge badge-green">✅ Активирован</span>
-                      : <span className="badge badge-orange">⏳ Не входил</span>
-                    }
-                  </td>
-                  <td>
-                    <span className={`badge ${s.is_active ? 'badge-green' : 'badge-gray'}`}>
-                      {s.is_active ? 'Активен' : 'Отключён'}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 12, color: T.muted }}>{s.created_at?.slice(0, 10) || '—'}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
-                      {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)} title="Отозвать доступ">🚫</button>}
-                      <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} title="Удалить сотрудника" style={{ color: '#e05a5a' }}>🗑️</button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</div>
+                  </div>
+                </td>
+                <td><span className={`badge ${ROLE_COLORS[s.role] || 'badge-gray'}`}>{s.role}</span></td>
+                <td style={{ fontSize: 12, color: T.muted }}>{s.email || '—'}</td>
+                <td style={{ fontSize: 12, color: T.muted }}>{s.phone || '—'}</td>
+                <td>
+                  {s.user_id
+                    ? <span className="badge badge-green">✅ Активирован</span>
+                    : <span className="badge badge-orange">⏳ Не входил</span>
+                  }
+                </td>
+                <td><span className={`badge ${s.is_active ? 'badge-green' : 'badge-gray'}`}>{s.is_active ? 'Активен' : 'Отключён'}</span></td>
+                <td style={{ fontSize: 12, color: T.muted }}>{s.created_at?.slice(0, 10) || '—'}</td>
+                <td>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
+                    {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)} title="Отозвать доступ">🚫</button>}
+                    <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} style={{ color: '#e05a5a' }}>🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
             {!staffList.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">🔑</div><div className="empty-text">Сотрудников нет</div></div></td></tr>}
           </tbody>
         </table>
@@ -251,13 +297,11 @@ export default function StaffPage({ staffList, reload }) {
 
       <div style={{ marginTop: 16, background: T.cream, borderRadius: 14, padding: '14px 16px', fontSize: 13, color: T.muted, lineHeight: 1.7 }}>
         <strong style={{ color: T.ink }}>📌 Как добавить сотрудника:</strong><br />
-        1. Нажми «+ Добавить сотрудника» и заполни имя, email и роль<br />
-        2. Сотруднику придёт письмо — пусть перейдёт по ссылке и установит пароль<br />
-        3. После первого входа статус изменится на ✅ Активирован<br />
-        <strong style={{ color: T.orange }}>⚠️ Если письмо не приходит:</strong> скажи сотруднику нажать «Забыли пароль?» на странице входа
+        • Если сотрудник <strong>новый</strong> — придёт письмо со ссылкой для регистрации<br />
+        • Если сотрудник <strong>уже зарегистрирован</strong> — система создаст код на 24 часа, передайте его сотруднику
       </div>
 
-      {showInvite && <InviteModal onClose={() => setShowInvite(false)} onDone={reload} />}
+      {showInvite && <InviteModal onClose={() => setShowInvite(false)} onDone={reload} studioId={studioId} currentUserId={currentUserId} />}
       {showEdit && <EditStaffModal member={showEdit} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
