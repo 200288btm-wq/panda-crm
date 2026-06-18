@@ -121,16 +121,18 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const isAdmin = role === 'Директор' || role === 'Администратор'
 
   const load = useCallback(async () => {
+    const sid = studio?.id
+    if (!sid) return
     const [c, p, e, d, t, s, sub, l, addr] = await Promise.all([
-      supabase.from('clients').select('*').order('created_at', { ascending: false }),
-      supabase.from('payments').select('*').order('payment_date', { ascending: false }),
-      supabase.from('expenses').select('*').order('expense_date', { ascending: false }),
-      supabase.from('directions').select('*, groups:direction_groups(*)').order('id'),
-      supabase.from('teachers').select('*').order('id'),
-      supabase.from('staff').select('*').order('id'),
-      supabase.from('subscriptions').select('*').order('id'),
-      supabase.from('leads').select('id, status').eq('status', 'new'),
-      supabase.from('addresses').select('*').order('id'),
+      supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
+      supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
+      supabase.from('expenses').select('*').eq('studio_id', sid).order('expense_date', { ascending: false }),
+      supabase.from('directions').select('*, groups:direction_groups(*)').eq('studio_id', sid).order('id'),
+      supabase.from('teachers').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('staff').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
+      supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -141,7 +143,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
-  }, [])
+  }, [studio])
 
   useEffect(() => { load() }, [load])
 
