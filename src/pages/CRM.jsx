@@ -11,6 +11,7 @@ import TeachersPage from './TeachersPage'
 import CalendarPage from './CalendarPage'
 import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
+import ProfilePage from './ProfilePage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
 import AddressesPage from './AddressesPage'
@@ -21,6 +22,7 @@ const PAGE_TITLES = {
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
   leads: 'Заявки', addresses: 'Адреса', booking: 'Онлайн-запись',
+  profile: 'Личный кабинет',
 }
 
 // Real logo from public/logo.svg
@@ -263,6 +265,14 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
                     <div style={{ fontSize: 11, color: T.muted, wordBreak: 'break-all' }}>{session?.user?.email}</div>
                   </div>
                   <button
+                    onClick={() => { setUserMenuOpen(false); navigate('profile') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.ink, fontFamily: 'inherit', textAlign: 'left' }}
+                    onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    👤 Личный кабинет
+                  </button>
+                  <button
                     onClick={() => { setUserMenuOpen(false); setPwdModalOpen(true); setPwdMessage(null); setNewPwd(''); setConfirmPwd('') }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.ink, fontFamily: 'inherit', textAlign: 'left' }}
                     onMouseEnter={e => e.currentTarget.style.background = T.cream}
@@ -311,6 +321,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
           {page === 'finance'       && isDirector && <FinancePage {...props} />}
           {page === 'staff'         && isDirector && <StaffPage {...props} />}
+          {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
           {page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
           {page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>
