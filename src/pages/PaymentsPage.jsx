@@ -44,9 +44,12 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
   const save = () => {
     if (!clientId) { alert('Выберите клиента'); return }
+    const autoPayType = selectedSub
+      ? (selectedSub.lessons_count === 1 ? 'Разовое занятие' : 'Абонемент')
+      : payType
     onSave({
       client_id: +clientId,
-      payment_type: payType,
+      payment_type: autoPayType,
       amount: finalPrice,
       direction_id: dirId ? +dirId : null,
       group_name: groupName,
@@ -148,14 +151,6 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
         <div className="form-group"><label className="form-label">Скидка, %</label>
           <input className="form-input" type="number" min="0" max="100" value={discount}
             onChange={e => setDiscount(+e.target.value)} />
-        </div>
-        <div className="form-group"><label className="form-label">Тип оплаты</label>
-          <select className="form-input" value={payType} onChange={e => setPayType(e.target.value)}>
-            <option>Абонемент</option>
-            <option>Разовое занятие</option>
-            <option>Абонемент со скидкой</option>
-            <option>Пробное занятие</option>
-          </select>
         </div>
       </div>
 
