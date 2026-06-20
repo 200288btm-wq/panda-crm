@@ -34,9 +34,8 @@ export default function StudioSettingsPage({ studio, studioId }) {
 
   // Периоды абонементов
   const [periods, setPeriods] = useState([])
-  const [periodSaving, setPeriodSaving] = useState(false)
   const [periodMsg, setPeriodMsg] = useState(null)
-  const [newPeriodName, setNewPeriodName] = useState('')
+  const [newPeriod, setNewPeriod] = useState({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
 
   useEffect(() => {
     if (!studioId) return
@@ -104,12 +103,23 @@ export default function StudioSettingsPage({ studio, studioId }) {
 
   // Периоды
   const addPeriod = async () => {
-    if (!newPeriodName.trim()) return
-    setPeriodSaving(true); setPeriodMsg(null)
-    const { error } = await supabase.from('subscription_periods').insert({ label: newPeriodName.trim(), studio_id: studioId, sort_order: periods.length })
+    if (!newPeriod.label.trim()) { setPeriodMsg({ type: 'error', text: 'Введите название' }); return }
+    if (newPeriod.period_type === 'fixed' && !newPeriod.duration_value) { setPeriodMsg({ type: 'error', text: 'Укажите срок' }); return }
+    setPeriodMsg(null)
+    const { error } = await supabase.from('subscription_periods').insert({
+      label: newPeriod.label.trim(),
+      period_type: newPeriod.period_type,
+      duration_value: newPeriod.period_type === 'fixed' ? +newPeriod.duration_value : null,
+      duration_unit: newPeriod.period_type === 'fixed' ? newPeriod.duration_unit : null,
+      studio_id: studioId,
+      sort_order: periods.length,
+    })
     if (error) setPeriodMsg({ type: 'error', text: error.message })
-    else { setNewPeriodName(''); setPeriodMsg({ type: 'success', text: 'Период добавлен' }); loadAll() }
-    setPeriodSaving(false)
+    else {
+      setNewPeriod({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
+      setPeriodMsg({ type: 'success', text: 'Период добавлен' })
+      loadAll()
+    }
     setTimeout(() => setPeriodMsg(null), 2000)
   }
 
@@ -117,6 +127,14 @@ export default function StudioSettingsPage({ studio, studioId }) {
     if (!confirm(`Удалить период «${label}»?`)) return
     await supabase.from('subscription_periods').delete().eq('id', id)
     loadAll()
+  }
+
+  const periodTypeLabel = (p) => {
+    if (p.period_type === 'fixed' && p.duration_value && p.duration_unit) {
+      const units = { days: 'дн.', months: 'мес.' }
+      return `⏱ ${p.duration_value} ${units[p.duration_unit] || p.duration_unit}`
+    }
+    return '∞ без срока'
   }
 
   if (!settings) return <div style={{ padding: 40, color: T.muted }}>Загрузка...</div>
@@ -226,22 +244,66 @@ export default function StudioSettingsPage({ studio, studioId }) {
       {/* Периоды абонементов */}
       <Section title="Периоды абонементов" icon="📅">
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
-          Определяют срок действия абонемента. Например: «Месяц», «Пока не закончатся занятия», «Не ограничен».
+          Определяют срок действия абонемента. <strong>Фиксированный срок</strong> — абонемент сгорает через указанное время даже если занятия остались. <strong>Без срока</strong> — действует пока не закончатся занятия.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           {periods.map(p => (
-            <CategoryRow key={p.id} item={{ ...p, name: p.label }} onRename={(id, name) => supabase.from('subscription_periods').update({ label: name }).eq('id', id).then(loadAll)} onDelete={(id, name) => deletePeriod(id, name)} />
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>{p.label}</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{periodTypeLabel(p)}</div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => deletePeriod(p.id, p.label)} style={{ color: '#e05a5a' }}>🗑️</button>
+            </div>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input className="form-input" value={newPeriodName} onChange={e => setNewPeriodName(e.target.value)}
-            placeholder="Название нового периода" style={{ flex: 1 }}
-            onKeyDown={e => e.key === 'Enter' && addPeriod()} />
-          <button className="btn btn-primary" onClick={addPeriod} disabled={periodSaving || !newPeriodName.trim()}>
-            {periodSaving ? '...' : '+ Добавить'}
+
+        {/* Форма добавления нового периода */}
+        <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый период</div>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label className="form-label">Название</label>
+            <input className="form-input" value={newPeriod.label}
+              onChange={e => setNewPeriod(p => ({ ...p, label: e.target.value }))}
+              placeholder="Например: Год, Квартал, 45 дней" />
+          </div>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label className="form-label">Тип периода</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[['unlimited', '∞ Без срока', 'занятия не сгорают по времени'], ['fixed', '⏱ Фиксированный срок', 'абонемент истекает через N дней/месяцев']].map(([val, label, desc]) => (
+                <label key={val} onClick={() => setNewPeriod(p => ({ ...p, period_type: val }))} style={{
+                  flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                  border: `2px solid ${newPeriod.period_type === val ? T.green : T.border}`,
+                  background: newPeriod.period_type === val ? 'white' : T.cream,
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: newPeriod.period_type === val ? T.greenDark : T.ink }}>{label}</div>
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2, lineHeight: 1.3 }}>{desc}</div>
+                </label>
+              ))}
+            </div>
+          </div>
+          {newPeriod.period_type === 'fixed' && (
+            <div className="form-row" style={{ marginBottom: 10 }}>
+              <div className="form-group">
+                <label className="form-label">Количество</label>
+                <input className="form-input" type="number" min="1" value={newPeriod.duration_value}
+                  onChange={e => setNewPeriod(p => ({ ...p, duration_value: e.target.value }))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Единица</label>
+                <select className="form-input" value={newPeriod.duration_unit}
+                  onChange={e => setNewPeriod(p => ({ ...p, duration_unit: e.target.value }))}>
+                  <option value="days">Дней</option>
+                  <option value="months">Месяцев</option>
+                </select>
+              </div>
+            </div>
+          )}
+          <button className="btn btn-primary" onClick={addPeriod} disabled={!newPeriod.label.trim()}>
+            + Добавить период
           </button>
+          <Msg msg={periodMsg} />
         </div>
-        <Msg msg={periodMsg} />
       </Section>
 
     </div>

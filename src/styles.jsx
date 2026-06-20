@@ -188,7 +188,7 @@ export function GlobalStyles() {
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }
-        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); }
+        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
         .sidebar-wrapper.mobile-open .sidebar { transform: translateX(0); }
         .sidebar-toggle { display: none !important; }
 
