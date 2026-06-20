@@ -33,17 +33,17 @@ const pricePerLesson = (price, lessons) => {
   return Math.round(price / lessons)
 }
 
-function SubModal({ sub, directions, periods, onClose, onSave }) {
+function SubModal({ sub, directions, periods, priceCategories = [], onClose, onSave }) {
   const [f, setF] = useState(sub ? {
     name: sub.name || '',
-    direction_ids: sub.direction_ids || [],
+    category_id: sub.category_id || null,
     price: sub.price || 0,
     lessons_count: sub.lessons_count || 1,
     period: sub.period || 'Пока не закончатся занятия',
     is_active: sub.is_active ?? true,
     notes: sub.notes || '',
   } : {
-    name: '', direction_ids: [], price: 0, lessons_count: 1,
+    name: '', category_id: null, price: 0, lessons_count: 1,
     period: 'Пока не закончатся занятия', is_active: true, notes: '',
   })
 
@@ -174,30 +174,41 @@ function SubModal({ sub, directions, periods, onClose, onSave }) {
       </div>
 
       <div className="form-group">
-        <label className="form-label">Направления (куда применяется)</label>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-          {directions.map(d => {
-            const on = (f.direction_ids || []).includes(d.id)
-            const color = d.color || T.green
-            return (
-              <label key={d.id} onClick={() => {
-                const ids = f.direction_ids || []
-                set('direction_ids', ids.includes(d.id) ? ids.filter(x => x !== d.id) : [...ids, d.id])
-              }} style={{
-                display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
-                borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
-                background: on ? color + '22' : '#f5f5f0',
-                border: `2px solid ${on ? color : T.border}`,
-                color: on ? color : T.muted, fontWeight: 700, fontSize: 12,
-              }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-                {d.name}
-              </label>
-            )
-          })}
-        </div>
-        {(f.direction_ids || []).length === 0 && (
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Если не выбрано — абонемент применяется ко всем направлениям</div>
+        <label className="form-label">Категория абонемента</label>
+        {priceCategories.length > 0 ? (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+            <label onClick={() => set('category_id', null)} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+              borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+              background: !f.category_id ? T.green + '22' : '#f5f5f0',
+              border: `2px solid ${!f.category_id ? T.green : T.border}`,
+              color: !f.category_id ? T.greenDark : T.muted, fontWeight: 700, fontSize: 12,
+            }}>
+              Все направления
+            </label>
+            {priceCategories.map(c => {
+              const on = f.category_id === c.id
+              return (
+                <label key={c.id} onClick={() => set('category_id', on ? null : c.id)} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                  borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                  background: on ? T.green + '22' : '#f5f5f0',
+                  border: `2px solid ${on ? T.green : T.border}`,
+                  color: on ? T.greenDark : T.muted, fontWeight: 700, fontSize: 12,
+                }}>
+                  {on && '✓ '}{c.name}
+                </label>
+              )
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 4 }}>
+            Категории не настроены — абонемент доступен для всех направлений.
+            <br />Добавьте категории в <strong>Настройки студии</strong>.
+          </div>
+        )}
+        {!f.category_id && (
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Без категории — доступен для всех направлений</div>
         )}
       </div>
 
@@ -218,13 +229,13 @@ function SubModal({ sub, directions, periods, onClose, onSave }) {
   )
 }
 
-export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin }) {
+export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [filterDir, setFilterDir] = useState('all')
   const [periods, setPeriods] = useState([])
+  const [priceCategories, setPriceCategories] = useState([])
 
-  // Загружаем каталог периодов из БД
   const loadPeriods = async () => {
     const { data, error } = await supabase
       .from('subscription_periods')
@@ -232,24 +243,35 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true })
     if (error) {
-      // Если таблицы ещё нет (миграция не накатана) — молча используем fallback
       console.warn('subscription_periods: ' + error.message)
       setPeriods([])
     } else {
       setPeriods(data || [])
     }
   }
-  useEffect(() => { loadPeriods() }, [])
+
+  const loadCategories = async () => {
+    const { data } = await supabase
+      .from('price_categories')
+      .select('*')
+      .order('sort_order')
+      .order('id')
+    setPriceCategories(data || [])
+  }
+
+  useEffect(() => { loadPeriods(); loadCategories() }, [])
 
   const save = async (f) => {
+    const data = { ...f }
+    if (studioId && !showEdit) data.studio_id = studioId
     if (showEdit) {
-      await supabase.from('subscriptions').update(f).eq('id', showEdit.id)
+      await supabase.from('subscriptions').update(data).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('subscriptions').insert(f)
+      await supabase.from('subscriptions').insert(data)
       setShowAdd(false)
     }
-    await loadPeriods() // на случай, если был добавлен новый кастомный период
+    await loadPeriods()
     reload()
   }
 
@@ -262,7 +284,12 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   const filtered = subscriptions.filter(s => {
     if (filterDir === 'all') return true
     if (filterDir === 'inactive') return !s.is_active
-    return (s.direction_ids || []).includes(+filterDir) || (s.direction_ids || []).length === 0
+    // Фильтр по категории
+    const dir = directions.find(d => String(d.id) === String(filterDir))
+    if (!dir) return true
+    const catIds = dir.category_ids || []
+    if (catIds.length === 0) return true
+    return !s.category_id || catIds.includes(s.category_id)
   })
 
   const active = subscriptions.filter(s => s.is_active)
@@ -386,8 +413,8 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
         )}
       </div>
 
-      {showAdd && <SubModal directions={directions} periods={periods} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <SubModal directions={directions} periods={periods} priceCategories={priceCategories} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} priceCategories={priceCategories} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
