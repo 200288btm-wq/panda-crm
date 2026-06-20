@@ -154,6 +154,8 @@ export default function StudioSettingsPage({ studio, studioId }) {
   }
 
   const EXPENSE_ICONS = ['📦', '🏠', '🎨', '🚗', '💻', '👥', '📱', '🍕', '💡', '🔧', '📋', '💰', '🎓', '🏋️', '✈️']
+
+  const periodTypeLabel = (p) => {
     if (p.period_type === 'fixed' && p.duration_value && p.duration_unit) {
       const units = { days: 'дн.', months: 'мес.' }
       return `⏱ ${p.duration_value} ${units[p.duration_unit] || p.duration_unit}`
