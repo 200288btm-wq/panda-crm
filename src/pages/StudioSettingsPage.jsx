@@ -335,7 +335,42 @@ export default function StudioSettingsPage({ studio, studioId }) {
         </div>
       </Section>
 
-      {/* Типы расходов */}
+      {/* Telegram бот */}
+      <Section title="Telegram бот" icon="🤖">
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+          Создайте бота через <a href="https://t.me/BotFather" target="_blank" style={{ color: T.green }}>@BotFather</a> в Telegram, скопируйте токен и вставьте ниже. Клиенты смогут получать информацию о занятиях и уведомления.
+        </div>
+        <div className="form-group">
+          <label className="form-label">Токен бота</label>
+          <input className="form-input" value={settings.bot_token || ''}
+            onChange={e => set('bot_token', e.target.value)}
+            placeholder="1234567890:ABCdefGHIjklMNOpqrsTUVwxyz" />
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+            Получить у @BotFather → /newbot → скопировать токен
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Username бота</label>
+          <input className="form-input" value={settings.bot_username || ''}
+            onChange={e => set('bot_username', e.target.value)}
+            placeholder="@MyStudioBot" />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Ссылка на онлайн-запись</label>
+          <input className="form-input" value={settings.booking_url || ''}
+            onChange={e => set('booking_url', e.target.value)}
+            placeholder="https://acpanda.ru/zapis" />
+        </div>
+        {settings.bot_username && (
+          <div style={{ background: T.greenBg, borderRadius: 12, padding: '12px 16px', fontSize: 13, color: T.greenDark, marginTop: 8 }}>
+            🤖 Бот доступен: <a href={`https://t.me/${settings.bot_username.replace('@','')}`} target="_blank" style={{ color: T.green, fontWeight: 700 }}>{settings.bot_username}</a>
+          </div>
+        )}
+        <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: 12 }}>
+          {saving ? 'Сохранение...' : '✅ Сохранить'}
+        </button>
+        <Msg msg={msg} />
+      </Section>
       <Section title="Типы расходов" icon="💸">
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
           Используются при добавлении расходов. Добавьте свои категории под специфику студии.
