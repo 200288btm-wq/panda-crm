@@ -185,12 +185,15 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     ? directionGroups.filter(g => g.direction_id === direction.id)
     : []
 
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+
   const [f, setF] = useState(direction ? {
     name: direction.name||'', launched: direction.launched||'',
     duration: direction.duration||'1 час',
     color: direction.color||DIRECTION_COLORS[0], max_capacity: direction.max_capacity||0,
     category_ids: direction.category_ids || [],
-  } : { name:'', launched:'', duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
+  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -265,6 +268,9 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         </div>
         <div className="form-group"><label className="form-label">Дата запуска</label>
           <input className="form-input" type="date" value={f.launched} onChange={e=>set('launched',e.target.value)} />
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
+            По умолчанию — сегодня. Измените если направление работает с другой даты и нужно вносить посещения задним числом.
+          </div>
         </div>
       </div>
       <div className="form-row">
