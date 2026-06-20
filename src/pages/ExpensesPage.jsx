@@ -1,24 +1,24 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
-const EXPENSE_TYPES = ['Аренда', 'Материалы', 'Транспорт', 'Подписки', 'Зарплата сотрудникам', 'Прочее']
-const ICONS = { 'Аренда': '🏠', 'Материалы': '🎨', 'Транспорт': '🚗', 'Подписки': '💻', 'Зарплата сотрудникам': '👥', 'Прочее': '📦' }
+const DEFAULT_ICONS = { 'Аренда': '🏠', 'Материалы': '🎨', 'Транспорт': '🚗', 'Подписки': '💻', 'Зарплата сотрудникам': '👥', 'Прочее': '📦' }
 
-function ExpenseModal({ expense, directions, onClose, onSave }) {
+function ExpenseModal({ expense, directions, expenseTypes, onClose, onSave }) {
+  const firstType = expenseTypes[0]?.name || 'Прочее'
   const [f, setF] = useState(expense ? {
-    expense_type: expense.expense_type || 'Аренда',
+    expense_type: expense.expense_type || firstType,
     amount: expense.amount || '',
     category: expense.category || 'Периодичный',
     direction_id: expense.direction_id || '',
-    expense_date: expense.expense_date || new Date().toISOString().slice(0, 10),
+    expense_date: expense.expense_date || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })(),
     qty: expense.qty || 1,
     comment: expense.comment || '',
     link: expense.link || '',
   } : {
-    expense_type: 'Аренда', amount: '', category: 'Периодичный',
-    direction_id: '', expense_date: new Date().toISOString().slice(0, 10),
+    expense_type: firstType, amount: '', category: 'Периодичный',
+    direction_id: '', expense_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })(),
     qty: 1, comment: '', link: '',
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
@@ -35,7 +35,7 @@ function ExpenseModal({ expense, directions, onClose, onSave }) {
       <div className="form-row">
         <div className="form-group"><label className="form-label">Вид расхода</label>
           <select className="form-input" value={f.expense_type} onChange={e => set('expense_type', e.target.value)}>
-            {EXPENSE_TYPES.map(t => <option key={t}>{t}</option>)}
+            {expenseTypes.map(t => <option key={t.id}>{t.name}</option>)}
           </select>
         </div>
         <div className="form-group"><label className="form-label">Категория</label>
@@ -73,9 +73,16 @@ function ExpenseModal({ expense, directions, onClose, onSave }) {
   )
 }
 
-export default function ExpensesPage({ expenses, directions, reload }) {
+export default function ExpensesPage({ expenses, directions, reload, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+  const [expenseTypes, setExpenseTypes] = useState([])
+
+  useEffect(() => {
+    const q = supabase.from('expense_types').select('*').order('sort_order').order('id')
+    if (studioId) q.eq('studio_id', studioId)
+    q.then(({ data }) => setExpenseTypes(data || []))
+  }, [studioId])
 
   const save = async (f) => {
     if (showEdit) {
@@ -110,7 +117,7 @@ export default function ExpensesPage({ expenses, directions, reload }) {
             return (
               <tr key={e.id}>
                 <td style={{ fontSize: 12, color: T.muted }}>{e.expense_date}</td>
-                <td style={{ fontWeight: 600 }}>{ICONS[e.expense_type] || '📦'} {e.expense_type}</td>
+                <td style={{ fontWeight: 600 }}>{(expenseTypes.find(t => t.name === e.expense_type)?.icon || DEFAULT_ICONS[e.expense_type] || '📦')} {e.expense_type}</td>
                 <td><span className={`badge ${e.category === 'Периодичный' ? 'badge-blue' : 'badge-gray'}`}>{e.category}</span></td>
                 <td style={{ fontSize: 12, color: T.muted }}>{d?.name || 'Общий'}</td>
                 <td style={{ fontSize: 12, color: T.muted }}>{e.comment || '—'}</td>
@@ -127,8 +134,8 @@ export default function ExpensesPage({ expenses, directions, reload }) {
           {!expenses.length && <tr><td colSpan={7}><div className="empty"><div className="empty-icon">📤</div><div className="empty-text">Расходов нет</div></div></td></tr>}
         </tbody>
       </table></div>
-      {showAdd && <ExpenseModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <ExpenseModal expense={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <ExpenseModal directions={directions} expenseTypes={expenseTypes} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <ExpenseModal expense={showEdit} directions={directions} expenseTypes={expenseTypes} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }

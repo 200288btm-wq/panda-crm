@@ -46,8 +46,8 @@ function getInitials(fullName) {
 }
 
 export default function CRM({ session, staff, studio, studios, onSwitchStudio }) {
-  const [page, setPage] = useState('dashboard')
-  const [deepLink, setDeepLink] = useState(null) // { clientId, openPayment: bool }
+  const [page, setPage] = useState(() => localStorage.getItem('crmPage') || 'dashboard')
+  const [deepLink, setDeepLink] = useState(null)
   const [clients, setClients] = useState([])
   const [payments, setPayments] = useState([])
   const [expenses, setExpenses] = useState([])
@@ -58,6 +58,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [addresses, setAddresses] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
+  const [dataLoading, setDataLoading] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -125,6 +126,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const load = useCallback(async () => {
     const sid = studio?.id
     if (!sid) return
+    setDataLoading(true)
     const [c, p, e, d, t, s, sub, l, addr] = await Promise.all([
       supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
       supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
@@ -145,13 +147,14 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
+    setDataLoading(false)
   }, [studio])
 
   useEffect(() => { load() }, [load])
 
   const logout = () => supabase.auth.signOut()
 
-  const navigate = (id, link = null) => { setPage(id); setMobileOpen(false); setDeepLink(link) }
+  const navigate = (id, link = null) => { setPage(id); localStorage.setItem('crmPage', id); setMobileOpen(false); setDeepLink(link) }
 
   const nav = [
     { section: 'Главная', items: [
@@ -315,21 +318,27 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
         </div>
 
         <div className="content">
-          {page === 'dashboard'     && <Dashboard {...props} />}
-          {page === 'calendar'      && <CalendarPage {...props} />}
-          {page === 'leads'         && isAdmin && <LeadsPage directions={directions} />}
-          {page === 'clients'       && isAdmin && <ClientsPage {...props} />}
-          {page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
-          {page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
-          {page === 'directions'    && <DirectionsPage {...props} />}
-          {page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
-          {page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
-          {page === 'finance'       && isDirector && <FinancePage {...props} />}
-          {page === 'staff'         && isDirector && <StaffPage {...props} />}
+          {dataLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: 12 }}>
+              <img src="/logo-icon.svg" alt="" style={{ width: 48, opacity: 0.5 }} />
+              <div style={{ fontSize: 13, color: '#9ca3af' }}>Загрузка данных...</div>
+            </div>
+          )}
+          {!dataLoading && page === 'dashboard'     && <Dashboard {...props} />}
+          {!dataLoading && page === 'calendar'      && <CalendarPage {...props} />}
+          {!dataLoading && page === 'leads'         && isAdmin && <LeadsPage directions={directions} />}
+          {!dataLoading && page === 'clients'       && isAdmin && <ClientsPage {...props} />}
+          {!dataLoading && page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
+          {!dataLoading && page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
+          {!dataLoading && page === 'directions'    && <DirectionsPage {...props} />}
+          {!dataLoading && page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
+          {!dataLoading && page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}
+          {!dataLoading && page === 'finance'       && isDirector && <FinancePage {...props} />}
+          {!dataLoading && page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
           {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} />}
-          {page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
-          {page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
+          {!dataLoading && page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
+          {!dataLoading && page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>
 
         {/* Mobile bottom nav */}

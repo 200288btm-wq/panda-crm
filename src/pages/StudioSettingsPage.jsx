@@ -32,8 +32,10 @@ export default function StudioSettingsPage({ studio, studioId }) {
   const [catMsg, setCatMsg] = useState(null)
   const [newCatName, setNewCatName] = useState('')
 
-  // Периоды абонементов
-  const [periods, setPeriods] = useState([])
+  // Типы расходов
+  const [expenseTypes, setExpenseTypes] = useState([])
+  const [expenseMsg, setExpenseMsg] = useState(null)
+  const [newExpense, setNewExpense] = useState({ name: '', icon: '📦' })
   const [periodMsg, setPeriodMsg] = useState(null)
   const [newPeriod, setNewPeriod] = useState({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
 
@@ -43,15 +45,17 @@ export default function StudioSettingsPage({ studio, studioId }) {
   }, [studioId])
 
   const loadAll = async () => {
-    const [s, c, p] = await Promise.all([
+    const [s, c, p, et] = await Promise.all([
       supabase.from('studio_settings').select('*').eq('studio_id', studioId).maybeSingle(),
       supabase.from('price_categories').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('subscription_periods').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
+      supabase.from('expense_types').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
     ])
     if (s.data) setSettings(s.data)
     else setSettings({ studio_id: studioId, studio_name: studio?.name || '', logo_url: '', address: '', inn: '', stamp_url: '', phone: '', email: '', website: '' })
     if (c.data) setCategories(c.data)
     if (p.data) setPeriods(p.data)
+    if (et.data) setExpenseTypes(et.data)
   }
 
   const set = (k, v) => setSettings(prev => ({ ...prev, [k]: v }))
@@ -129,7 +133,27 @@ export default function StudioSettingsPage({ studio, studioId }) {
     loadAll()
   }
 
-  const periodTypeLabel = (p) => {
+  // Типы расходов
+  const addExpenseType = async () => {
+    if (!newExpense.name.trim()) { setExpenseMsg({ type: 'error', text: 'Введите название' }); return }
+    const { error } = await supabase.from('expense_types').insert({
+      name: newExpense.name.trim(),
+      icon: newExpense.icon || '📦',
+      studio_id: studioId,
+      sort_order: expenseTypes.length,
+    })
+    if (error) setExpenseMsg({ type: 'error', text: error.message })
+    else { setNewExpense({ name: '', icon: '📦' }); setExpenseMsg({ type: 'success', text: 'Тип добавлен' }); loadAll() }
+    setTimeout(() => setExpenseMsg(null), 2000)
+  }
+
+  const deleteExpenseType = async (id, name) => {
+    if (!confirm(`Удалить тип расхода «${name}»?`)) return
+    await supabase.from('expense_types').delete().eq('id', id)
+    loadAll()
+  }
+
+  const EXPENSE_ICONS = ['📦', '🏠', '🎨', '🚗', '💻', '👥', '📱', '🍕', '💡', '🔧', '📋', '💰', '🎓', '🏋️', '✈️']
     if (p.period_type === 'fixed' && p.duration_value && p.duration_unit) {
       const units = { days: 'дн.', months: 'мес.' }
       return `⏱ ${p.duration_value} ${units[p.duration_unit] || p.duration_unit}`
@@ -303,6 +327,50 @@ export default function StudioSettingsPage({ studio, studioId }) {
             + Добавить период
           </button>
           <Msg msg={periodMsg} />
+        </div>
+      </Section>
+
+      {/* Типы расходов */}
+      <Section title="Типы расходов" icon="💸">
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+          Используются при добавлении расходов. Добавьте свои категории под специфику студии.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          {expenseTypes.map(et => (
+            <div key={et.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 20 }}>{et.icon}</span>
+              <span style={{ flex: 1, fontWeight: 700, fontSize: 13, color: T.ink }}>{et.name}</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => deleteExpenseType(et.id, et.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+            </div>
+          ))}
+          {!expenseTypes.length && <div style={{ fontSize: 13, color: T.muted }}>Типов расходов нет</div>}
+        </div>
+        <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый тип расхода</div>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label className="form-label">Название</label>
+            <input className="form-input" value={newExpense.name}
+              onChange={e => setNewExpense(p => ({ ...p, name: e.target.value }))}
+              placeholder="Например: Реклама, Оборудование..."
+              onKeyDown={e => e.key === 'Enter' && addExpenseType()} />
+          </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Иконка</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {EXPENSE_ICONS.map(icon => (
+                <button key={icon} onClick={() => setNewExpense(p => ({ ...p, icon }))}
+                  style={{
+                    width: 36, height: 36, borderRadius: 8, fontSize: 18, cursor: 'pointer',
+                    border: `2px solid ${newExpense.icon === icon ? T.green : T.border}`,
+                    background: newExpense.icon === icon ? T.greenBg : 'white',
+                  }}>{icon}</button>
+              ))}
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={addExpenseType} disabled={!newExpense.name.trim()}>
+            + Добавить тип
+          </button>
+          <Msg msg={expenseMsg} />
         </div>
       </Section>
 
