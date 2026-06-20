@@ -36,6 +36,9 @@ export default function StudioSettingsPage({ studio, studioId }) {
   const [expenseTypes, setExpenseTypes] = useState([])
   const [expenseMsg, setExpenseMsg] = useState(null)
   const [newExpense, setNewExpense] = useState({ name: '', icon: '📦' })
+
+  // Периоды абонементов
+  const [periods, setPeriods] = useState([])
   const [periodMsg, setPeriodMsg] = useState(null)
   const [newPeriod, setNewPeriod] = useState({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
 
