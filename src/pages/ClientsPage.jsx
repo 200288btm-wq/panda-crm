@@ -148,8 +148,9 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
 
       // Paid lessons = initial balance + from payments table
-      const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date').eq('client_id', client.id)
-      const paidFromPayments = (pays||[]).reduce((s,p) => s + (+p.lessons_count||0), 0)
+      const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date, expires_at').eq('client_id', client.id)
+      const today = new Date().toISOString().slice(0, 10)
+      const paidFromPayments = (pays||[]).filter(p => !p.expires_at || p.expires_at >= today).reduce((s,p) => s + (+p.lessons_count||0), 0)
       const totalPaid = (client.paid_lessons || 0) + paidFromPayments
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
 
@@ -366,12 +367,27 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       </div>
       <div className="divider" />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
-      {cPay.length ? cPay.map(p => (
-        <div key={p.id} className="fin-row">
-          <div><div style={{ fontWeight: 600, fontSize: 13 }}>{p.payment_type}</div><div style={{ fontSize: 11, color: T.muted }}>{p.payment_date}</div></div>
-          <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
-        </div>
-      )) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
+      {cPay.length ? cPay.map(p => {
+        const today = new Date().toISOString().slice(0, 10)
+        const isExpired = p.expires_at && p.expires_at < today
+        return (
+          <div key={p.id} className="fin-row" style={{ opacity: isExpired ? 0.6 : 1 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>
+                {p.payment_type}
+                {isExpired && <span style={{ marginLeft: 6, fontSize: 10, color: '#e05a5a', fontWeight: 700, background: '#fee2e2', padding: '1px 6px', borderRadius: 99 }}>истёк</span>}
+              </div>
+              <div style={{ fontSize: 11, color: T.muted }}>{p.payment_date}</div>
+              {p.expires_at && (
+                <div style={{ fontSize: 11, color: isExpired ? '#e05a5a' : '#c47a00', fontWeight: 600 }}>
+                  ⏱ {isExpired ? 'Истёк' : 'Истекает'} {new Date(p.expires_at).toLocaleDateString('ru-RU')}
+                </div>
+              )}
+            </div>
+            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
+          </div>
+        )
+      }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
     </Modal>
   )
 }
@@ -440,10 +456,12 @@ function FreezeModal({ client, onClose, onSaved }) {
   )
 }
 
-// Считает реальный баланс с учётом payments.lessons_count
+// Считает реальный баланс с учётом payments.lessons_count и expires_at
 const calcRealBalance = (client, payments) => {
+  const today = new Date().toISOString().slice(0, 10)
   const paidFromPayments = payments
     .filter(p => p.client_id === client.id)
+    .filter(p => !p.expires_at || p.expires_at >= today) // исключаем просроченные
     .reduce((s, p) => s + (+p.lessons_count || 0), 0)
   const totalPaid = (client.paid_lessons || 0) + paidFromPayments
   const totalVisited = client.visited_lessons || 0

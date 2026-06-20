@@ -10,13 +10,22 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const [subId, setSubId] = useState('')
   const [dirId, setDirId] = useState(payment?.direction_id || '')
   const [groupName, setGroupName] = useState(payment?.group_name || 'Группа 1')
-  const [date, setDate] = useState(payment?.payment_date || new Date().toISOString().slice(0, 10))
+  const [date, setDate] = useState(payment?.payment_date || (() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  })())
   const [checkNum, setCheckNum] = useState(payment?.check_number || '')
   const [discount, setDiscount] = useState(0)
   const [customPrice, setCustomPrice] = useState(payment?.amount || '')
   const [customLessons, setCustomLessons] = useState(payment?.lessons_count || 1)
   const [payType, setPayType] = useState(payment?.payment_type || 'Абонемент')
   const [useCustomPrice, setUseCustomPrice] = useState(!!payment)
+  const [periods, setPeriods] = useState([])
+  const [expiresAt, setExpiresAt] = useState(payment?.expires_at || null)
+
+  useEffect(() => {
+    supabase.from('subscription_periods').select('*').then(({ data }) => setPeriods(data || []))
+  }, [])
 
   // Get selected client
   const client = clients.find(c => c.id === +clientId)
@@ -25,6 +34,23 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   useEffect(() => {
     if (client) setDiscount(client.discount || 0)
   }, [clientId])
+
+  // Auto-calculate expires_at when subscription or date changes
+  useEffect(() => {
+    if (!selectedSub || !date) { setExpiresAt(null); return }
+    const period = periods.find(p => p.label === selectedSub.period)
+    if (!period || period.period_type !== 'fixed' || !period.duration_value) {
+      setExpiresAt(null); return
+    }
+    const d = new Date(date)
+    if (period.duration_unit === 'months') {
+      d.setMonth(d.getMonth() + period.duration_value)
+    } else {
+      d.setDate(d.getDate() + period.duration_value)
+    }
+    const exp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    setExpiresAt(exp)
+  }, [subId, date, periods])
 
   // Get available subscriptions for selected direction
   const availableSubs = subscriptions.filter(s => {
@@ -59,6 +85,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       discount_pct: discount,
       base_amount: basePrice,
       lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : +customLessons || 0),
+      expires_at: expiresAt || null,
     })
   }
 
@@ -124,6 +151,14 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
             <span style={{ fontSize: 13, color: T.muted }}>📚 {selectedSub.lessons_count} занятий</span>
             <span style={{ fontSize: 13, color: T.muted }}>{selectedSub.period}</span>
           </div>
+          {expiresAt && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 13, color: '#c47a00', fontWeight: 600 }}>⏱ Истекает</span>
+              <span style={{ fontSize: 13, color: '#c47a00', fontWeight: 700 }}>
+                {new Date(expiresAt).toLocaleDateString('ru-RU')}
+              </span>
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>Базовая стоимость</span>
             <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.greenDark }}>{fmt(selectedSub.price)}</span>
