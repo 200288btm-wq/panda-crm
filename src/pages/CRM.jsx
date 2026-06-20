@@ -12,6 +12,7 @@ import CalendarPage from './CalendarPage'
 import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import ProfilePage from './ProfilePage'
+import StudioSettingsPage from './StudioSettingsPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
 import AddressesPage from './AddressesPage'
@@ -23,6 +24,7 @@ const PAGE_TITLES = {
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
   leads: 'Заявки', addresses: 'Адреса', booking: 'Онлайн-запись',
   profile: 'Личный кабинет',
+  studio_settings: 'Настройки студии',
 }
 
 // Real logo from public/logo.svg
@@ -172,6 +174,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
       { id: 'finance', icon: '💰', label: 'Финансы', show: isDirector },
       { id: 'staff', icon: '🔑', label: 'Сотрудники', show: isDirector },
+      { id: 'studio_settings', icon: '⚙️', label: 'Настройки студии', show: isDirector },
     ]},
   ]
 
@@ -324,6 +327,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {page === 'finance'       && isDirector && <FinancePage {...props} />}
           {page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
+          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} />}
           {page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} />}
           {page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>
