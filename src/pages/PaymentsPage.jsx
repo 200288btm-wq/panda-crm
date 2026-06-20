@@ -14,6 +14,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const [checkNum, setCheckNum] = useState(payment?.check_number || '')
   const [discount, setDiscount] = useState(0)
   const [customPrice, setCustomPrice] = useState(payment?.amount || '')
+  const [customLessons, setCustomLessons] = useState(payment?.lessons_count || 1)
   const [payType, setPayType] = useState(payment?.payment_type || 'Абонемент')
   const [useCustomPrice, setUseCustomPrice] = useState(!!payment)
 
@@ -54,7 +55,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       subscription_id: subId ? +subId : null,
       discount_pct: discount,
       base_amount: basePrice,
-      lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : 0),
+      lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : +customLessons || 0),
     })
   }
 
@@ -129,9 +130,16 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
       {/* Custom price */}
       {(useCustomPrice || subId === 'custom' || !subId) && (
-        <div className="form-group"><label className="form-label">Сумма, ₽</label>
-          <input className="form-input" type="number" value={customPrice}
-            onChange={e => setCustomPrice(e.target.value)} placeholder="0" />
+        <div className="form-row">
+          <div className="form-group"><label className="form-label">Сумма, ₽</label>
+            <input className="form-input" type="number" value={customPrice}
+              onChange={e => setCustomPrice(e.target.value)} placeholder="0" />
+          </div>
+          <div className="form-group"><label className="form-label">Количество занятий</label>
+            <input className="form-input" type="number" min="0" value={customLessons}
+              onChange={e => setCustomLessons(+e.target.value)} placeholder="0" />
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>Укажите сколько занятий покрывает эта оплата</div>
+          </div>
         </div>
       )}
 
