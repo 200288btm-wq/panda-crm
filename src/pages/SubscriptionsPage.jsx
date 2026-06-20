@@ -232,7 +232,6 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
 export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
-  const [filterDir, setFilterDir] = useState('all')
   const [periods, setPeriods] = useState([])
   const [priceCategories, setPriceCategories] = useState([])
 
@@ -281,18 +280,56 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
     reload()
   }
 
-  const filtered = subscriptions.filter(s => {
-    if (filterDir === 'all') return true
-    if (filterDir === 'inactive') return !s.is_active
-    // Фильтр по категории
-    const dir = directions.find(d => String(d.id) === String(filterDir))
-    if (!dir) return true
-    const catIds = dir.category_ids || []
-    if (catIds.length === 0) return true
-    return !s.category_id || catIds.includes(s.category_id)
+  // Локальный порядок карточек для drag & drop
+  const [localSubs, setLocalSubs] = useState(null)
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dragOver, setDragOver] = useState(null)
+  const [filterMode, setFilterMode] = useState('all') // 'all' | 'dir:ID' | 'cat:ID' | 'inactive'
+
+  // Синхронизируем localSubs когда приходят новые subscriptions
+  useEffect(() => {
+    const sorted = [...subscriptions].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    setLocalSubs(sorted)
+  }, [subscriptions])
+
+  const filtered = (localSubs || subscriptions).filter(s => {
+    if (filterMode === 'inactive') return !s.is_active
+    if (filterMode === 'all') return s.is_active
+    if (filterMode.startsWith('dir:')) {
+      const dirId = parseInt(filterMode.slice(4))
+      const dir = directions.find(d => d.id === dirId)
+      if (!dir) return s.is_active
+      const catIds = dir.category_ids || []
+      if (catIds.length === 0) return s.is_active
+      return s.is_active && (!s.category_id || catIds.includes(s.category_id))
+    }
+    if (filterMode.startsWith('cat:')) {
+      const catId = parseInt(filterMode.slice(4))
+      return s.is_active && s.category_id === catId
+    }
+    return s.is_active
   })
 
   const active = subscriptions.filter(s => s.is_active)
+
+  // Drag & drop handlers
+  const onDragStart = (idx) => setDragIdx(idx)
+  const onDragOver = (e, idx) => { e.preventDefault(); setDragOver(idx) }
+  const onDrop = async (e, dropIdx) => {
+    e.preventDefault()
+    if (dragIdx === null || dragIdx === dropIdx) { setDragIdx(null); setDragOver(null); return }
+    const newList = [...(localSubs || subscriptions)]
+    const [moved] = newList.splice(dragIdx, 1)
+    newList.splice(dropIdx, 0, moved)
+    setLocalSubs(newList)
+    setDragIdx(null)
+    setDragOver(null)
+    // Сохраняем новый порядок в БД
+    await Promise.all(newList.map((s, i) =>
+      supabase.from('subscriptions').update({ sort_order: i }).eq('id', s.id)
+    ))
+  }
+  const onDragEnd = () => { setDragIdx(null); setDragOver(null) }
 
   const PERIOD_ICONS = {
     'Месяц': '📅',
@@ -327,35 +364,75 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
       </div>
 
       {/* Filters + Add */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div className="tabs" style={{ marginBottom: 0 }}>
-          <button className={`tab ${filterDir === 'all' ? 'active' : ''}`} onClick={() => setFilterDir('all')}>Все</button>
-          {directions.map(d => (
-            <button key={d.id} className={`tab ${filterDir === String(d.id) ? 'active' : ''}`}
-              onClick={() => setFilterDir(String(d.id))}>{d.name}</button>
-          ))}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1 }}>
+          {/* Фильтр по направлениям */}
+          <div className="tabs" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+            <button className={`tab ${filterMode === 'all' ? 'active' : ''}`} onClick={() => setFilterMode('all')}>Все активные</button>
+            {directions.map(d => (
+              <button key={d.id} className={`tab ${filterMode === `dir:${d.id}` ? 'active' : ''}`}
+                onClick={() => setFilterMode(`dir:${d.id}`)}>{d.name}</button>
+            ))}
+            <button className={`tab ${filterMode === 'inactive' ? 'active' : ''}`} onClick={() => setFilterMode('inactive')}>Неактивные</button>
+          </div>
+          {/* Фильтр по категориям */}
+          {priceCategories.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {priceCategories.map(c => (
+                <button key={c.id}
+                  onClick={() => setFilterMode(filterMode === `cat:${c.id}` ? 'all' : `cat:${c.id}`)}
+                  style={{
+                    padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                    border: `1.5px solid ${filterMode === `cat:${c.id}` ? T.green : T.border}`,
+                    background: filterMode === `cat:${c.id}` ? T.greenBg : 'white',
+                    color: filterMode === `cat:${c.id}` ? T.greenDark : T.muted,
+                    transition: 'all 0.15s',
+                  }}>
+                  🏷️ {c.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {isAdmin && (
-          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAdd(true)}>
-            + Новый абонемент
-          </button>
+          <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Новый абонемент</button>
         )}
       </div>
 
+      {/* Drag hint */}
+      {isAdmin && filtered.length > 1 && (
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⠿ Перетащите карточки чтобы изменить порядок
+        </div>
+      )}
+
       {/* Cards grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 14 }}>
-        {filtered.map(s => {
+        {filtered.map((s, idx) => {
           const ppl = pricePerLesson(s.price, s.lessons_count)
-          const dirs = directions.filter(d => (s.direction_ids || []).includes(d.id))
+          const cat = priceCategories.find(c => c.id === s.category_id)
+          const isDragging = dragIdx === idx
+          const isOver = dragOver === idx
           return (
-            <div key={s.id} className="card card-pad" style={{
-              borderTop: `4px solid ${s.is_active ? T.green : T.border}`,
-              opacity: s.is_active ? 1 : 0.6,
-            }}>
+            <div key={s.id}
+              draggable={isAdmin}
+              onDragStart={() => onDragStart(idx)}
+              onDragOver={(e) => onDragOver(e, idx)}
+              onDrop={(e) => onDrop(e, idx)}
+              onDragEnd={onDragEnd}
+              className="card card-pad"
+              style={{
+                borderTop: `4px solid ${s.is_active ? T.green : T.border}`,
+                opacity: isDragging ? 0.4 : s.is_active ? 1 : 0.6,
+                cursor: isAdmin ? 'grab' : 'default',
+                outline: isOver ? `2px dashed ${T.green}` : 'none',
+                transition: 'opacity 0.15s, outline 0.1s',
+              }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                 <div>
-                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, marginBottom: 2 }}>{s.name}</div>
-                  {!s.is_active && <span className="badge badge-gray">Неактивен</span>}
+                  {isAdmin && <span style={{ color: T.muted, fontSize: 14, marginRight: 6 }}>⠿</span>}
+                  <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15 }}>{s.name}</span>
+                  {!s.is_active && <span className="badge badge-gray" style={{ marginLeft: 6 }}>Неактивен</span>}
                 </div>
                 {isAdmin && (
                   <div style={{ display: 'flex', gap: 4 }}>
@@ -384,18 +461,15 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
                 {s.notes && <div style={{ fontStyle: 'italic', fontSize: 12 }}>💬 {s.notes}</div>}
               </div>
 
-              {/* Directions */}
+              {/* Category */}
               <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {dirs.length > 0 ? dirs.map(d => (
-                  <span key={d.id} style={{
+                {cat ? (
+                  <span style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 700,
-                    background: (d.color || T.green) + '22', color: d.color || T.green,
-                  }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: d.color || T.green, display: 'inline-block' }} />
-                    {d.name}
-                  </span>
-                )) : (
+                    background: T.greenBg, color: T.greenDark,
+                  }}>🏷️ {cat.name}</span>
+                ) : (
                   <span className="badge badge-gray">Все направления</span>
                 )}
               </div>
@@ -407,7 +481,7 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
           <div className="card card-pad">
             <div className="empty">
               <div className="empty-icon">💳</div>
-              <div className="empty-text">Абонементов пока нет</div>
+              <div className="empty-text">Абонементов нет</div>
             </div>
           </div>
         )}
