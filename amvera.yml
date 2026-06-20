@@ -1,12 +1,5 @@
 meta:
-  environment: node
-  toolchain:
-    name: npm
-    version: "20"
+  environment: dockerfile
 
 build:
-  additionalCommands: npm install && npm run build
-
-run:
-  command: node_modules/serve/build/main.js -s dist -l 80
-  containerPort: 80
+  dockerfile: Dockerfile
