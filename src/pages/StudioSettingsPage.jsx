@@ -54,7 +54,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [addresses, setAddresses] = useState([])
 
   // Статусы клиентов
-  const [statuses, setStatuses] = useState(initialStatuses)
+  const [statuses, setStatuses] = useState([])
   const [newStatus, setNewStatus] = useState({ name: '', color: 'badge-gray' })
   const [statusMsg, setStatusMsg] = useState(null)
   const [addrMsg, setAddrMsg] = useState(null)
@@ -62,7 +62,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [editAddr, setEditAddr] = useState(null)
   const [addrForm, setAddrForm] = useState({ name: '', address: '' })
 
-  useEffect(() => { setStatuses(initialStatuses) }, [initialStatuses])
+  useEffect(() => { if (studioId) { loadAll(); loadStatuses() } }, [studioId])
 
   const loadStatuses = async () => {
     const { data } = await supabase.from('client_statuses').select('*').eq('studio_id', studioId).order('sort_order')
