@@ -305,7 +305,7 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
       {/* Карточки для мобильных */}
       <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
         {staffList.map(s => (
-          <div key={s.id} className="card">
+          <div key={s.id} className="card card-pad" style={{ borderRadius: 14, background: 'white', border: `1px solid ${T.border}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div className="avatar" style={{ background: s.is_active ? hashColor(s.name) : '#d1d5db', width: 38, height: 38, fontSize: 14 }}>
                 {(s.name || '?')[0]}
