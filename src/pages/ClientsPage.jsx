@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, STATUS_COLORS_MAP, STATUSES_LIST } from '../styles.jsx'
+import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const DEFAULT_COLOR = '#7BAF8E'
