@@ -312,19 +312,21 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
 
   const active = subscriptions.filter(s => s.is_active)
 
-  // Drag & drop handlers
-  const onDragStart = (idx) => setDragIdx(idx)
-  const onDragOver = (e, idx) => { e.preventDefault(); setDragOver(idx) }
-  const onDrop = async (e, dropIdx) => {
+  // Drag & drop handlers — используем id карточки вместо индекса в filtered
+  const onDragStart = (id) => setDragIdx(id)
+  const onDragOver = (e, id) => { e.preventDefault(); setDragOver(id) }
+  const onDrop = async (e, dropId) => {
     e.preventDefault()
-    if (dragIdx === null || dragIdx === dropIdx) { setDragIdx(null); setDragOver(null); return }
+    if (dragIdx === null || dragIdx === dropId) { setDragIdx(null); setDragOver(null); return }
     const newList = [...(localSubs || subscriptions)]
-    const [moved] = newList.splice(dragIdx, 1)
-    newList.splice(dropIdx, 0, moved)
+    const fromIdx = newList.findIndex(s => s.id === dragIdx)
+    const toIdx = newList.findIndex(s => s.id === dropId)
+    if (fromIdx === -1 || toIdx === -1) { setDragIdx(null); setDragOver(null); return }
+    const [moved] = newList.splice(fromIdx, 1)
+    newList.splice(toIdx, 0, moved)
     setLocalSubs(newList)
     setDragIdx(null)
     setDragOver(null)
-    // Сохраняем новый порядок в БД
     await Promise.all(newList.map((s, i) =>
       supabase.from('subscriptions').update({ sort_order: i }).eq('id', s.id)
     ))
@@ -408,17 +410,17 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
 
       {/* Cards grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px,1fr))', gap: 14 }}>
-        {filtered.map((s, idx) => {
+        {filtered.map((s) => {
           const ppl = pricePerLesson(s.price, s.lessons_count)
           const cat = priceCategories.find(c => c.id === s.category_id)
-          const isDragging = dragIdx === idx
-          const isOver = dragOver === idx
+          const isDragging = dragIdx === s.id
+          const isOver = dragOver === s.id
           return (
             <div key={s.id}
               draggable={isAdmin}
-              onDragStart={() => onDragStart(idx)}
-              onDragOver={(e) => onDragOver(e, idx)}
-              onDrop={(e) => onDrop(e, idx)}
+              onDragStart={() => onDragStart(s.id)}
+              onDragOver={(e) => onDragOver(e, s.id)}
+              onDrop={(e) => onDrop(e, s.id)}
               onDragEnd={onDragEnd}
               className="card card-pad"
               style={{
