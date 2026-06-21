@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
