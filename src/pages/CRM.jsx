@@ -149,7 +149,8 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
-    if (ss.data) setStudioSettings(ss.data)
+    if (ss.data) { setStudioSettings(ss.data); console.log('studioSettings loaded:', JSON.stringify(ss.data)) }
+    if (ss.error) console.error('studioSettings error:', ss.error)
     setDataLoading(false)
   }, [studio])
 
@@ -257,8 +258,12 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
             )}
             <div className="page-title">{PAGE_TITLES[page]}</div>
             {studio && (
-              <div style={{ fontSize: 12, color: T.muted, background: T.cream, borderRadius: 8, padding: '3px 10px', fontWeight: 600 }}>
-                🏫 {studio.name}
+              <div style={{ fontSize: 12, color: T.muted, background: T.cream, borderRadius: 8, padding: '3px 10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {studioSettings?.logo_url
+                  ? <img src={studioSettings.logo_url} alt="" style={{ height: 18, width: 18, objectFit: 'contain', borderRadius: 3 }} />
+                  : '🏫'
+                }
+                {studio.name}
               </div>
             )}
           </div>
