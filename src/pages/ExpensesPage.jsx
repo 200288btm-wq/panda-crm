@@ -77,6 +77,13 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [expenseTypes, setExpenseTypes] = useState([])
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     const q = supabase.from('expense_types').select('*').order('sort_order').order('id')
@@ -109,7 +116,7 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
         <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: "#E8734A" }}>Итого: {fmt(total)}</div>
         <button className="btn btn-danger" onClick={() => setShowAdd(true)}>+ Добавить расход</button>
       </div>
-      <div className="table-wrap"><table>
+      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}><table>
         <thead><tr><th>Дата</th><th>Вид</th><th>Категория</th><th>Направление</th><th>Комментарий</th><th>Сумма</th><th></th></tr></thead>
         <tbody>
           {expenses.map(e => {
@@ -134,6 +141,45 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
           {!expenses.length && <tr><td colSpan={7}><div className="empty"><div className="empty-icon">📤</div><div className="empty-text">Расходов нет</div></div></td></tr>}
         </tbody>
       </table></div>
+
+      {/* Карточки для мобильных */}
+      <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
+        {expenses.map(e => {
+          const d = directions.find(x => x.id === e.direction_id)
+          const icon = expenseTypes.find(t => t.name === e.expense_type)?.icon || DEFAULT_ICONS[e.expense_type] || '📦'
+          return (
+            <div key={e.id} className="card card-pad">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{icon} {e.expense_type}</div>
+                <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: '#E8734A' }}>{fmt(e.amount)}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Дата</div>
+                  <div style={{ fontSize: 13, color: T.ink }}>{e.expense_date || '—'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Направление</div>
+                  <div style={{ fontSize: 13, color: T.muted }}>{d?.name || 'Общий'}</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span className={`badge ${e.category === 'Периодичный' ? 'badge-blue' : 'badge-gray'}`}>{e.category}</span>
+                  {e.comment && <span style={{ fontSize: 12, color: T.muted }}>{e.comment}</span>}
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(e)}>✏️</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => del(e.id)}>🗑️</button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {!expenses.length && <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div className="empty-icon">📤</div><div className="empty-text">Расходов нет</div>
+        </div>}
+      </div>
       {showAdd && <ExpenseModal directions={directions} expenseTypes={expenseTypes} onClose={() => setShowAdd(false)} onSave={save} />}
       {showEdit && <ExpenseModal expense={showEdit} directions={directions} expenseTypes={expenseTypes} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>

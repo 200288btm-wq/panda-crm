@@ -70,6 +70,13 @@ function TeacherModal({ teacher, directions, onClose, onSave }) {
 export default function TeachersPage({ teachers, directions, reload, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const save = async (f) => {
     // Чистим пустые даты — PostgreSQL не принимает '' для типа date
@@ -89,7 +96,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('teachers').insert({ ...cleaned, studio_id: studioId })
+      const { error } = await supabase.from('teachers').insert(cleaned)
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowAdd(false)
     }
@@ -108,7 +115,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Добавить педагога</button>
       </div>
-      <div className="table-wrap"><table>
+      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}><table>
         <thead><tr><th>ФИО</th><th>Направления</th><th>Статус</th><th>Ставка / занятие</th><th>Проведено</th><th>Принят</th><th>Контакт</th><th></th></tr></thead>
         <tbody>
           {teachers.map(t => (
@@ -134,6 +141,43 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           {!teachers.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👩‍🏫</div><div className="empty-text">Педагогов нет</div></div></td></tr>}
         </tbody>
       </table></div>
+
+      {/* Карточки для мобильных */}
+      <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
+        {teachers.map(t => (
+          <div key={t.id} className="card card-pad">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div className="avatar" style={{ background: hashColor(t.name), width: 38, height: 38, fontSize: 14 }}>{(t.name || '?')[0]}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{t.name}</div>
+              </div>
+              <span className={`badge ${STATUS_T[t.status] || 'badge-gray'}`}>{t.status}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Ставка</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.greenDark }}>{fmt(t.rate)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Телефон</div>
+                <div style={{ fontSize: 13, color: T.green, fontWeight: 600 }}>{t.phone || '—'}</div>
+              </div>
+            </div>
+            {(t.direction_ids || []).length > 0 && (
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>
+                {(t.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean).join(', ')}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(t)}>✏️</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => del(t.id, t.name)} style={{ color: T.red }}>🗑️</button>
+            </div>
+          </div>
+        ))}
+        {!teachers.length && <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div className="empty-icon">👩‍🏫</div><div className="empty-text">Педагогов нет</div>
+        </div>}
+      </div>
       {showAdd && <TeacherModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
       {showEdit && <TeacherModal teacher={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>

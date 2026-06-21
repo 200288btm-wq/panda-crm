@@ -234,6 +234,13 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [preselectedClientId, setPreselectedClientId] = useState(null)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   // Автооткрытие модалки оплаты по deepLink (из карточки клиента)
   useEffect(() => {
@@ -255,7 +262,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       await supabase.from('payments').update(f).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('payments').insert({ ...f, studio_id: studioId })
+      await supabase.from('payments').insert(f)
       setShowAdd(false)
     }
     reload()
@@ -321,7 +328,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       </div>
 
       {/* Таблица */}
-      <div className="table-wrap"><table>
+      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}><table>
         <thead><tr>
           <th>Дата</th>
           <th>Клиент</th>
@@ -335,7 +342,6 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
             const c = clients.find(x => x.id === p.client_id)
             const d = directions.find(x => x.id === p.direction_id)
             const pt = PAY_SHORT[p.payment_type] || { label: p.payment_type?.slice(0,3) || '?', cls: 'badge-green' }
-            // Дата в 2 строки: год-мес / день
             const dateParts = (p.payment_date || '').split('-')
             const dateTop = dateParts.length === 3 ? `${dateParts[0]}-${dateParts[1]}` : p.payment_date
             const dateBot = dateParts.length === 3 ? dateParts[2] : ''
@@ -371,6 +377,44 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
           {!filtered.length && <tr><td colSpan={6}><div className="empty"><div className="empty-icon">💳</div><div className="empty-text">Оплат нет</div></div></td></tr>}
         </tbody>
       </table></div>
+
+      {/* Карточки для мобильных */}
+      <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
+        {filtered.map(p => {
+          const c = clients.find(x => x.id === p.client_id)
+          const d = directions.find(x => x.id === p.direction_id)
+          const pt = PAY_SHORT[p.payment_type] || { label: p.payment_type?.slice(0,3) || '?', cls: 'badge-green' }
+          return (
+            <div key={p.id} className="card card-pad">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{c?.child_name || '—'}</div>
+                <span className={`badge ${pt.cls}`}>{pt.label}</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 8 }}>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Дата</div>
+                  <div style={{ fontSize: 13, color: T.ink }}>{p.payment_date || '—'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Сумма</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: +p.amount > 0 ? T.greenDark : T.muted }}>
+                    {+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}
+                    {p.discount_pct ? <span className="badge badge-orange" style={{ marginLeft: 6, fontSize: 10 }}>−{p.discount_pct}%</span> : null}
+                  </div>
+                </div>
+              </div>
+              {d && <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>{d.name}</div>}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)}>✏️</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => del(p.id)} style={{ color: T.red }}>🗑️</button>
+              </div>
+            </div>
+          )
+        })}
+        {!filtered.length && <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div className="empty-icon">💳</div><div className="empty-text">Оплат нет</div>
+        </div>}
+      </div>
 
       {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions}
         preselectedClientId={preselectedClientId}
