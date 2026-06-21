@@ -306,24 +306,33 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
       <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
         {staffList.map(s => (
           <div key={s.id} className="card">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <div className="avatar" style={{ background: s.is_active ? hashColor(s.name) : '#d1d5db', width: 38, height: 38, fontSize: 14 }}>
                 {(s.name || '?')[0]}
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{s.name}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{s.name}</div>
+              </div>
+              <span className={`badge ${s.is_active ? 'badge-green' : 'badge-gray'}`}>{s.is_active ? 'Активен' : 'Отключён'}</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Роль</div>
                 <span className={`badge ${ROLE_COLORS[s.role] || 'badge-gray'}`}>{s.role}</span>
               </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Телефон</div>
+                <div style={{ fontSize: 13, color: T.green, fontWeight: 600 }}>{s.phone || '—'}</div>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>{s.email || '—'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: T.muted }}>{s.user_id ? '✅ Активирован' : '⏳ Не входил'}</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
                 {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)}>🚫</button>}
                 <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} style={{ color: '#e05a5a' }}>🗑️</button>
               </div>
-            </div>
-            <div style={{ fontSize: 12, color: T.muted, display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {s.email && <span>✉️ {s.email}</span>}
-              {s.phone && <span>📞 {s.phone}</span>}
-              <span>{s.user_id ? '✅ Активирован' : '⏳ Не входил'} · {s.is_active ? 'Активен' : 'Отключён'}</span>
             </div>
           </div>
         ))}
