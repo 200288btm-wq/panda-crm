@@ -407,11 +407,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const save = async ({ direction: dirData, groups: groupList }) => {
     let directionId = showEdit?.id
 
+    // Убираем поля которых нет в таблице directions
+    const { groups: _groups, ...cleanDirData } = dirData
+
     if (showEdit) {
-      const { error } = await supabase.from('directions').update(dirData).eq('id', showEdit.id)
+      const { error } = await supabase.from('directions').update(cleanDirData).eq('id', showEdit.id)
       if (error) { alert('Ошибка сохранения направления: ' + error.message); return }
     } else {
-      const { data, error } = await supabase.from('directions').insert(dirData).select().single()
+      const { data, error } = await supabase.from('directions').insert(cleanDirData).select().single()
       if (error) { alert('Ошибка создания направления: ' + error.message); return }
       directionId = data.id
     }
