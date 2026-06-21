@@ -56,19 +56,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [editAddr, setEditAddr] = useState(null)
   const [addrForm, setAddrForm] = useState({ name: '', address: '' })
 
-  const [staffList, setStaffList] = useState([])
-  const [staffMsg, setStaffMsg] = useState(null)
-
   useEffect(() => { if (studioId) loadAll() }, [studioId])
 
   const loadAll = async () => {
-    const [s, c, p, et, addr, staff] = await Promise.all([
+    const [s, c, p, et, addr] = await Promise.all([
       supabase.from('studio_settings').select('*').eq('studio_id', studioId).maybeSingle(),
       supabase.from('price_categories').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('subscription_periods').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('expense_types').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('addresses').select('*').eq('studio_id', studioId).order('id'),
-      supabase.from('staff').select('*').eq('studio_id', studioId).order('id'),
     ])
     if (s.data) setSettings(s.data)
     else setSettings({ studio_id: studioId, studio_name: studio?.name || '', logo_url: '', address: '', inn: '', stamp_url: '', phone: '', email: '', website: '' })
@@ -76,7 +72,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (p.data) setPeriods(p.data)
     if (et.data) setExpenseTypes(et.data)
     if (addr.data) setAddresses(addr.data)
-    if (staff.data) setStaffList(staff.data)
   }
 
   const set = (k, v) => setSettings(prev => ({ ...prev, [k]: v }))
