@@ -262,7 +262,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       await supabase.from('payments').update(f).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('payments').insert(f)
+      await supabase.from('payments').insert({ ...f, studio_id: studioId })
       setShowAdd(false)
     }
     reload()
