@@ -376,6 +376,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const [showDetail, setShowDetail] = useState(null)
   const [directionGroups, setDirectionGroups] = useState([])
   const [priceCategories, setPriceCategories] = useState([])
+  const [localDirs, setLocalDirs] = useState(null)
+  const [dragId, setDragId] = useState(null)
+  const [dragOverId, setDragOverId] = useState(null)
+
+  useEffect(() => {
+    const sorted = [...directions].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    setLocalDirs(sorted)
+  }, [directions])
 
   const loadGroups = async () => {
     const { data, error } = await supabase
@@ -476,11 +484,31 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     return map
   }, [directionGroups])
 
+  const onDragStart = (id) => setDragId(id)
+  const onDragOver = (e, id) => { e.preventDefault(); setDragOverId(id) }
+  const onDrop = async (e, dropId) => {
+    e.preventDefault()
+    if (!dragId || dragId === dropId) { setDragId(null); setDragOverId(null); return }
+    const list = [...(localDirs || directions)]
+    const fromIdx = list.findIndex(d => d.id === dragId)
+    const toIdx = list.findIndex(d => d.id === dropId)
+    if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDragOverId(null); return }
+    const [moved] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, moved)
+    setLocalDirs(list)
+    setDragId(null)
+    setDragOverId(null)
+    await Promise.all(list.map((d, i) =>
+      supabase.from('directions').update({ sort_order: i }).eq('id', d.id)
+    ))
+  }
+  const onDragEnd = () => { setDragId(null); setDragOverId(null) }
+
   return (
     <div>
       {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:18 }}><button className="btn btn-primary" onClick={()=>setShowAdd(true)}>+ Новое направление</button></div>}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
-        {directions.map(d => {
+        {(localDirs || directions).map(d => {
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
           const color = d.color||DIRECTION_COLORS[0]
           const auto = calcAutoPrice(d, subscriptions)
@@ -491,7 +519,19 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
           const showLegacy = subgroups.length === 0
 
           return (
-            <div key={d.id} className="card card-pad" style={{ borderTop:`4px solid ${color}` }}>
+            <div key={d.id} className="card card-pad"
+              draggable={isAdmin}
+              onDragStart={() => onDragStart(d.id)}
+              onDragOver={(e) => onDragOver(e, d.id)}
+              onDrop={(e) => onDrop(e, d.id)}
+              onDragEnd={onDragEnd}
+              style={{
+                borderTop:`4px solid ${color}`,
+                opacity: dragId === d.id ? 0.4 : 1,
+                outline: dragOverId === d.id ? `2px dashed ${color}` : 'none',
+                cursor: isAdmin ? 'grab' : 'default',
+                transition: 'opacity 0.15s, outline 0.1s',
+              }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{d.name}</div>
                 <div style={{ display:'flex', gap:4, alignItems:'center' }}>
