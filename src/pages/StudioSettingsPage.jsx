@@ -81,7 +81,18 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const deleteStatus = async (id, name) => {
-    if (!confirm(`Удалить статус «${name}»? Клиенты с этим статусом сохранят его, но он пропадёт из списка.`)) return
+    // Считаем клиентов с этим статусом
+    const { count } = await supabase.from('clients')
+      .select('id', { count: 'exact', head: true })
+      .eq('studio_id', studioId)
+      .eq('status', name)
+
+    if (count > 0) {
+      const ok = confirm(`У ${count} клиент${count === 1 ? 'а' : 'ов'} установлен статус «${name}».\n\nПосле удаления статус пропадёт из списка, но у клиентов останется. Рекомендуем сначала сменить статус этим клиентам.\n\nВсё равно удалить?`)
+      if (!ok) return
+    } else {
+      if (!confirm(`Удалить статус «${name}»?`)) return
+    }
     await supabase.from('client_statuses').delete().eq('id', id)
     loadStatuses()
   }
