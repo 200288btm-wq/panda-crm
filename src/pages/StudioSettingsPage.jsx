@@ -6,12 +6,12 @@ import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
 
 const TABS = [
-  { id: 'main',       label: '🏫 Основное' },
-  { id: 'addresses',  label: '📍 Адреса' },
-  { id: 'staff',      label: '🔑 Сотрудники' },
-  { id: 'finance',    label: '💰 Финансы' },
-  { id: 'bot',        label: '🤖 Telegram' },
-  { id: 'booking',    label: '📅 Онлайн-запись' },
+  { id: 'main',       label: 'Основное' },
+  { id: 'addresses',  label: 'Адреса' },
+  { id: 'staff',      label: 'Сотрудники' },
+  { id: 'finance',    label: 'Финансы' },
+  { id: 'bot',        label: 'Telegram' },
+  { id: 'booking',    label: 'Онлайн-запись' },
 ]
 
 const Section = ({ title, icon, children }) => (
@@ -195,7 +195,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   if (!settings) return <div style={{ padding: 40, color: T.muted }}>Загрузка...</div>
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto' }}>
+    <div>
       {/* Вкладки */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
         {TABS.map(t => (
@@ -207,6 +207,9 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           }}>{t.label}</button>
         ))}
       </div>
+
+      {/* Основное — с ограничением ширины */}
+      <div style={['main', 'bot', 'booking'].includes(tab) ? { maxWidth: 620, margin: '0 auto' } : {}}>
 
       {/* ── Основное ── */}
       {tab === 'main' && <>
@@ -433,6 +436,8 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
       {/* ── Онлайн-запись ── */}
       {tab === 'booking' && <BookingSettingsPage directions={directions} />}
+
+      </div>
     </div>
   )
 }
