@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 import BookingSettingsPage from './BookingSettingsPage'
+import AddressesPage from './AddressesPage'
+import StaffPage from './StaffPage'
 
 const TABS = [
   { id: 'main',       label: '🏫 Основное' },
@@ -25,7 +27,7 @@ const Msg = ({ msg }) => msg ? (
   </div>
 ) : null
 
-export default function StudioSettingsPage({ studio, studioId, directions = [] }) {
+export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload }) {
   const [tab, setTab] = useState('main')
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -287,71 +289,9 @@ export default function StudioSettingsPage({ studio, studioId, directions = [] }
         </Section>
       </>}
 
-      {/* ── Адреса ── */}
-      {tab === 'addresses' && <>
-        <Section title="Адреса" icon="📍">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-            {addresses.map(a => (
-              <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: T.cream, borderRadius: 12, border: `1px solid ${T.border}` }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>{a.name}</div>
-                  {a.address && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{a.address}</div>}
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => { setEditAddr(a); setAddrForm({ name: a.name, address: a.address || '' }); setShowAddAddr(true) }}>✏️</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => deleteAddr(a.id, a.name)} style={{ color: '#e05a5a' }}>🗑️</button>
-              </div>
-            ))}
-            {!addresses.length && <div style={{ fontSize: 13, color: T.muted }}>Адресов пока нет</div>}
-          </div>
+      {tab === 'addresses' && <AddressesPage addresses={addresses} reload={loadAll} isAdmin={true} studioId={studioId} />}
 
-          {!showAddAddr && (
-            <button className="btn btn-primary" onClick={() => { setShowAddAddr(true); setEditAddr(null); setAddrForm({ name: '', address: '' }) }}>
-              + Добавить адрес
-            </button>
-          )}
-
-          {showAddAddr && (
-            <div style={{ background: T.greenBg, borderRadius: 12, padding: '16px', border: `1px solid ${T.green}33`, marginTop: 8 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>
-                {editAddr ? 'Редактировать адрес' : 'Новый адрес'}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Название</label>
-                <input className="form-input" value={addrForm.name} onChange={e => setAddrForm(f => ({ ...f, name: e.target.value }))} placeholder="Например: Онежская, Хуторская" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Адрес</label>
-                <input className="form-input" value={addrForm.address} onChange={e => setAddrForm(f => ({ ...f, address: e.target.value }))} placeholder="г. Екатеринбург, ул. Хуторская 1" />
-              </div>
-              <Msg msg={addrMsg} />
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button className="btn btn-primary" onClick={saveAddr}>✅ Сохранить</button>
-                <button className="btn btn-outline" onClick={() => { setShowAddAddr(false); setEditAddr(null) }}>Отмена</button>
-              </div>
-            </div>
-          )}
-        </Section>
-      </>}
-
-      {/* ── Сотрудники ── */}
-      {tab === 'staff' && <>
-        <Section title="Сотрудники" icon="🔑">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {staffList.map(s => (
-              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: T.cream, borderRadius: 12, border: `1px solid ${T.border}` }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>{s.full_name || s.email}</div>
-                  <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>{s.role} · {s.email}</div>
-                </div>
-              </div>
-            ))}
-            {!staffList.length && <div style={{ fontSize: 13, color: T.muted }}>Сотрудников пока нет</div>}
-          </div>
-          <div style={{ fontSize: 12, color: T.muted, marginTop: 16, lineHeight: 1.5 }}>
-            Для приглашения нового сотрудника используйте раздел приглашений в профиле.
-          </div>
-        </Section>
-      </>}
+      {tab === 'staff' && <StaffPage staffList={staffList} reload={reload || loadAll} studioId={studioId} />}
 
       {/* ── Финансы ── */}
       {tab === 'finance' && <>
