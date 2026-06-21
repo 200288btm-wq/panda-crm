@@ -174,14 +174,10 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
       { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
-      { id: 'addresses', icon: '📍', label: 'Адреса', show: isAdmin },
-      { id: 'booking', icon: '📅', label: 'Онлайн-запись', show: isAdmin },
+      { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
     ]},
     { section: 'Управление', items: [
-      { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
-      { id: 'finance', icon: '💰', label: 'Финансы', show: isDirector },
-      { id: 'staff', icon: '🔑', label: 'Сотрудники', show: isDirector },
-      { id: 'studio_settings', icon: '⚙️', label: 'Настройки студии', show: isDirector },
+      { id: 'studio_settings', icon: '⚙️', label: 'Настройки', show: isDirector },
     ]},
   ]
 
