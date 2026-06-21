@@ -209,10 +209,11 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       </div>
 
       {/* Основное — с ограничением ширины */}
-      <div style={['main', 'bot', 'booking'].includes(tab) ? { maxWidth: 620, margin: '0 auto' } : {}}>
+      <div>
 
       {/* ── Основное ── */}
       {tab === 'main' && <>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, alignItems: 'start' }}>
         <Section title="Основная информация" icon="🏫">
           <div className="form-group">
             <label className="form-label">Название студии</label>
@@ -285,6 +286,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
             {saving ? 'Сохранение...' : 'Сохранить изображения'}
           </button>
         </Section>
+        </div>
       </>}
 
       {tab === 'addresses' && <AddressesPage addresses={addresses} reload={loadAll} isAdmin={true} studioId={studioId} />}
@@ -409,6 +411,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
       {/* ── Telegram ── */}
       {tab === 'bot' && <>
+        <div style={{ maxWidth: 600 }}>
         <Section title="Telegram бот" icon="🤖">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
             Создайте бота через <a href="https://t.me/BotFather" target="_blank" style={{ color: T.green }}>@BotFather</a>, скопируйте токен и вставьте ниже. Клиенты смогут получать информацию о занятиях и уведомления.
@@ -432,6 +435,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           </button>
           <Msg msg={msg} />
         </Section>
+        </div>
       </>}
 
       {/* ── Онлайн-запись ── */}
