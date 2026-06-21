@@ -295,6 +295,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
       {/* ── Финансы ── */}
       {tab === 'finance' && <>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'start' }}>
         <Section title="Категории абонементов" icon="🏷️">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Позволяют разделить абонементы по типам направлений: «Основная», «Лагерь», «Льготная».
@@ -407,6 +408,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
             <Msg msg={expenseMsg} />
           </div>
         </Section>
+        </div>
       </>}
 
       {/* ── Telegram ── */}
@@ -439,7 +441,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       </>}
 
       {/* ── Онлайн-запись ── */}
-      {tab === 'booking' && <BookingSettingsPage directions={directions} />}
+      {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
       </div>
     </div>
