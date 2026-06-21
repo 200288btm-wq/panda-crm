@@ -326,7 +326,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           )}
           {!dataLoading && page === 'dashboard'     && <Dashboard {...props} />}
           {!dataLoading && page === 'calendar'      && <CalendarPage {...props} />}
-          {!dataLoading && page === 'leads'         && isAdmin && <LeadsPage directions={directions} />}
+          {!dataLoading && page === 'leads'         && isAdmin && <LeadsPage directions={directions} studioId={studio?.id} />}
           {!dataLoading && page === 'clients'       && isAdmin && <ClientsPage {...props} />}
           {!dataLoading && page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {!dataLoading && page === 'expenses'      && isDirector && <ExpensesPage {...props} />}

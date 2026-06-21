@@ -49,6 +49,7 @@ function AddLeadModal({ onClose, onSaved }) {
       notes: f.notes.trim() || null,
       squad: f.squad.trim() || null,
       dates: f.dates.trim() || null,
+      studio_id: studioId,
     })
     setSaving(false)
     if (error) { alert('Ошибка: ' + error.message); return }
@@ -150,6 +151,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       balance: 0,
       discount: 0,
       comment: form.comment.trim() || null,
+      studio_id: studioId,
     }
     const { data, error: err } = await supabase.from('clients').insert(payload).select()
     setSaving(false)
@@ -223,7 +225,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
   )
 }
 
-export default function Leads({ directions = [] }) {
+export default function Leads({ directions = [], studioId }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('all')
