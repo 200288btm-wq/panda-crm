@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
+import BookingSettingsPage from './BookingSettingsPage'
 
 const TABS = [
   { id: 'main',       label: '🏫 Основное' },
@@ -24,7 +25,7 @@ const Msg = ({ msg }) => msg ? (
   </div>
 ) : null
 
-export default function StudioSettingsPage({ studio, studioId }) {
+export default function StudioSettingsPage({ studio, studioId, directions = [] }) {
   const [tab, setTab] = useState('main')
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -496,21 +497,7 @@ export default function StudioSettingsPage({ studio, studioId }) {
       </>}
 
       {/* ── Онлайн-запись ── */}
-      {tab === 'booking' && <>
-        <Section title="Онлайн-запись" icon="📅">
-          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
-            Ссылка на страницу записи — будет доступна клиентам в Telegram боте и виджете на сайте.
-          </div>
-          <div className="form-group">
-            <label className="form-label">Ссылка на онлайн-запись</label>
-            <input className="form-input" value={settings.booking_url || ''} onChange={e => set('booking_url', e.target.value)} placeholder="https://acpanda.ru/zapis" />
-          </div>
-          <button className="btn btn-primary" onClick={saveSettings} disabled={saving} style={{ marginTop: 8 }}>
-            {saving ? 'Сохранение...' : '✅ Сохранить'}
-          </button>
-          <Msg msg={msg} />
-        </Section>
-      </>}
+      {tab === 'booking' && <BookingSettingsPage directions={directions} />}
     </div>
   )
 }
