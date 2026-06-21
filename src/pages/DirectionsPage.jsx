@@ -507,6 +507,11 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   return (
     <div>
       {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:18 }}><button className="btn btn-primary" onClick={()=>setShowAdd(true)}>+ Новое направление</button></div>}
+      {isAdmin && (localDirs || directions).length > 1 && (
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          ⠿ Перетащите карточки чтобы изменить порядок
+        </div>
+      )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
         {(localDirs || directions).map(d => {
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
@@ -533,7 +538,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 transition: 'opacity 0.15s, outline 0.1s',
               }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:10 }}>
-                <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{d.name}</div>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  {isAdmin && <span style={{ color: T.muted, fontSize: 14 }}>⠿</span>}
+                  <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{d.name}</div>
+                </div>
                 <div style={{ display:'flex', gap:4, alignItems:'center' }}>
                   <span className={`badge ${isFull?'badge-red':isNear?'badge-orange':'badge-green'}`}>
                     {cnt}{cap>0?`/${cap}`:''} чел.
