@@ -213,9 +213,9 @@ export default function StudioSettingsPage({ studio, studioId }) {
           <div className="form-group" style={{ flex: 1 }}>
             <label className="form-label">Логотип студии</label>
             {settings.logo_url && (
-              <img src={settings.logo_url} alt="Логотип" style={{ width: 80, height: 80, objectFit: 'contain', borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8, display: 'block', background: T.cream }} />
+              <img src={settings.logo_url} alt="Логотип" style={{ height: 60, maxWidth: 200, objectFit: 'contain', borderRadius: 10, border: `1px solid ${T.border}`, marginBottom: 8, display: 'block', background: T.cream, padding: 6 }} />
             )}
-            <input ref={logoRef} type="file" accept="image/*" style={{ display: 'none' }}
+            <input ref={logoRef} type="file" accept="image/png,image/jpeg,image/jpg,image/svg+xml" style={{ display: 'none' }}
               onChange={e => e.target.files[0] && uploadFile(e.target.files[0], 'logo_url', setLogoUploading)} />
             <button className="btn btn-outline btn-sm" onClick={() => logoRef.current.click()} disabled={logoUploading}>
               {logoUploading ? 'Загрузка...' : settings.logo_url ? '🔄 Заменить' : '📁 Загрузить'}
@@ -223,6 +223,9 @@ export default function StudioSettingsPage({ studio, studioId }) {
             {settings.logo_url && (
               <button className="btn btn-ghost btn-sm" onClick={() => set('logo_url', '')} style={{ color: '#e05a5a', marginLeft: 6 }}>✕ Удалить</button>
             )}
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 6 }}>
+              PNG, JPG или SVG. Рекомендуем загружать без фона (PNG с прозрачностью или SVG) — так логотип красиво смотрится на любом фоне.
+            </div>
           </div>
 
           <div className="form-group" style={{ flex: 1 }}>

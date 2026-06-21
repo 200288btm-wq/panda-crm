@@ -56,6 +56,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [staffList, setStaffList] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
   const [addresses, setAddresses] = useState([])
+  const [studioSettings, setStudioSettings] = useState(null)
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
@@ -127,7 +128,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     const sid = studio?.id
     if (!sid) return
     setDataLoading(true)
-    const [c, p, e, d, t, s, sub, l, addr] = await Promise.all([
+    const [c, p, e, d, t, s, sub, l, addr, ss] = await Promise.all([
       supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
       supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').eq('studio_id', sid).order('expense_date', { ascending: false }),
@@ -137,6 +138,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
       supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
       supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('studio_settings').select('*').eq('studio_id', sid).maybeSingle(),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -147,6 +149,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
+    if (ss.data) setStudioSettings(ss.data)
     setDataLoading(false)
   }, [studio])
 
@@ -188,9 +191,21 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       <div className="sidebar-logo">
         <div className="logo-row">
           {collapsed && !isMobile ? (
-            <PandaIcon size={32} />
+            studioSettings?.logo_url
+              ? <img src={studioSettings.logo_url} alt="" width={32} height={32} style={{ flexShrink:0, objectFit:'contain', borderRadius:6 }} />
+              : <PandaIcon size={32} />
           ) : (
-            <Logo size={isMobile ? 140 : 160} />
+            studioSettings?.logo_url ? (
+              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <img src={studioSettings.logo_url} alt="" style={{ height:40, maxWidth:120, objectFit:'contain', flexShrink:0 }} />
+                <div>
+                  <div className="logo-name">{studio?.name || 'Учтено'}</div>
+                  <div className="logo-sub">CRM</div>
+                </div>
+              </div>
+            ) : (
+              <Logo size={isMobile ? 140 : 160} />
+            )
           )}
         </div>
       </div>
