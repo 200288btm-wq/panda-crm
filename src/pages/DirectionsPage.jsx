@@ -370,7 +370,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin }) {
+export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
@@ -409,12 +409,13 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
 
     // Убираем поля которых нет в таблице directions
     const { groups: _groups, ...cleanDirData } = dirData
+    const dirDataWithStudio = { ...cleanDirData, studio_id: studioId }
 
     if (showEdit) {
       const { error } = await supabase.from('directions').update(cleanDirData).eq('id', showEdit.id)
       if (error) { alert('Ошибка сохранения направления: ' + error.message); return }
     } else {
-      const { data, error } = await supabase.from('directions').insert(cleanDirData).select().single()
+      const { data, error } = await supabase.from('directions').insert(dirDataWithStudio).select().single()
       if (error) { alert('Ошибка создания направления: ' + error.message); return }
       directionId = data.id
     }
