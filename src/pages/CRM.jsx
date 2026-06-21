@@ -192,21 +192,9 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       <div className="sidebar-logo">
         <div className="logo-row">
           {collapsed && !isMobile ? (
-            studioSettings?.logo_url
-              ? <img src={studioSettings.logo_url} alt="" width={32} height={32} style={{ flexShrink:0, objectFit:'contain', borderRadius:6 }} />
-              : <PandaIcon size={32} />
+            <PandaIcon size={32} />
           ) : (
-            studioSettings?.logo_url ? (
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <img src={studioSettings.logo_url} alt="" style={{ height:40, maxWidth:120, objectFit:'contain', flexShrink:0 }} />
-                <div>
-                  <div className="logo-name">{studio?.name || 'Учтено'}</div>
-                  <div className="logo-sub">CRM</div>
-                </div>
-              </div>
-            ) : (
-              <Logo size={isMobile ? 140 : 160} />
-            )
+            <Logo size={isMobile ? 140 : 160} />
           )}
         </div>
       </div>
@@ -258,12 +246,13 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
             )}
             <div className="page-title">{PAGE_TITLES[page]}</div>
             {studio && (
-              <div style={{ fontSize: 12, color: T.muted, background: T.cream, borderRadius: 8, padding: '3px 10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                {studioSettings?.logo_url
-                  ? <img src={studioSettings.logo_url} alt="" style={{ height: 18, width: 18, objectFit: 'contain', borderRadius: 3 }} />
-                  : '🏫'
-                }
-                {studio.name}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {studioSettings?.logo_url && (
+                  <img src={studioSettings.logo_url} alt="" style={{ height: 32, maxWidth: 80, objectFit: 'contain' }} />
+                )}
+                <div style={{ fontSize: 12, color: T.muted, background: T.cream, borderRadius: 8, padding: '3px 10px', fontWeight: 600 }}>
+                  {studio.name}
+                </div>
               </div>
             )}
           </div>
