@@ -57,6 +57,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [subscriptions, setSubscriptions] = useState([])
   const [addresses, setAddresses] = useState([])
   const [studioSettings, setStudioSettings] = useState(null)
+  const [clientStatuses, setClientStatuses] = useState([])
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
@@ -128,7 +129,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     const sid = studio?.id
     if (!sid) return
     setDataLoading(true)
-    const [c, p, e, d, t, s, sub, l, addr, ss] = await Promise.all([
+    const [c, p, e, d, t, s, sub, l, addr, ss, cs] = await Promise.all([
       supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
       supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').eq('studio_id', sid).order('expense_date', { ascending: false }),
@@ -139,6 +140,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
       supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
       supabase.from('studio_settings').select('*').eq('studio_id', sid).maybeSingle(),
+      supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
@@ -149,8 +151,8 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (sub.data) setSubscriptions(sub.data)
     if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
-    if (ss.data) { setStudioSettings(ss.data); console.log('studioSettings loaded:', JSON.stringify(ss.data)) }
-    if (ss.error) console.error('studioSettings error:', ss.error)
+    if (ss.data) setStudioSettings(ss.data)
+    if (cs.data) setClientStatuses(cs.data)
     setDataLoading(false)
   }, [studio])
 
@@ -181,7 +183,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses }
 
   const SidebarContent = () => (
     <>
@@ -341,7 +343,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {!dataLoading && page === 'finance'       && isDirector && <FinancePage {...props} />}
           {!dataLoading && page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
-          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={load} />}
+          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={load} clientStatuses={clientStatuses} />}
           {!dataLoading && page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} studioId={studio?.id} />}
           {!dataLoading && page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>

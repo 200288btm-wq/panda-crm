@@ -10,6 +10,7 @@ const TABS = [
   { id: 'addresses',  label: 'Адреса' },
   { id: 'staff',      label: 'Сотрудники' },
   { id: 'finance',    label: 'Финансы' },
+  { id: 'statuses',   label: 'Статусы клиентов' },
   { id: 'bot',        label: 'Telegram' },
   { id: 'booking',    label: 'Онлайн-запись' },
 ]
@@ -27,7 +28,7 @@ const Msg = ({ msg }) => msg ? (
   </div>
 ) : null
 
-export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload }) {
+export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [] }) {
   const [tab, setTab] = useState('main')
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -51,12 +52,39 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [newPeriod, setNewPeriod] = useState({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
 
   const [addresses, setAddresses] = useState([])
+
+  // Статусы клиентов
+  const [statuses, setStatuses] = useState(initialStatuses)
+  const [newStatus, setNewStatus] = useState({ name: '', color: 'badge-gray' })
+  const [statusMsg, setStatusMsg] = useState(null)
   const [addrMsg, setAddrMsg] = useState(null)
   const [showAddAddr, setShowAddAddr] = useState(false)
   const [editAddr, setEditAddr] = useState(null)
   const [addrForm, setAddrForm] = useState({ name: '', address: '' })
 
-  useEffect(() => { if (studioId) loadAll() }, [studioId])
+  useEffect(() => { setStatuses(initialStatuses) }, [initialStatuses])
+
+  const loadStatuses = async () => {
+    const { data } = await supabase.from('client_statuses').select('*').eq('studio_id', studioId).order('sort_order')
+    if (data) setStatuses(data)
+  }
+
+  const addStatus = async () => {
+    if (!newStatus.name.trim()) { setStatusMsg({ type: 'error', text: 'Введите название' }); return }
+    const { error } = await supabase.from('client_statuses').insert({
+      name: newStatus.name.trim(), color: newStatus.color,
+      studio_id: studioId, sort_order: statuses.length
+    })
+    if (error) setStatusMsg({ type: 'error', text: error.message })
+    else { setNewStatus({ name: '', color: 'badge-gray' }); setStatusMsg({ type: 'success', text: 'Статус добавлен' }); loadStatuses() }
+    setTimeout(() => setStatusMsg(null), 2000)
+  }
+
+  const deleteStatus = async (id, name) => {
+    if (!confirm(`Удалить статус «${name}»? Клиенты с этим статусом сохранят его, но он пропадёт из списка.`)) return
+    await supabase.from('client_statuses').delete().eq('id', id)
+    loadStatuses()
+  }
 
   const loadAll = async () => {
     const [s, c, p, et, addr] = await Promise.all([
@@ -407,6 +435,71 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
             <button className="btn btn-primary" onClick={addExpenseType} disabled={!newExpense.name.trim()}>+ Добавить тип</button>
             <Msg msg={expenseMsg} />
           </div>
+        </Section>
+        </div>
+      </>}
+
+      {/* ── Статусы клиентов ── */}
+      {tab === 'statuses' && <>
+        <div style={{ maxWidth: 500 }}>
+        <Section title="Статусы клиентов" icon="🏷️">
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+            Статусы используются для сегментации клиентов. Вы можете добавить свои или удалить ненужные.
+          </div>
+
+          {/* Цвета */}
+          {(() => {
+            const COLOR_OPTIONS = [
+              { value: 'badge-blue',   label: 'Синий',    color: '#3b82f6' },
+              { value: 'badge-green',  label: 'Зелёный',  color: '#22c55e' },
+              { value: 'badge-orange', label: 'Оранжевый',color: '#f97316' },
+              { value: 'badge-red',    label: 'Красный',  color: '#ef4444' },
+              { value: 'badge-gray',   label: 'Серый',    color: '#9ca3af' },
+              { value: 'badge-purple', label: 'Фиолетовый',color:'#a855f7' },
+            ]
+            return (
+              <>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                  {statuses.map(s => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+                      <span className={`badge ${s.color}`}>{s.name}</span>
+                      <div style={{ flex: 1 }} />
+                      <button className="btn btn-ghost btn-sm" onClick={() => deleteStatus(s.id, s.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+                    </div>
+                  ))}
+                  {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
+                </div>
+
+                <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый статус</div>
+                  <div className="form-group" style={{ marginBottom: 10 }}>
+                    <label className="form-label">Название</label>
+                    <input className="form-input" value={newStatus.name}
+                      onChange={e => setNewStatus(s => ({ ...s, name: e.target.value }))}
+                      placeholder="Например: VIP, На паузе..."
+                      onKeyDown={e => e.key === 'Enter' && addStatus()} />
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 12 }}>
+                    <label className="form-label">Цвет</label>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {COLOR_OPTIONS.map(c => (
+                        <button key={c.value} onClick={() => setNewStatus(s => ({ ...s, color: c.value }))}
+                          style={{ padding: '5px 12px', borderRadius: 8, border: `2px solid ${newStatus.color === c.value ? c.color : T.border}`,
+                            background: newStatus.color === c.value ? c.color + '22' : 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: c.color }}>
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <span className={`badge ${newStatus.color}`}>{newStatus.name || 'Предпросмотр'}</span>
+                  </div>
+                  <button className="btn btn-primary" onClick={addStatus} disabled={!newStatus.name.trim()}>+ Добавить статус</button>
+                  <Msg msg={statusMsg} />
+                </div>
+              </>
+            )
+          })()}
         </Section>
         </div>
       </>}

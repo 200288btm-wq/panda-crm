@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
+import { T, fmt, hashColor, STATUS_COLORS_MAP, STATUSES_LIST } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const DEFAULT_COLOR = '#7BAF8E'
@@ -62,7 +62,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
       </div>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Статус</label>
-          <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>{STATUSES.map(s => <option key={s}>{s}</option>)}</select>
+          <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>{STATUSES_LIST.map(s => <option key={s}>{s}</option>)}</select>
         </div>
         <div className="form-group"><label className="form-label">Пол</label>
           <select className="form-input" value={f.sex} onChange={e => set('sex', e.target.value)}><option>М</option><option>Ж</option></select>
@@ -219,7 +219,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {client.birthday ? ` (${new Date(client.birthday).toLocaleDateString('ru-RU')})` : ''}
             {` · ${client.sex}`}
           </div>
-          <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
+          <span className={`badge ${STATUS_COLORS_MAP[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: bal.color }}>{Math.abs(bal.left)}</div>
@@ -487,7 +487,14 @@ function CommentToggle({ comment }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId }) {
+export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId, clientStatuses = [] }) {
+  // Формируем статусы — из БД если есть, иначе fallback на дефолтные
+  const STATUSES_LIST = clientStatuses.length > 0
+    ? clientStatuses.map(s => s.name)
+    : ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание']
+  const STATUS_COLORS_MAP = clientStatuses.length > 0
+    ? Object.fromEntries(clientStatuses.map(s => [s.name, s.color]))
+    : STATUS_COLORS_MAP
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
@@ -578,7 +585,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
 
       {/* Status tabs */}
       <div className="tabs" style={{ marginBottom: 14 }}>
-        {['Все', ...STATUSES].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
+        {['Все', ...STATUSES_LIST].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
       </div>
 
       <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
@@ -598,7 +605,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                   </td>
                   <td style={{ fontSize: 13, color: T.muted }}>{age !== null ? `${age} лет` : '—'}</td>
                   <td style={{ fontSize: 13 }}>{c.adult_name}</td>
-                  <td><span className={`badge ${STATUS_COLORS[c.status]}`}>{c.status}</span></td>
+                  <td><span className={`badge ${STATUS_COLORS_MAP[c.status]}`}>{c.status}</span></td>
                   <td>
                     <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                       {directions.filter(d => (c.direction_ids || []).includes(d.id)).map(d => {
@@ -655,7 +662,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{c.child_name}</div>
                   {age !== null && <div style={{ fontSize: 12, color: T.muted }}>{age} лет</div>}
                 </div>
-                <span className={`badge ${STATUS_COLORS[c.status]}`}>{c.status}</span>
+                <span className={`badge ${STATUS_COLORS_MAP[c.status]}`}>{c.status}</span>
               </div>
 
               {/* Средняя строка: взрослый + телефон */}
