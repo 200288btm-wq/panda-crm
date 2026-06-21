@@ -67,7 +67,7 @@ function TeacherModal({ teacher, directions, onClose, onSave }) {
   )
 }
 
-export default function TeachersPage({ teachers, directions, reload }) {
+export default function TeachersPage({ teachers, directions, reload, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
 
@@ -89,7 +89,7 @@ export default function TeachersPage({ teachers, directions, reload }) {
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('teachers').insert(cleaned)
+      const { error } = await supabase.from('teachers').insert({ ...cleaned, studio_id: studioId })
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowAdd(false)
     }

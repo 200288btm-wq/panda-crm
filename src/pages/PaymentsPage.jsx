@@ -230,7 +230,7 @@ const PAY_SHORT = {
   'Пробное занятие':     { label: 'ПРОБ',cls: 'badge-gray' },
 }
 
-export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload, deepLink, setDeepLink }) {
+export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload, deepLink, setDeepLink, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [preselectedClientId, setPreselectedClientId] = useState(null)
@@ -255,7 +255,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       await supabase.from('payments').update(f).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('payments').insert(f)
+      await supabase.from('payments').insert({ ...f, studio_id: studioId })
       setShowAdd(false)
     }
     reload()

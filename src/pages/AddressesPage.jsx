@@ -64,7 +64,7 @@ function AddressModal({ address, onClose, onSave }) {
   )
 }
 
-export default function AddressesPage({ addresses = [], reload, isAdmin }) {
+export default function AddressesPage({ addresses = [], reload, isAdmin, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
 
@@ -74,7 +74,7 @@ export default function AddressesPage({ addresses = [], reload, isAdmin }) {
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('addresses').insert(f)
+      const { error } = await supabase.from('addresses').insert({ ...f, studio_id: studioId })
       if (error) { alert('Ошибка создания: ' + error.message); return }
       setShowAdd(false)
     }
