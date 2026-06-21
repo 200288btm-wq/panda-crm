@@ -487,7 +487,7 @@ function CommentToggle({ comment }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink }) {
+export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
@@ -543,6 +543,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       setShowEdit(null)
     } else {
       cleaned.visited_lessons = 0
+      cleaned.studio_id = studioId
       const { error } = await supabase.from('clients').insert(cleaned)
       if (error) { alert('Ошибка создания: ' + error.message); return }
       setShowAdd(false)
