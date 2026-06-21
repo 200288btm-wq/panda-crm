@@ -201,6 +201,13 @@ function EditStaffModal({ member, onClose, onSave }) {
 export default function StaffPage({ staffList, reload, studioId, currentUserId }) {
   const [showInvite, setShowInvite] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const save = async (f) => {
     const { error } = await supabase.from('staff').update({
@@ -256,7 +263,7 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
         ))}
       </div>
 
-      <div className="table-wrap">
+      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
           <thead><tr><th>Сотрудник</th><th>Роль</th><th>Email</th><th>Телефон</th><th>Вход</th><th>Статус</th><th>Добавлен</th><th></th></tr></thead>
           <tbody>
@@ -293,6 +300,37 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
             {!staffList.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">🔑</div><div className="empty-text">Сотрудников нет</div></div></td></tr>}
           </tbody>
         </table>
+      </div>
+
+      {/* Карточки для мобильных */}
+      <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
+        {staffList.map(s => (
+          <div key={s.id} className="card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <div className="avatar" style={{ background: s.is_active ? hashColor(s.name) : '#d1d5db', width: 38, height: 38, fontSize: 14 }}>
+                {(s.name || '?')[0]}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>{s.name}</div>
+                <span className={`badge ${ROLE_COLORS[s.role] || 'badge-gray'}`}>{s.role}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
+                {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)}>🚫</button>}
+                <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} style={{ color: '#e05a5a' }}>🗑️</button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {s.email && <span>✉️ {s.email}</span>}
+              {s.phone && <span>📞 {s.phone}</span>}
+              <span>{s.user_id ? '✅ Активирован' : '⏳ Не входил'} · {s.is_active ? 'Активен' : 'Отключён'}</span>
+            </div>
+          </div>
+        ))}
+        {!staffList.length && <div className="card" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div className="empty-icon">🔑</div>
+          <div className="empty-text">Сотрудников нет</div>
+        </div>}
       </div>
 
       <div style={{ marginTop: 16, background: T.cream, borderRadius: 14, padding: '14px 16px', fontSize: 13, color: T.muted, lineHeight: 1.7 }}>
