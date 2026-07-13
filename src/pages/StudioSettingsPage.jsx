@@ -756,11 +756,79 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
 
   const downloadTemplate = (type) => {
     const tmpl = TEMPLATES[type]
+
+    // Проверяем есть ли текущие данные
+    const hasData = {
+      clients: clients.length > 0,
+      payments: payments.length > 0,
+      teachers: teachers.length > 0,
+      directions: directions.length > 0,
+      expenses: expenses.length > 0,
+      subscriptions: subscriptions.length > 0,
+    }
+
+    let withData = false
+    if (hasData[type]) {
+      withData = window.confirm(
+        `В CRM уже есть данные (${
+          type === 'clients' ? clients.length :
+          type === 'payments' ? payments.length :
+          type === 'teachers' ? teachers.length :
+          type === 'directions' ? directions.length :
+          type === 'expenses' ? expenses.length :
+          subscriptions.length
+        } записей).\n\nНажмите OK — скачать с текущими данными\nНажмите Отмена — скачать пустой шаблон`
+      )
+    }
+
     const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
-    ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-    XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
-    XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
+
+    if (withData) {
+      // Заполняем текущими данными
+      let rows = [tmpl.columns]
+      if (type === 'clients') {
+        rows = rows.concat(clients.map(c => [
+          c.child_name || '', c.adult_name || '',
+          (c.contacts || []).find(x => x.type === 'Телефон')?.val || '',
+          (c.contacts || []).find(x => x.type === 'Email')?.val || '',
+          c.status || '', c.paid_lessons || 0, c.visited_lessons || 0,
+          c.discount || 0, c.birthday || '', c.source || '', c.comment || '',
+        ]))
+      } else if (type === 'payments') {
+        rows = rows.concat(payments.map(p => [
+          clients.find(c => c.id === p.client_id)?.child_name || '',
+          p.payment_date || '', p.payment_type || '',
+          p.amount || 0, p.lessons_count || 0, p.comment || '',
+        ]))
+      } else if (type === 'teachers') {
+        rows = rows.concat(teachers.map(t => [
+          t.name || '', t.phone || '', t.status || '', t.rate || 0, t.hired || '',
+        ]))
+      } else if (type === 'directions') {
+        rows = rows.concat(directions.map(d => [
+          d.name || '', d.teacher_name || '', d.schedule || '',
+          d.cost_abo || 0, d.cost_single || 0, d.max_capacity || 0,
+        ]))
+      } else if (type === 'expenses') {
+        rows = rows.concat(expenses.map(e => [
+          e.expense_date || '', e.expense_type || '',
+          e.category || '', e.amount || 0, e.comment || '',
+        ]))
+      } else if (type === 'subscriptions') {
+        rows = rows.concat(subscriptions.map(s => [
+          s.name || '', s.price || 0, s.lessons_count || 0,
+        ]))
+      }
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      XLSX.writeFile(wb, `${type}_данные.xlsx`)
+    } else {
+      const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
+    }
   }
 
   const downloadAllTemplates = () => {
@@ -794,10 +862,29 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       let inserted = 0, errors = []
 
       if (type === 'clients') {
+        // Загружаем существующие телефоны для проверки дубликатов
+        const { data: existingClients } = await supabase.from('clients').select('child_name, contacts').eq('studio_id', studioId)
+        const existingPhones = new Set((existingClients || []).flatMap(c =>
+          (c.contacts || []).filter(x => x.type === 'Телефон').map(x => x.val.replace(/\D/g, '').slice(-9))
+        ))
+        const existingNames = new Set((existingClients || []).map(c => c.child_name?.toLowerCase().trim()))
+
         for (const row of rows) {
           const name = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
           const phone = String(row['Телефон*'] || row['Телефон'] || '').trim()
           if (!name) { errors.push(`Пропущено имя ребёнка`); continue }
+
+          // Проверка дубликата по имени
+          if (existingNames.has(name.toLowerCase())) {
+            errors.push(`Дубликат: клиент «${name}» уже существует`); continue
+          }
+          // Проверка дубликата по телефону
+          if (phone) {
+            const phoneDigits = phone.replace(/\D/g, '').slice(-9)
+            if (existingPhones.has(phoneDigits)) {
+              errors.push(`Дубликат: телефон ${phone} уже используется`); continue
+            }
+          }
           const { error } = await supabase.from('clients').insert({
             studio_id: studioId,
             child_name: name,
@@ -841,9 +928,15 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'teachers') {
+        const { data: existingTeachers } = await supabase.from('teachers').select('name').eq('studio_id', studioId)
+        const existingNames = new Set((existingTeachers || []).map(t => t.name?.toLowerCase().trim()))
+
         for (const row of rows) {
           const name = String(row['ФИО*'] || row['ФИО'] || '').trim()
           if (!name) { errors.push('Пропущено ФИО'); continue }
+          if (existingNames.has(name.toLowerCase())) {
+            errors.push(`Дубликат: педагог «${name}» уже существует`); continue
+          }
           const { error } = await supabase.from('teachers').insert({
             studio_id: studioId,
             name,
@@ -858,9 +951,15 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'directions') {
+        const { data: existingDirs } = await supabase.from('directions').select('name').eq('studio_id', studioId)
+        const existingNames = new Set((existingDirs || []).map(d => d.name?.toLowerCase().trim()))
+
         for (const row of rows) {
           const name = String(row['Название*'] || row['Название'] || '').trim()
           if (!name) { errors.push('Пропущено название'); continue }
+          if (existingNames.has(name.toLowerCase())) {
+            errors.push(`Дубликат: направление «${name}» уже существует`); continue
+          }
           const { error } = await supabase.from('directions').insert({
             studio_id: studioId,
             name,
@@ -895,11 +994,17 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'subscriptions') {
+        const { data: existingSubs } = await supabase.from('subscriptions').select('name').eq('studio_id', studioId)
+        const existingNames = new Set((existingSubs || []).map(s => s.name?.toLowerCase().trim()))
+
         for (const row of rows) {
           const name = String(row['Название*'] || row['Название'] || '').trim()
           const price = +row['Цена*'] || +row['Цена'] || 0
           const lessons = +row['Количество занятий*'] || +row['Количество занятий'] || 0
           if (!name) { errors.push('Пропущено название'); continue }
+          if (existingNames.has(name.toLowerCase())) {
+            errors.push(`Дубликат: абонемент «${name}» уже существует`); continue
+          }
           const { error } = await supabase.from('subscriptions').insert({
             studio_id: studioId,
             name, price, lessons_count: lessons, is_active: true,
