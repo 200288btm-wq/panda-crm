@@ -4,6 +4,7 @@ import { T } from '../styles.jsx'
 import BookingSettingsPage from './BookingSettingsPage'
 import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
+import * as XLSX from 'xlsx'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -11,6 +12,7 @@ const TABS = [
   { id: 'staff',      label: 'Сотрудники' },
   { id: 'finance',    label: 'Финансы' },
   { id: 'statuses',   label: 'Статусы клиентов' },
+  { id: 'data',       label: 'Данные' },
   { id: 'bot',        label: 'Telegram' },
   { id: 'booking',    label: 'Онлайн-запись' },
 ]
@@ -28,7 +30,7 @@ const Msg = ({ msg }) => msg ? (
   </div>
 ) : null
 
-export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [] }) {
+export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [] }) {
   const [tab, setTab] = useState('main')
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -515,6 +517,19 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         </div>
       </>}
 
+      {/* ── Данные ── */}
+      {tab === 'data' && <DataTab
+        studioId={studioId}
+        clients={clients}
+        payments={payments}
+        expenses={expenses}
+        teachers={teachers}
+        directions={directions}
+        subscriptions={subscriptions}
+        reload={reload}
+        T={T}
+      />}
+
       {/* ── Telegram ── */}
       {tab === 'bot' && <>
         <div style={{ maxWidth: 600 }}>
@@ -567,6 +582,395 @@ function CategoryRow({ item, onRename, onDelete }) {
       )}
       <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>✏️</button>
       <button className="btn btn-ghost btn-sm" onClick={() => onDelete(item.id, item.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+    </div>
+  )
+}
+
+function DataTab({ studioId, clients, payments, expenses, teachers, directions, subscriptions, reload, T }) {
+  const [importing, setImporting] = useState(null) // 'clients' | 'payments' | etc
+  const [importMsg, setImportMsg] = useState(null)
+  const [importResult, setImportResult] = useState(null)
+  const importRef = useRef()
+  const [currentImportType, setCurrentImportType] = useState(null)
+
+  const showMsg = (type, text) => {
+    setImportMsg({ type, text })
+    setTimeout(() => setImportMsg(null), 4000)
+  }
+
+  // ── ЭКСПОРТ ──────────────────────────────────────────────
+  const exportSheet = (name, data, columns) => {
+    const ws = XLSX.utils.json_to_sheet(data.map(row =>
+      Object.fromEntries(columns.map(([key, label]) => [label, row[key] ?? '']))
+    ))
+    // Ширина колонок
+    ws['!cols'] = columns.map(() => ({ wch: 20 }))
+    return { name, ws }
+  }
+
+  const doExport = () => {
+    const wb = XLSX.utils.book_new()
+
+    // Клиенты
+    const clientsData = clients.map(c => ({
+      child_name: c.child_name || '',
+      adult_name: c.adult_name || '',
+      phone: (c.contacts || []).find(x => x.type === 'Телефон')?.val || '',
+      email: (c.contacts || []).find(x => x.type === 'Email')?.val || '',
+      status: c.status || '',
+      directions: (c.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean).join(', '),
+      paid_lessons: c.paid_lessons || 0,
+      visited_lessons: c.visited_lessons || 0,
+      discount: c.discount || 0,
+      birthday: c.birthday || '',
+      source: c.source || '',
+      comment: c.comment || '',
+      start_date: c.start_date || '',
+    }))
+    const { ws: wsClients } = exportSheet('Клиенты', clientsData, [
+      ['child_name', 'Имя ребёнка'], ['adult_name', 'Имя родителя'],
+      ['phone', 'Телефон'], ['email', 'Email'], ['status', 'Статус'],
+      ['directions', 'Направления'], ['paid_lessons', 'Оплачено занятий'],
+      ['visited_lessons', 'Посещено занятий'], ['discount', 'Скидка %'],
+      ['birthday', 'Дата рождения'], ['source', 'Источник'],
+      ['comment', 'Комментарий'], ['start_date', 'Дата начала'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsClients, 'Клиенты')
+
+    // Оплаты
+    const paymentsData = payments.map(p => ({
+      date: p.payment_date || '',
+      child_name: clients.find(c => c.id === p.client_id)?.child_name || '',
+      type: p.payment_type || '',
+      amount: p.amount || 0,
+      lessons: p.lessons_count || 0,
+      direction: directions.find(d => d.id === p.direction_id)?.name || '',
+      comment: p.comment || '',
+    }))
+    const { ws: wsPayments } = exportSheet('Оплаты', paymentsData, [
+      ['date', 'Дата'], ['child_name', 'Клиент'], ['type', 'Тип'],
+      ['amount', 'Сумма'], ['lessons', 'Занятий'], ['direction', 'Направление'], ['comment', 'Комментарий'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsPayments, 'Оплаты')
+
+    // Расходы
+    const expensesData = expenses.map(e => ({
+      date: e.expense_date || '',
+      type: e.expense_type || '',
+      category: e.category || '',
+      amount: e.amount || 0,
+      direction: directions.find(d => d.id === e.direction_id)?.name || 'Общий',
+      comment: e.comment || '',
+    }))
+    const { ws: wsExpenses } = exportSheet('Расходы', expensesData, [
+      ['date', 'Дата'], ['type', 'Вид'], ['category', 'Категория'],
+      ['amount', 'Сумма'], ['direction', 'Направление'], ['comment', 'Комментарий'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsExpenses, 'Расходы')
+
+    // Педагоги
+    const teachersData = teachers.map(t => ({
+      name: t.name || '',
+      phone: t.phone || '',
+      email: t.email || '',
+      status: t.status || '',
+      rate: t.rate || 0,
+      hired: t.hired || '',
+    }))
+    const { ws: wsTeachers } = exportSheet('Педагоги', teachersData, [
+      ['name', 'ФИО'], ['phone', 'Телефон'], ['email', 'Email'],
+      ['status', 'Статус'], ['rate', 'Ставка'], ['hired', 'Дата приёма'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsTeachers, 'Педагоги')
+
+    // Направления
+    const directionsData = directions.map(d => ({
+      name: d.name || '',
+      teacher: d.teacher_name || '',
+      schedule: d.schedule || '',
+      cost_abo: d.cost_abo || 0,
+      cost_single: d.cost_single || 0,
+      max_capacity: d.max_capacity || 0,
+    }))
+    const { ws: wsDirections } = exportSheet('Направления', directionsData, [
+      ['name', 'Название'], ['teacher', 'Педагог'], ['schedule', 'Расписание'],
+      ['cost_abo', 'Цена абонемент'], ['cost_single', 'Цена разовое'], ['max_capacity', 'Вместимость'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsDirections, 'Направления')
+
+    // Абонементы
+    const subsData = subscriptions.map(s => ({
+      name: s.name || '',
+      price: s.price || 0,
+      lessons_count: s.lessons_count || 0,
+      is_active: s.is_active ? 'Да' : 'Нет',
+    }))
+    const { ws: wsSubs } = exportSheet('Абонементы', subsData, [
+      ['name', 'Название'], ['price', 'Цена'], ['lessons_count', 'Занятий'], ['is_active', 'Активен'],
+    ])
+    XLSX.utils.book_append_sheet(wb, wsSubs, 'Абонементы')
+
+    const date = new Date().toISOString().slice(0, 10)
+    XLSX.writeFile(wb, `учтено_экспорт_${date}.xlsx`)
+  }
+
+  // ── ШАБЛОНЫ ──────────────────────────────────────────────
+  const TEMPLATES = {
+    clients: {
+      label: 'Клиенты',
+      columns: ['Имя ребёнка*', 'Имя родителя', 'Телефон*', 'Email', 'Статус', 'Оплачено занятий', 'Посещено занятий', 'Скидка %', 'Дата рождения (ГГГГ-ММ-ДД)', 'Источник', 'Комментарий'],
+      example: ['Иван Петров', 'Мария Петрова', '+79001234567', '', 'Активен', '8', '4', '0', '2018-05-12', 'ВКонтакте', ''],
+    },
+    payments: {
+      label: 'Оплаты',
+      columns: ['Имя ребёнка*', 'Дата (ГГГГ-ММ-ДД)*', 'Тип (Абонемент/Разовое/Пробное)', 'Сумма*', 'Занятий', 'Комментарий'],
+      example: ['Иван Петров', '2026-06-01', 'Абонемент', '6000', '8', ''],
+    },
+    teachers: {
+      label: 'Педагоги',
+      columns: ['ФИО*', 'Телефон', 'Email', 'Статус', 'Ставка за занятие', 'Дата приёма (ГГГГ-ММ-ДД)'],
+      example: ['Коноваленко Ольга', '+79001234567', '', 'Активен', '600', '2024-01-01'],
+    },
+    directions: {
+      label: 'Направления',
+      columns: ['Название*', 'Педагог', 'Расписание', 'Цена абонемент', 'Цена разовое', 'Вместимость'],
+      example: ['Рисование', 'Коноваленко Ольга', 'Пн/Ср/Пт 10:00', '5000', '800', '10'],
+    },
+    expenses: {
+      label: 'Расходы',
+      columns: ['Дата (ГГГГ-ММ-ДД)*', 'Вид расхода*', 'Категория (Периодичный/Разовый)', 'Сумма*', 'Комментарий'],
+      example: ['2026-06-01', 'Аренда', 'Периодичный', '30000', ''],
+    },
+    subscriptions: {
+      label: 'Абонементы',
+      columns: ['Название*', 'Цена*', 'Количество занятий*'],
+      example: ['8 занятий', '6000', '8'],
+    },
+  }
+
+  const downloadTemplate = (type) => {
+    const tmpl = TEMPLATES[type]
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+    // Стиль заголовков — жирный
+    ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+    XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+    XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
+  }
+
+  // ── ИМПОРТ ───────────────────────────────────────────────
+  const handleImportFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+
+    const type = currentImportType
+    setImporting(type)
+    setImportResult(null)
+
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf)
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+
+      if (!rows.length) { showMsg('error', 'Файл пустой'); setImporting(null); return }
+
+      let inserted = 0, errors = []
+
+      if (type === 'clients') {
+        for (const row of rows) {
+          const name = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
+          const phone = String(row['Телефон*'] || row['Телефон'] || '').trim()
+          if (!name) { errors.push(`Пропущено имя ребёнка`); continue }
+          const { error } = await supabase.from('clients').insert({
+            studio_id: studioId,
+            child_name: name,
+            adult_name: String(row['Имя родителя'] || '').trim() || null,
+            contacts: phone ? [{ type: 'Телефон', val: phone }] : [],
+            status: String(row['Статус'] || 'Новый').trim(),
+            paid_lessons: +row['Оплачено занятий'] || 0,
+            visited_lessons: +row['Посещено занятий'] || 0,
+            discount: +row['Скидка %'] || 0,
+            birthday: String(row['Дата рождения (ГГГГ-ММ-ДД)'] || '').trim() || null,
+            source: String(row['Источник'] || '').trim() || null,
+            comment: String(row['Комментарий'] || '').trim() || null,
+          })
+          if (error) errors.push(`${name}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      if (type === 'payments') {
+        // Получаем клиентов для поиска по имени
+        const { data: cls } = await supabase.from('clients').select('id, child_name').eq('studio_id', studioId)
+        for (const row of rows) {
+          const clientName = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
+          const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
+          const amount = +row['Сумма*'] || +row['Сумма'] || 0
+          if (!clientName || !date) { errors.push(`Пропущено имя или дата`); continue }
+          const client = cls?.find(c => c.child_name === clientName)
+          if (!client) { errors.push(`Клиент не найден: ${clientName}`); continue }
+          const { error } = await supabase.from('payments').insert({
+            studio_id: studioId,
+            client_id: client.id,
+            payment_date: date,
+            payment_type: String(row['Тип (Абонемент/Разовое/Пробное)'] || 'Абонемент').trim(),
+            amount,
+            lessons_count: +row['Занятий'] || 0,
+            comment: String(row['Комментарий'] || '').trim() || null,
+          })
+          if (error) errors.push(`${clientName}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      if (type === 'teachers') {
+        for (const row of rows) {
+          const name = String(row['ФИО*'] || row['ФИО'] || '').trim()
+          if (!name) { errors.push('Пропущено ФИО'); continue }
+          const { error } = await supabase.from('teachers').insert({
+            studio_id: studioId,
+            name,
+            phone: String(row['Телефон'] || '').trim() || null,
+            email: String(row['Email'] || '').trim() || null,
+            status: String(row['Статус'] || 'Активен').trim(),
+            rate: +row['Ставка за занятие'] || 0,
+            hired: String(row['Дата приёма (ГГГГ-ММ-ДД)'] || '').trim() || null,
+          })
+          if (error) errors.push(`${name}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      if (type === 'directions') {
+        for (const row of rows) {
+          const name = String(row['Название*'] || row['Название'] || '').trim()
+          if (!name) { errors.push('Пропущено название'); continue }
+          const { error } = await supabase.from('directions').insert({
+            studio_id: studioId,
+            name,
+            teacher_name: String(row['Педагог'] || '').trim() || null,
+            schedule: String(row['Расписание'] || '').trim() || null,
+            cost_abo: +row['Цена абонемент'] || 0,
+            cost_single: +row['Цена разовое'] || 0,
+            max_capacity: +row['Вместимость'] || 0,
+          })
+          if (error) errors.push(`${name}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      if (type === 'expenses') {
+        for (const row of rows) {
+          const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
+          const expType = String(row['Вид расхода*'] || row['Вид расхода'] || '').trim()
+          const amount = +row['Сумма*'] || +row['Сумма'] || 0
+          if (!date || !expType) { errors.push('Пропущена дата или вид расхода'); continue }
+          const { error } = await supabase.from('expenses').insert({
+            studio_id: studioId,
+            expense_date: date,
+            expense_type: expType,
+            category: String(row['Категория (Периодичный/Разовый)'] || 'Разовый').trim(),
+            amount,
+            comment: String(row['Комментарий'] || '').trim() || null,
+          })
+          if (error) errors.push(`${date} ${expType}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      if (type === 'subscriptions') {
+        for (const row of rows) {
+          const name = String(row['Название*'] || row['Название'] || '').trim()
+          const price = +row['Цена*'] || +row['Цена'] || 0
+          const lessons = +row['Количество занятий*'] || +row['Количество занятий'] || 0
+          if (!name) { errors.push('Пропущено название'); continue }
+          const { error } = await supabase.from('subscriptions').insert({
+            studio_id: studioId,
+            name, price, lessons_count: lessons, is_active: true,
+          })
+          if (error) errors.push(`${name}: ${error.message}`)
+          else inserted++
+        }
+      }
+
+      setImportResult({ inserted, errors })
+      if (inserted > 0 && reload) reload()
+    } catch (e) {
+      showMsg('error', 'Ошибка чтения файла: ' + e.message)
+    }
+    setImporting(null)
+  }
+
+  const startImport = (type) => {
+    setCurrentImportType(type)
+    setImportResult(null)
+    importRef.current.click()
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
+      <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportFile} />
+
+      {/* Экспорт */}
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>📤 Экспорт данных</div>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+          Выгрузка всех данных студии в один Excel файл с несколькими листами.
+        </div>
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>
+          Будет выгружено: {clients.length} клиентов · {payments.length} оплат · {expenses.length} расходов · {teachers.length} педагогов · {directions.length} направлений · {subscriptions.length} абонементов
+        </div>
+        <button className="btn btn-primary" onClick={doExport}>
+          📥 Скачать Excel
+        </button>
+      </div>
+
+      {/* Импорт */}
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>📥 Импорт данных</div>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+          Скачайте шаблон, заполните данные и загрузите обратно.
+        </div>
+
+        {importMsg && (
+          <div style={{ fontSize: 12, marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+            background: importMsg.type === 'error' ? '#fde8e8' : '#e8f4ed',
+            color: importMsg.type === 'error' ? '#e05a5a' : T.greenDark }}>
+            {importMsg.text}
+          </div>
+        )}
+
+        {importResult && (
+          <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 10, background: T.cream, border: `1px solid ${T.border}` }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: T.greenDark, marginBottom: 4 }}>
+              ✅ Импортировано: {importResult.inserted} записей
+            </div>
+            {importResult.errors.length > 0 && (
+              <div style={{ fontSize: 12, color: '#e05a5a', marginTop: 6 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Ошибки ({importResult.errors.length}):</div>
+                {importResult.errors.slice(0, 5).map((e, i) => <div key={i}>• {e}</div>)}
+                {importResult.errors.length > 5 && <div>...и ещё {importResult.errors.length - 5}</div>}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {Object.entries(TEMPLATES).map(([type, tmpl]) => (
+            <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <div style={{ flex: 1, fontWeight: 600, fontSize: 13, color: T.ink }}>{tmpl.label}</div>
+              <button className="btn btn-outline btn-sm" onClick={() => downloadTemplate(type)}>
+                📋 Шаблон
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => startImport(type)} disabled={importing === type}>
+                {importing === type ? '⏳...' : '⬆️ Загрузить'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
