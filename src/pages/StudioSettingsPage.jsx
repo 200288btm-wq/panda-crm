@@ -249,9 +249,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         ))}
       </div>
 
-      {/* Основное — с ограничением ширины */}
-      <div>
-
       {/* ── Основное ── */}
       {tab === 'main' && <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, alignItems: 'start' }}>
@@ -562,7 +559,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {/* ── Онлайн-запись ── */}
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
-      </div>
     </div>
   )
 }
