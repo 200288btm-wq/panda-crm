@@ -450,69 +450,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       </>}
 
       {/* ── Статусы клиентов ── */}
-      {tab === 'statuses' && <>
-        <div style={{ maxWidth: 500 }}>
-        <Section title="Статусы клиентов" icon="🏷️">
-          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
-            Статусы используются для сегментации клиентов. Вы можете добавить свои или удалить ненужные.
-          </div>
-
-          {/* Цвета */}
-          {(() => {
-            const COLOR_OPTIONS = [
-              { value: 'badge-blue',   label: 'Синий',    color: '#3b82f6' },
-              { value: 'badge-green',  label: 'Зелёный',  color: '#22c55e' },
-              { value: 'badge-orange', label: 'Оранжевый',color: '#f97316' },
-              { value: 'badge-red',    label: 'Красный',  color: '#ef4444' },
-              { value: 'badge-gray',   label: 'Серый',    color: '#9ca3af' },
-              { value: 'badge-purple', label: 'Фиолетовый',color:'#a855f7' },
-            ]
-            return (
-              <>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                  {statuses.map(s => (
-                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
-                      <span className={`badge ${s.color}`}>{s.name}</span>
-                      <div style={{ flex: 1 }} />
-                      <button className="btn btn-ghost btn-sm" onClick={() => deleteStatus(s.id, s.name)} style={{ color: '#e05a5a' }}>🗑️</button>
-                    </div>
-                  ))}
-                  {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
-                </div>
-
-                <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый статус</div>
-                  <div className="form-group" style={{ marginBottom: 10 }}>
-                    <label className="form-label">Название</label>
-                    <input className="form-input" value={newStatus.name}
-                      onChange={e => setNewStatus(s => ({ ...s, name: e.target.value }))}
-                      placeholder="Например: VIP, На паузе..."
-                      onKeyDown={e => e.key === 'Enter' && addStatus()} />
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 12 }}>
-                    <label className="form-label">Цвет</label>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {COLOR_OPTIONS.map(c => (
-                        <button key={c.value} onClick={() => setNewStatus(s => ({ ...s, color: c.value }))}
-                          style={{ padding: '5px 12px', borderRadius: 8, border: `2px solid ${newStatus.color === c.value ? c.color : T.border}`,
-                            background: newStatus.color === c.value ? c.color + '22' : 'white', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: c.color }}>
-                          {c.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 12 }}>
-                    <span className={`badge ${newStatus.color}`}>{newStatus.name || 'Предпросмотр'}</span>
-                  </div>
-                  <button className="btn btn-primary" onClick={addStatus} disabled={!newStatus.name.trim()}>+ Добавить статус</button>
-                  <Msg msg={statusMsg} />
-                </div>
-              </>
-            )
-          })()}
-        </Section>
-        </div>
-      </>}
+      {tab === 'statuses' && <StatusesTab
+        statuses={statuses}
+        newStatus={newStatus}
+        setNewStatus={setNewStatus}
+        statusMsg={statusMsg}
+        addStatus={addStatus}
+        deleteStatus={deleteStatus}
+        T={T}
+      />}
 
       {/* ── Данные ── */}
       {tab === 'data' && <DataTab
@@ -560,7 +506,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
     </div>
-  </div>
   )
 }
 
@@ -579,6 +524,70 @@ function CategoryRow({ item, onRename, onDelete }) {
       )}
       <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>✏️</button>
       <button className="btn btn-ghost btn-sm" onClick={() => onDelete(item.id, item.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+    </div>
+  )
+}
+
+function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, T }) {
+  const COLOR_OPTIONS = [
+    { value: 'badge-blue',   label: 'Синий',      color: '#3b82f6' },
+    { value: 'badge-green',  label: 'Зелёный',    color: '#22c55e' },
+    { value: 'badge-orange', label: 'Оранжевый',  color: '#f97316' },
+    { value: 'badge-red',    label: 'Красный',    color: '#ef4444' },
+    { value: 'badge-gray',   label: 'Серый',      color: '#9ca3af' },
+    { value: 'badge-purple', label: 'Фиолетовый', color: '#a855f7' },
+  ]
+  return (
+    <div style={{ maxWidth: 500 }}>
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>🏷️ Статусы клиентов</div>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+          Статусы используются для сегментации клиентов. Вы можете добавить свои или удалить ненужные.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+          {statuses.map(s => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+              <span className={`badge ${s.color}`}>{s.name}</span>
+              <div style={{ flex: 1 }} />
+              <button className="btn btn-ghost btn-sm" onClick={() => deleteStatus(s.id, s.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+            </div>
+          ))}
+          {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
+        </div>
+        <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый статус</div>
+          <div className="form-group" style={{ marginBottom: 10 }}>
+            <label className="form-label">Название</label>
+            <input className="form-input" value={newStatus.name}
+              onChange={e => setNewStatus(s => ({ ...s, name: e.target.value }))}
+              placeholder="Например: VIP, На паузе..."
+              onKeyDown={e => e.key === 'Enter' && addStatus()} />
+          </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Цвет</label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {COLOR_OPTIONS.map(c => (
+                <button key={c.value} onClick={() => setNewStatus(s => ({ ...s, color: c.value }))}
+                  style={{ padding: '5px 12px', borderRadius: 8,
+                    border: `2px solid ${newStatus.color === c.value ? c.color : T.border}`,
+                    background: newStatus.color === c.value ? c.color + '22' : 'white',
+                    cursor: 'pointer', fontSize: 12, fontWeight: 600, color: c.color }}>
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <span className={`badge ${newStatus.color}`}>{newStatus.name || 'Предпросмотр'}</span>
+          </div>
+          <button className="btn btn-primary" onClick={addStatus} disabled={!newStatus.name.trim()}>+ Добавить статус</button>
+          {statusMsg && (
+            <div style={{ fontSize: 12, marginTop: 8, color: statusMsg.type === 'error' ? '#e05a5a' : T.greenDark }}>
+              {statusMsg.type === 'error' ? '⚠️' : '✅'} {statusMsg.text}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -749,10 +758,19 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     const tmpl = TEMPLATES[type]
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
-    // Стиль заголовков — жирный
     ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
     XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
     XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
+  }
+
+  const downloadAllTemplates = () => {
+    const wb = XLSX.utils.book_new()
+    Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
+      const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+    })
+    XLSX.writeFile(wb, 'шаблоны_все.xlsx')
   }
 
   // ── ИМПОРТ ───────────────────────────────────────────────
@@ -927,9 +945,13 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       {/* Импорт */}
       <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
         <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>📥 Импорт данных</div>
-        <div style={{ fontSize: 13, color: T.muted, marginBottom: 16, lineHeight: 1.5 }}>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 12, lineHeight: 1.5 }}>
           Скачайте шаблон, заполните данные и загрузите обратно.
         </div>
+
+        <button className="btn btn-outline" onClick={downloadAllTemplates} style={{ marginBottom: 16, width: '100%' }}>
+          📋 Скачать все шаблоны одним файлом
+        </button>
 
         {importMsg && (
           <div style={{ fontSize: 12, marginBottom: 12, padding: '8px 12px', borderRadius: 8,
