@@ -593,11 +593,13 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
 }
 
 function DataTab({ studioId, clients, payments, expenses, teachers, directions, subscriptions, reload, T }) {
-  const [importing, setImporting] = useState(null) // 'clients' | 'payments' | etc
+  const [importing, setImporting] = useState(null)
   const [importMsg, setImportMsg] = useState(null)
   const [importResult, setImportResult] = useState(null)
   const importRef = useRef()
   const [currentImportType, setCurrentImportType] = useState(null)
+  // Диалог выбора пустой/с данными
+  const [dialog, setDialog] = useState(null) // { type, onEmpty, onWithData, count }
 
   const showMsg = (type, text) => {
     setImportMsg({ type, text })
@@ -614,7 +616,97 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     return { name, ws }
   }
 
-  const doExport = () => {
+  const doDownloadTemplate = (type, withData) => {
+    const tmpl = TEMPLATES[type]
+    const wb = XLSX.utils.book_new()
+    if (withData) {
+      let rows = [tmpl.columns]
+      if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
+      else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
+      else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.rate||0,t.hired||'']))
+      else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
+      else if (type === 'expenses') rows = rows.concat(expenses.map(e => [e.expense_date||'',e.expense_type||'',e.category||'',e.amount||0,e.comment||'']))
+      else if (type === 'subscriptions') rows = rows.concat(subscriptions.map(s => [s.name||'',s.price||0,s.lessons_count||0]))
+      const ws = XLSX.utils.aoa_to_sheet(rows)
+      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      XLSX.writeFile(wb, `${type}_данные.xlsx`)
+    } else {
+      const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
+    }
+  }
+
+  const COUNTS = { clients: clients.length, payments: payments.length, teachers: teachers.length, directions: directions.length, expenses: expenses.length, subscriptions: subscriptions.length }
+
+  const downloadTemplate = (type) => {
+    if (COUNTS[type] > 0) {
+      setDialog({
+        title: 'Скачать шаблон',
+        text: `В CRM уже есть ${COUNTS[type]} записей. Скачать с текущими данными или пустой шаблон?`,
+        onWithData: () => { setDialog(null); doDownloadTemplate(type, true) },
+        onEmpty: () => { setDialog(null); doDownloadTemplate(type, false) },
+      })
+    } else {
+      doDownloadTemplate(type, false)
+    }
+  }
+
+  const downloadAllTemplates = () => {
+    const hasAny = Object.values(COUNTS).some(c => c > 0)
+    if (hasAny) {
+      setDialog({
+        title: 'Скачать все шаблоны',
+        text: 'В CRM уже есть данные. Скачать все шаблоны с текущими данными или пустые?',
+        onWithData: () => {
+          setDialog(null)
+          const wb = XLSX.utils.book_new()
+          Object.keys(TEMPLATES).forEach(type => doDownloadTemplate(type, true) || (() => {
+            const tmpl = TEMPLATES[type]
+            let rows = [tmpl.columns]
+            const ws = XLSX.utils.aoa_to_sheet(rows)
+            ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+            XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+          })())
+          // Собираем все в один файл
+          const wb2 = XLSX.utils.book_new()
+          Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
+            let rows = [tmpl.columns]
+            if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
+            else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
+            else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.rate||0,t.hired||'']))
+            else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
+            else if (type === 'expenses') rows = rows.concat(expenses.map(e => [e.expense_date||'',e.expense_type||'',e.category||'',e.amount||0,e.comment||'']))
+            else if (type === 'subscriptions') rows = rows.concat(subscriptions.map(s => [s.name||'',s.price||0,s.lessons_count||0]))
+            const ws = XLSX.utils.aoa_to_sheet(rows)
+            ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+            XLSX.utils.book_append_sheet(wb2, ws, tmpl.label)
+          })
+          XLSX.writeFile(wb2, 'все_данные.xlsx')
+        },
+        onEmpty: () => {
+          setDialog(null)
+          const wb = XLSX.utils.book_new()
+          Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
+            const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+            ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+            XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+          })
+          XLSX.writeFile(wb, 'шаблоны_все.xlsx')
+        },
+      })
+    } else {
+      const wb = XLSX.utils.book_new()
+      Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
+        const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
+        ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+        XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      })
+      XLSX.writeFile(wb, 'шаблоны_все.xlsx')
+    }
+  }
     const wb = XLSX.utils.book_new()
 
     // Клиенты
@@ -752,93 +844,6 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       columns: ['Название*', 'Цена*', 'Количество занятий*'],
       example: ['8 занятий', '6000', '8'],
     },
-  }
-
-  const downloadTemplate = (type) => {
-    const tmpl = TEMPLATES[type]
-
-    // Проверяем есть ли текущие данные
-    const hasData = {
-      clients: clients.length > 0,
-      payments: payments.length > 0,
-      teachers: teachers.length > 0,
-      directions: directions.length > 0,
-      expenses: expenses.length > 0,
-      subscriptions: subscriptions.length > 0,
-    }
-
-    let withData = false
-    if (hasData[type]) {
-      withData = window.confirm(
-        `В CRM уже есть данные (${
-          type === 'clients' ? clients.length :
-          type === 'payments' ? payments.length :
-          type === 'teachers' ? teachers.length :
-          type === 'directions' ? directions.length :
-          type === 'expenses' ? expenses.length :
-          subscriptions.length
-        } записей).\n\nНажмите OK — скачать с текущими данными\nНажмите Отмена — скачать пустой шаблон`
-      )
-    }
-
-    const wb = XLSX.utils.book_new()
-
-    if (withData) {
-      // Заполняем текущими данными
-      let rows = [tmpl.columns]
-      if (type === 'clients') {
-        rows = rows.concat(clients.map(c => [
-          c.child_name || '', c.adult_name || '',
-          (c.contacts || []).find(x => x.type === 'Телефон')?.val || '',
-          (c.contacts || []).find(x => x.type === 'Email')?.val || '',
-          c.status || '', c.paid_lessons || 0, c.visited_lessons || 0,
-          c.discount || 0, c.birthday || '', c.source || '', c.comment || '',
-        ]))
-      } else if (type === 'payments') {
-        rows = rows.concat(payments.map(p => [
-          clients.find(c => c.id === p.client_id)?.child_name || '',
-          p.payment_date || '', p.payment_type || '',
-          p.amount || 0, p.lessons_count || 0, p.comment || '',
-        ]))
-      } else if (type === 'teachers') {
-        rows = rows.concat(teachers.map(t => [
-          t.name || '', t.phone || '', t.status || '', t.rate || 0, t.hired || '',
-        ]))
-      } else if (type === 'directions') {
-        rows = rows.concat(directions.map(d => [
-          d.name || '', d.teacher_name || '', d.schedule || '',
-          d.cost_abo || 0, d.cost_single || 0, d.max_capacity || 0,
-        ]))
-      } else if (type === 'expenses') {
-        rows = rows.concat(expenses.map(e => [
-          e.expense_date || '', e.expense_type || '',
-          e.category || '', e.amount || 0, e.comment || '',
-        ]))
-      } else if (type === 'subscriptions') {
-        rows = rows.concat(subscriptions.map(s => [
-          s.name || '', s.price || 0, s.lessons_count || 0,
-        ]))
-      }
-      const ws = XLSX.utils.aoa_to_sheet(rows)
-      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
-      XLSX.writeFile(wb, `${type}_данные.xlsx`)
-    } else {
-      const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
-      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
-      XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
-    }
-  }
-
-  const downloadAllTemplates = () => {
-    const wb = XLSX.utils.book_new()
-    Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
-      const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
-      ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-      XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
-    })
-    XLSX.writeFile(wb, 'шаблоны_все.xlsx')
   }
 
   // ── ИМПОРТ ───────────────────────────────────────────────
@@ -1031,6 +1036,27 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
       <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportFile} />
+
+      {/* Красивый диалог */}
+      {dialog && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', borderRadius: 20, padding: 28, maxWidth: 380, width: '90%', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 17, color: T.ink, marginBottom: 10 }}>{dialog.title}</div>
+            <div style={{ fontSize: 14, color: T.muted, lineHeight: 1.6, marginBottom: 24 }}>{dialog.text}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button className="btn btn-primary" onClick={dialog.onWithData}>
+                📊 С текущими данными
+              </button>
+              <button className="btn btn-outline" onClick={dialog.onEmpty}>
+                📋 Пустой шаблон
+              </button>
+              <button className="btn btn-ghost" onClick={() => setDialog(null)} style={{ color: T.muted }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Экспорт */}
       <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
