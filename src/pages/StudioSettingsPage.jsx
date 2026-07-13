@@ -560,6 +560,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
     </div>
+  </div>
   )
 }
 
