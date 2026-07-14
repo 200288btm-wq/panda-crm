@@ -169,9 +169,12 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                           onChange={e => setRate(d.id, 'rate_full', +e.target.value)} />
                       </div>
                       <div className="form-group">
-                        <label className="form-label">Порог (чел.)</label>
+                        <label className="form-label">Полная группа от (чел.)</label>
                         <input className="form-input" type="number" value={r.min_students}
-                          onChange={e => setRate(d.id, 'min_students', +e.target.value)} placeholder="Кол-во для полной" />
+                          onChange={e => setRate(d.id, 'min_students', +e.target.value)} placeholder="5" />
+                        <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                          До {r.min_students || '?'} чел. → {fmt(r.rate_part)}, от {r.min_students || '?'} чел. → {fmt(r.rate_full)}
+                        </div>
                       </div>
                     </div>
                   )}
