@@ -6,48 +6,87 @@ import { Modal } from '../components/Modal'
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
 const STATUSES_T = ['Активен', 'В поиске', 'Ожидание', 'Уволен']
 
-function TeacherModal({ teacher, directions, onClose, onSave }) {
+// ── Модалка редактирования педагога ─────────────────────────
+function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   const [f, setF] = useState(teacher ? {
-    name: teacher.name || '', phone: teacher.phone || '', direction_ids: teacher.direction_ids || [],
-    status: teacher.status || 'Активен', rate: teacher.rate || 0, hired: teacher.hired || '',
-    birthday: teacher.birthday || '', lessons_count: teacher.lessons_count || 0,
-  } : { name: '', phone: '', direction_ids: [], status: 'Активен', rate: 0, hired: '', birthday: '', lessons_count: 0 })
+    name: teacher.name || '', phone: teacher.phone || '',
+    direction_ids: teacher.direction_ids || [],
+    status: teacher.status || 'Активен', hired: teacher.hired || '',
+    birthday: teacher.birthday || '', contract_date: teacher.contract_date || '',
+    salary_type: teacher.salary_type || 'per_lesson', // 'per_lesson' | 'salary'
+    salary_amount: teacher.salary_amount || 0,
+  } : {
+    name: '', phone: '', direction_ids: [], status: 'Активен',
+    hired: '', birthday: '', contract_date: '',
+    salary_type: 'per_lesson', salary_amount: 0,
+  })
+  const [rates, setRates] = useState([]) // ставки по направлениям
+  const [loadingRates, setLoadingRates] = useState(false)
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
+  useEffect(() => {
+    if (teacher?.id) loadRates()
+  }, [teacher?.id])
+
+  const loadRates = async () => {
+    setLoadingRates(true)
+    const { data } = await supabase.from('teacher_rates')
+      .select('*').eq('teacher_id', teacher.id)
+    setRates(data || [])
+    setLoadingRates(false)
+  }
+
+  const getRateForDir = (dirId) => rates.find(r => r.direction_id === dirId)
+
+  const setRate = (dirId, field, value) => {
+    setRates(prev => {
+      const existing = prev.find(r => r.direction_id === dirId)
+      if (existing) return prev.map(r => r.direction_id === dirId ? { ...r, [field]: value } : r)
+      return [...prev, { direction_id: dirId, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
+    })
+  }
+
+  const selectedDirs = directions.filter(d => (f.direction_ids || []).includes(d.id))
+
   return (
     <Modal title={teacher ? `✏️ ${teacher.name}` : '+ Новый педагог'} onClose={onClose}
-      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={() => onSave(f)}>Сохранить</button></>}>
-      <div className="form-group"><label className="form-label">ФИО *</label>
+      footer={<>
+        <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+        <button className="btn btn-primary" onClick={() => onSave(f, rates)}>Сохранить</button>
+      </>}>
+
+      {/* Основная информация */}
+      <div className="form-group">
+        <label className="form-label">ФИО *</label>
         <input className="form-input" value={f.name} onChange={e => set('name', e.target.value)} placeholder="Фамилия Имя Отчество" autoFocus />
       </div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label">Телефон</label>
+        <div className="form-group">
+          <label className="form-label">Телефон</label>
           <input className="form-input" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="+7 xxx" />
         </div>
-        <div className="form-group"><label className="form-label">Статус</label>
+        <div className="form-group">
+          <label className="form-label">Статус</label>
           <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>
             {STATUSES_T.map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
       </div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label">Ставка за занятие, ₽</label>
-          <input className="form-input" type="number" value={f.rate} onChange={e => set('rate', +e.target.value)} />
-        </div>
-        <div className="form-group"><label className="form-label">Дата приёма</label>
+        <div className="form-group">
+          <label className="form-label">Дата приёма</label>
           <input className="form-input" type="date" value={f.hired} onChange={e => set('hired', e.target.value)} />
         </div>
-      </div>
-      <div className="form-row">
-        <div className="form-group"><label className="form-label">День рождения</label>
-          <input className="form-input" type="date" value={f.birthday} onChange={e => set('birthday', e.target.value)} />
-        </div>
-        <div className="form-group"><label className="form-label">Проведено занятий</label>
-          <input className="form-input" type="number" value={f.lessons_count} onChange={e => set('lessons_count', +e.target.value)} />
+        <div className="form-group">
+          <label className="form-label">Дата договора</label>
+          <input className="form-input" type="date" value={f.contract_date} onChange={e => set('contract_date', e.target.value)} />
         </div>
       </div>
-      <div className="form-group"><label className="form-label">Направления</label>
+
+      {/* Направления */}
+      <div className="form-group">
+        <label className="form-label">Направления</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
           {directions.map(d => {
             const on = (f.direction_ids || []).includes(d.id)
@@ -63,50 +102,464 @@ function TeacherModal({ teacher, directions, onClose, onSave }) {
           })}
         </div>
       </div>
+
+      {/* Тип оплаты */}
+      <div className="form-group">
+        <label className="form-label">Тип оплаты</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[['per_lesson', '₽ За занятие'], ['salary', '₽ Оклад']].map(([val, label]) => (
+            <label key={val} onClick={() => set('salary_type', val)} style={{
+              flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+              border: `2px solid ${f.salary_type === val ? T.green : T.border}`,
+              background: f.salary_type === val ? T.greenBg : T.cream,
+              textAlign: 'center', fontWeight: 600, fontSize: 13,
+              color: f.salary_type === val ? T.greenDark : T.ink,
+            }}>{label}</label>
+          ))}
+        </div>
+      </div>
+
+      {f.salary_type === 'salary' && (
+        <div className="form-group">
+          <label className="form-label">Оклад, ₽</label>
+          <input className="form-input" type="number" value={f.salary_amount}
+            onChange={e => set('salary_amount', +e.target.value)} placeholder="30000" />
+        </div>
+      )}
+
+      {/* Ставки по направлениям */}
+      {f.salary_type === 'per_lesson' && selectedDirs.length > 0 && (
+        <div className="form-group">
+          <label className="form-label">Ставки по направлениям</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+            {selectedDirs.map(d => {
+              const r = getRateForDir(d.id) || { rate_type: 'per_lesson', rate: 0, rate_part: 0, rate_full: 0, min_students: 0 }
+              return (
+                <div key={d.id} style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1px solid ${T.border}` }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 8 }}>{d.name}</div>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    {[['per_lesson', 'Фикс за занятие'], ['by_students', 'По кол-ву учеников']].map(([val, label]) => (
+                      <label key={val} onClick={() => setRate(d.id, 'rate_type', val)} style={{
+                        flex: 1, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, textAlign: 'center',
+                        border: `2px solid ${r.rate_type === val ? T.green : T.border}`,
+                        background: r.rate_type === val ? T.greenBg : 'white',
+                        color: r.rate_type === val ? T.greenDark : T.ink,
+                      }}>{label}</label>
+                    ))}
+                  </div>
+                  {r.rate_type === 'per_lesson' && (
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Ставка, ₽</label>
+                        <input className="form-input" type="number" value={r.rate}
+                          onChange={e => setRate(d.id, 'rate', +e.target.value)} />
+                      </div>
+                    </div>
+                  )}
+                  {r.rate_type === 'by_students' && (
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label className="form-label">Неполная группа, ₽</label>
+                        <input className="form-input" type="number" value={r.rate_part}
+                          onChange={e => setRate(d.id, 'rate_part', +e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Полная группа, ₽</label>
+                        <input className="form-input" type="number" value={r.rate_full}
+                          onChange={e => setRate(d.id, 'rate_full', +e.target.value)} />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Порог (чел.)</label>
+                        <input className="form-input" type="number" value={r.min_students}
+                          onChange={e => setRate(d.id, 'min_students', +e.target.value)} placeholder="Кол-во для полной" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }
 
+// ── Модалка выплаты ─────────────────────────────────────────
+function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const firstDay = today.slice(0, 8) + '01'
+  const [periodFrom, setPeriodFrom] = useState(firstDay)
+  const [periodTo, setPeriodTo] = useState(today)
+  const [calculated, setCalculated] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [amount, setAmount] = useState(0)
+  const [note, setNote] = useState('')
+
+  const calculate = async () => {
+    setLoading(true)
+    // Загружаем посещаемость за период
+    const { data: att } = await supabase.from('attendance')
+      .select('*, directions(id, name)')
+      .eq('teacher_id', teacher.id)
+      .eq('present', true)
+      .gte('date', periodFrom)
+      .lte('date', periodTo)
+      .eq('studio_id', studioId)
+
+    // Загружаем ставки
+    const { data: rates } = await supabase.from('teacher_rates')
+      .select('*').eq('teacher_id', teacher.id)
+
+    // Загружаем уже выплаченное за период
+    const { data: payouts } = await supabase.from('teacher_payouts')
+      .select('*').eq('teacher_id', teacher.id)
+      .gte('period_from', periodFrom)
+      .lte('period_to', periodTo)
+
+    const alreadyPaid = (payouts || []).reduce((s, p) => s + p.amount, 0)
+
+    // Считаем по направлениям
+    const byDir = {}
+    ;(att || []).forEach(a => {
+      const dirId = a.direction_id
+      if (!byDir[dirId]) byDir[dirId] = { name: a.directions?.name || '—', lessons: 0, students: [] }
+      byDir[dirId].lessons++
+    })
+
+    let total = 0
+    const details = []
+
+    if (teacher.salary_type === 'salary') {
+      // Оклад — считаем пропорционально дням
+      const dFrom = new Date(periodFrom)
+      const dTo = new Date(periodTo)
+      const days = Math.ceil((dTo - dFrom) / (1000 * 60 * 60 * 24)) + 1
+      const daysInMonth = new Date(dFrom.getFullYear(), dFrom.getMonth() + 1, 0).getDate()
+      total = Math.round((teacher.salary_amount || 0) * days / daysInMonth)
+      details.push({ label: `Оклад за ${days} дн. из ${daysInMonth}`, amount: total })
+    } else {
+      Object.entries(byDir).forEach(([dirId, info]) => {
+        const rate = (rates || []).find(r => r.direction_id === +dirId)
+        let lessonRate = rate?.rate || teacher.rate || 0
+        if (rate?.rate_type === 'by_students') {
+          // TODO: по кол-ву студентов — пока используем среднее
+          lessonRate = rate.rate_part || 0
+        }
+        const earned = info.lessons * lessonRate
+        total += earned
+        details.push({ label: `${info.name}: ${info.lessons} зан. × ${fmt(lessonRate)}`, amount: earned })
+      })
+    }
+
+    const totalLessons = Object.values(byDir).reduce((s, d) => s + d.lessons, 0)
+    setCalculated({ total, alreadyPaid, toPay: total - alreadyPaid, details, totalLessons })
+    setAmount(Math.max(0, total - alreadyPaid))
+    setLoading(false)
+  }
+
+  return (
+    <Modal title={`💰 Выплата — ${teacher.name}`} onClose={onClose}
+      footer={<>
+        <button className="btn btn-outline" onClick={onClose}>Отмена</button>
+        <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, note, lessonsCount: calculated?.totalLessons || 0 })}
+          disabled={!calculated}>Создать выплату</button>
+      </>}>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Период с</label>
+          <input className="form-input" type="date" value={periodFrom} onChange={e => setPeriodFrom(e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">По</label>
+          <input className="form-input" type="date" value={periodTo} onChange={e => setPeriodTo(e.target.value)} />
+        </div>
+      </div>
+
+      <button className="btn btn-outline" onClick={calculate} disabled={loading} style={{ width: '100%', marginBottom: 16 }}>
+        {loading ? '⏳ Считаем...' : '🧮 Рассчитать'}
+      </button>
+
+      {calculated && (
+        <div style={{ background: T.cream, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginBottom: 10 }}>Расчёт за период</div>
+          {calculated.details.map((d, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: T.muted, marginBottom: 4 }}>
+              <span>{d.label}</span>
+              <span style={{ fontWeight: 600, color: T.ink }}>{fmt(d.amount)}</span>
+            </div>
+          ))}
+          <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 8, paddingTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
+              <span>Итого начислено</span>
+              <span style={{ color: T.greenDark }}>{fmt(calculated.total)}</span>
+            </div>
+            {calculated.alreadyPaid > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: T.muted, marginTop: 4 }}>
+                <span>Уже выплачено за период</span>
+                <span>−{fmt(calculated.alreadyPaid)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 15, fontWeight: 800, marginTop: 6, color: calculated.toPay > 0 ? T.greenDark : '#e05a5a' }}>
+              <span>К выплате</span>
+              <span>{fmt(calculated.toPay)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="form-group">
+        <label className="form-label">Сумма выплаты, ₽</label>
+        <input className="form-input" type="number" value={amount} onChange={e => setAmount(+e.target.value)} />
+      </div>
+      <div className="form-group">
+        <label className="form-label">Комментарий</label>
+        <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Зарплата за июнь" />
+      </div>
+    </Modal>
+  )
+}
+
+// ── Карточка педагога (раскрывающаяся) ──────────────────────
+function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout }) {
+  const [open, setOpen] = useState(false)
+  const [payouts, setPayouts] = useState([])
+  const [attStats, setAttStats] = useState(null)
+  const [loadingStats, setLoadingStats] = useState(false)
+  const [rates, setRates] = useState([])
+
+  const loadDetails = async () => {
+    if (attStats) return // уже загружено
+    setLoadingStats(true)
+    const [{ data: att }, { data: py }, { data: rt }] = await Promise.all([
+      supabase.from('attendance').select('direction_id, date').eq('teacher_id', teacher.id).eq('present', true).eq('studio_id', studioId),
+      supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
+      supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
+    ])
+    setAttStats(att || [])
+    setPayouts(py || [])
+    setRates(rt || [])
+    setLoadingStats(false)
+  }
+
+  const handleOpen = () => {
+    setOpen(!open)
+    if (!open) loadDetails()
+  }
+
+  const totalPaid = payouts.reduce((s, p) => s + p.amount, 0)
+  const dirNames = (teacher.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean)
+
+  // Считаем задолженность
+  const totalEarned = attStats ? (teacher.salary_type === 'salary'
+    ? (teacher.salary_amount || 0)
+    : attStats.reduce((sum, a) => {
+        const rate = rates.find(r => r.direction_id === a.direction_id)
+        return sum + (rate?.rate || teacher.rate || 0)
+      }, 0)
+  ) : null
+
+  const debt = totalEarned !== null ? totalEarned - totalPaid : null
+
+  return (
+    <div className="card" style={{ marginBottom: 10 }}>
+      {/* Заголовок карточки */}
+      <div className="card-pad" style={{ cursor: 'pointer' }} onClick={handleOpen}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="avatar" style={{ background: hashColor(teacher.name), width: 42, height: 42, fontSize: 16, flexShrink: 0 }}>
+            {(teacher.name || '?')[0]}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{teacher.name}</div>
+              <span className={`badge ${STATUS_T[teacher.status] || 'badge-gray'}`}>{teacher.status}</span>
+            </div>
+            {dirNames.length > 0 && (
+              <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{dirNames.join(', ')}</div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {debt !== null && debt > 0 && (
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 11, color: T.muted }}>Задолженность</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, color: '#e05a5a' }}>{fmt(debt)}</div>
+              </div>
+            )}
+            <div style={{ fontSize: 18, color: T.muted, transform: open ? 'rotate(180deg)' : 'none', transition: '0.2s' }}>▾</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Раскрытое содержимое */}
+      {open && (
+        <div style={{ borderTop: `1px solid ${T.border}`, padding: '16px 18px' }}>
+          {loadingStats ? (
+            <div style={{ color: T.muted, fontSize: 13 }}>Загрузка...</div>
+          ) : (
+            <>
+              {/* Статистика */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
+                <div style={{ background: T.cream, borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 11, color: T.muted }}>Занятий проведено</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: T.ink }}>{attStats?.length || 0}</div>
+                </div>
+                <div style={{ background: T.cream, borderRadius: 10, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 11, color: T.muted }}>Выплачено</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: T.greenDark }}>{fmt(totalPaid)}</div>
+                </div>
+                {debt !== null && (
+                  <div style={{ background: debt > 0 ? '#fde8e8' : T.cream, borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, color: T.muted }}>Задолженность</div>
+                    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: debt > 0 ? '#e05a5a' : T.greenDark }}>{fmt(debt)}</div>
+                  </div>
+                )}
+                {teacher.salary_type === 'per_lesson' && (
+                  <div style={{ background: T.cream, borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, color: T.muted }}>Оплата</div>
+                    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink }}>
+                      {rates.length > 0 ? `${rates.length} ставок` : fmt(teacher.rate) + '/зан.'}
+                    </div>
+                  </div>
+                )}
+                {teacher.salary_type === 'salary' && (
+                  <div style={{ background: T.cream, borderRadius: 10, padding: '10px 14px' }}>
+                    <div style={{ fontSize: 11, color: T.muted }}>Оклад</div>
+                    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink }}>{fmt(teacher.salary_amount)}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Ставки по направлениям */}
+              {rates.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ставки</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {rates.map(r => {
+                      const dir = directions.find(d => d.id === r.direction_id)
+                      return (
+                        <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                          <span style={{ color: T.ink }}>{dir?.name || '—'}</span>
+                          <span style={{ color: T.greenDark, fontWeight: 700 }}>
+                            {r.rate_type === 'per_lesson'
+                              ? `${fmt(r.rate)}/зан.`
+                              : `${fmt(r.rate_part)} / ${fmt(r.rate_full)} (от ${r.min_students} чел.)`}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* История выплат */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>История выплат</div>
+                {payouts.length === 0 ? (
+                  <div style={{ fontSize: 13, color: T.muted }}>Выплат пока нет</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {payouts.slice(0, 5).map(p => (
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: T.cream, borderRadius: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{fmt(p.amount)}</div>
+                          <div style={{ fontSize: 11, color: T.muted }}>{p.period_from} — {p.period_to} · {p.lessons_count} зан.</div>
+                          {p.note && <div style={{ fontSize: 11, color: T.muted }}>{p.note}</div>}
+                        </div>
+                        <div style={{ fontSize: 11, color: T.muted }}>{p.created_at?.slice(0, 10)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Доп. инфо */}
+              {(teacher.hired || teacher.contract_date || teacher.phone) && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+                  {teacher.phone && <div><div style={{ fontSize: 11, color: T.muted }}>Телефон</div><div style={{ fontSize: 13 }}>{teacher.phone}</div></div>}
+                  {teacher.hired && <div><div style={{ fontSize: 11, color: T.muted }}>Принят</div><div style={{ fontSize: 13 }}>{teacher.hired}</div></div>}
+                  {teacher.contract_date && <div><div style={{ fontSize: 11, color: T.muted }}>Договор</div><div style={{ fontSize: 13 }}>{teacher.contract_date}</div></div>}
+                </div>
+              )}
+
+              {/* Кнопки */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary btn-sm" onClick={() => onPayout(teacher)}>💰 Выплата</button>
+                <button className="btn btn-outline btn-sm" onClick={() => onEdit(teacher)}>✏️ Редактировать</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => onDelete(teacher.id, teacher.name)} style={{ color: '#e05a5a' }}>🗑️ Удалить</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Главная страница ─────────────────────────────────────────
 export default function TeachersPage({ teachers, directions, reload, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [showPayout, setShowPayout] = useState(null)
 
-  useEffect(() => {
-    const onResize = () => setIsMobile(window.innerWidth <= 768)
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  const save = async (f) => {
-    // Чистим пустые даты — PostgreSQL не принимает '' для типа date
+  const save = async (f, rates) => {
     const cleaned = {
       ...f,
       hired: f.hired || null,
       birthday: f.birthday || null,
-      rate: +f.rate || 0,
-      lessons_count: +f.lessons_count || 0,
+      contract_date: f.contract_date || null,
+      salary_amount: +f.salary_amount || 0,
     }
-    if (!cleaned.name?.trim()) {
-      alert('Пожалуйста, укажите ФИО педагога')
-      return
-    }
+    if (!cleaned.name?.trim()) { alert('Пожалуйста, укажите ФИО педагога'); return }
+
+    let teacherId = showEdit?.id
     if (showEdit) {
       const { error } = await supabase.from('teachers').update(cleaned).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
-      setShowEdit(null)
+      if (error) { alert('Ошибка: ' + error.message); return }
     } else {
-      const { error } = await supabase.from('teachers').insert(cleaned)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
-      setShowAdd(false)
+      const { data, error } = await supabase.from('teachers').insert({ ...cleaned, studio_id: studioId }).select().single()
+      if (error) { alert('Ошибка: ' + error.message); return }
+      teacherId = data.id
     }
+
+    // Сохраняем ставки по направлениям
+    if (f.salary_type === 'per_lesson' && rates.length > 0) {
+      await supabase.from('teacher_rates').delete().eq('teacher_id', teacherId)
+      const toInsert = rates
+        .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
+        .map(r => ({ ...r, teacher_id: teacherId, studio_id: studioId, id: undefined }))
+      if (toInsert.length > 0) await supabase.from('teacher_rates').insert(toInsert)
+    }
+
+    setShowAdd(false)
+    setShowEdit(null)
     reload()
   }
 
   const del = async (id, name) => {
     if (!confirm(`Удалить педагога «${name}»?`)) return
-    const { error } = await supabase.from('teachers').delete().eq('id', id)
-    if (error) { alert('Ошибка удаления: ' + error.message); return }
+    await supabase.from('teachers').delete().eq('id', id)
+    reload()
+  }
+
+  const savePayout = async ({ amount, periodFrom, periodTo, note, lessonsCount }) => {
+    const { error } = await supabase.from('teacher_payouts').insert({
+      teacher_id: showPayout.id,
+      studio_id: studioId,
+      amount, period_from: periodFrom, period_to: periodTo,
+      lessons_count: lessonsCount, note,
+    })
+    if (error) { alert('Ошибка: ' + error.message); return }
+    // Добавляем также в расходы
+    await supabase.from('expenses').insert({
+      studio_id: studioId,
+      expense_date: new Date().toISOString().slice(0, 10),
+      expense_type: 'Зарплата',
+      category: 'Разовый',
+      amount,
+      comment: `${showPayout.name}: ${note || 'выплата'}`,
+    })
+    setShowPayout(null)
     reload()
   }
 
@@ -115,71 +568,35 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Добавить педагога</button>
       </div>
-      <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}><table>
-        <thead><tr><th>ФИО</th><th>Направления</th><th>Статус</th><th>Ставка / занятие</th><th>Проведено</th><th>Принят</th><th>Контакт</th><th></th></tr></thead>
-        <tbody>
-          {teachers.map(t => (
-            <tr key={t.id}>
-              <td><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div className="avatar" style={{ background: hashColor(t.name), width: 32, height: 32, fontSize: 13 }}>{(t.name || '?')[0]}</div>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{t.name}</span>
-              </div></td>
-              <td style={{ fontSize: 12 }}>{(t.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean).join(', ') || '—'}</td>
-              <td><span className={`badge ${STATUS_T[t.status] || 'badge-gray'}`}>{t.status}</span></td>
-              <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.greenDark }}>{fmt(t.rate)}</span></td>
-              <td style={{ textAlign: 'center', fontFamily: 'Nunito,sans-serif', fontWeight: 800 }}>{t.lessons_count}</td>
-              <td style={{ fontSize: 12, color: T.muted }}>{t.hired || '—'}</td>
-              <td style={{ fontSize: 12, color: T.muted }}>{t.phone || '—'}</td>
-              <td>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(t)}>✏️</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => del(t.id, t.name)} style={{ color: T.red }}>🗑️</button>
-                </div>
-              </td>
-            </tr>
-          ))}
-          {!teachers.length && <tr><td colSpan={8}><div className="empty"><div className="empty-icon">👩‍🏫</div><div className="empty-text">Педагогов нет</div></div></td></tr>}
-        </tbody>
-      </table></div>
 
-      {/* Карточки для мобильных */}
-      <div style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
-        {teachers.map(t => (
-          <div key={t.id} className="card card-pad">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div className="avatar" style={{ background: hashColor(t.name), width: 38, height: 38, fontSize: 14 }}>{(t.name || '?')[0]}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>{t.name}</div>
-              </div>
-              <span className={`badge ${STATUS_T[t.status] || 'badge-gray'}`}>{t.status}</span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 8 }}>
-              <div>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Ставка</div>
-                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.greenDark }}>{fmt(t.rate)}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: T.muted, marginBottom: 2 }}>Телефон</div>
-                <div style={{ fontSize: 13, color: T.green, fontWeight: 600 }}>{t.phone || '—'}</div>
-              </div>
-            </div>
-            {(t.direction_ids || []).length > 0 && (
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>
-                {(t.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean).join(', ')}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(t)}>✏️</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => del(t.id, t.name)} style={{ color: T.red }}>🗑️</button>
-            </div>
-          </div>
-        ))}
-        {!teachers.length && <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 0' }}>
-          <div className="empty-icon">👩‍🏫</div><div className="empty-text">Педагогов нет</div>
-        </div>}
-      </div>
-      {showAdd && <TeacherModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <TeacherModal teacher={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
+      {teachers.length === 0 && (
+        <div className="card card-pad" style={{ textAlign: 'center', padding: '40px 0' }}>
+          <div className="empty-icon">👩‍🏫</div>
+          <div className="empty-text">Педагогов нет</div>
+        </div>
+      )}
+
+      {teachers.map(t => (
+        <TeacherCard
+          key={t.id}
+          teacher={t}
+          directions={directions}
+          studioId={studioId}
+          onEdit={setShowEdit}
+          onDelete={del}
+          onPayout={setShowPayout}
+        />
+      ))}
+
+      {showAdd && (
+        <TeacherModal directions={directions} studioId={studioId} onClose={() => setShowAdd(false)} onSave={save} />
+      )}
+      {showEdit && (
+        <TeacherModal teacher={showEdit} directions={directions} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />
+      )}
+      {showPayout && (
+        <PayoutModal teacher={showPayout} directions={directions} studioId={studioId} onClose={() => setShowPayout(null)} onSave={savePayout} />
+      )}
     </div>
   )
 }
