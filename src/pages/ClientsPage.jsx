@@ -141,6 +141,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
   const [attExpanded, setAttExpanded] = useState(false)
+  const [payExpanded, setPayExpanded] = useState(false)
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -373,8 +374,11 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         ))}
       </div>
       <div className="divider" />
-      <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
-      {cPay.length ? cPay.map(p => {
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', marginBottom: payExpanded ? 8 : 0 }} onClick={() => setPayExpanded(v => !v)}>
+        <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>История оплат ({cPay.length})</div>
+        <span style={{ fontSize: 11, color: T.muted, fontWeight: 600 }}>{payExpanded ? '▲ свернуть' : '▼ подробнее'}</span>
+      </div>
+      {payExpanded && (cPay.length ? cPay.map(p => {
         const today = new Date().toISOString().slice(0, 10)
         const isExpired = p.expires_at && p.expires_at < today
         return (
@@ -394,7 +398,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
           </div>
         )
-      }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
+      }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>)}
     </Modal>
   )
 }
