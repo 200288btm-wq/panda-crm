@@ -345,22 +345,23 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       </div>
       <div className="divider" />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Направления</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         {cDirs.map(d => {
           const color = d.color || DEFAULT_COLOR
           return (
             <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />{d.name}
-              {d.enrollment_type === 'calendar' && (
-                <button onClick={() => onEnroll && onEnroll({ client, direction: d })}
-                  style={{ marginLeft: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color, fontWeight: 700, padding: '0 2px' }}
-                  title="Записать на даты">📅</button>
-              )}
             </span>
           )
         })}
         {!cDirs.length && <span style={{ fontSize: 13, color: T.muted }}>нет направлений</span>}
       </div>
+      {cDirs.filter(d => d.enrollment_type === 'calendar').map(d => (
+        <button key={d.id} onClick={() => onEnroll && onEnroll({ client, direction: d })}
+          style={{ marginBottom: 6, marginRight: 6, padding: '5px 12px', borderRadius: 10, border: `1.5px solid ${d.color || T.green}`, background: 'white', color: d.color || T.green, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+          📅 Записать на даты — {d.name}
+        </button>
+      ))}
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Контакты</div>
       <div style={{ marginBottom: 14 }}>
         {(client.contacts || []).map((c, i) => (
