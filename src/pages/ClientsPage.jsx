@@ -219,7 +219,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {client.birthday ? ` (${new Date(client.birthday).toLocaleDateString('ru-RU')})` : ''}
             {` · ${client.sex}`}
           </div>
-          <span className={`badge ${STATUS_COLORS_MAP[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
+          <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: bal.color }}>{Math.abs(bal.left)}</div>
