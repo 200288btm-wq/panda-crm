@@ -24,7 +24,7 @@ const calcAge = (birthday) => {
   return age
 }
 
-function ClientModal({ client, directions, onClose, onSave }) {
+function ClientModal({ client, directions, onClose, onSave, statuses = ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание'] }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
     adult_name: client.adult_name || '',
@@ -62,7 +62,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
       </div>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Статус</label>
-          <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>{STATUSES_LIST.map(s => <option key={s}>{s}</option>)}</select>
+          <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>{statuses.map(s => <option key={s}>{s}</option>)}</select>
         </div>
         <div className="form-group"><label className="form-label">Пол</label>
           <select className="form-input" value={f.sex} onChange={e => set('sex', e.target.value)}><option>М</option><option>Ж</option></select>
@@ -727,8 +727,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         )}
       </div>
 
-      {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} statuses={STATUSES_LIST} />}
+      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} statuses={STATUSES_LIST} />}
       {showDetail && (
         <ClientDetail
           client={showDetail}
