@@ -275,7 +275,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0, alignItems: 'start' }}>
         {/* Оплачено */}
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s', marginBottom: payExpanded ? 8 : 16 }}
             onClick={() => setPayExpanded(v => !v)}
@@ -293,7 +293,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {stats && <div style={{ fontSize: 12, color: T.greenDark, marginTop: 2 }}>в этом мес.: <strong>{stats.monthPaid}</strong> зан.</div>}
           </div>
           {payExpanded && (
-            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, minHeight: 80 }}>
+            <div style={{ flex: 1, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
                 {cPay.length ? cPay.map(p => {
@@ -323,7 +323,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         </div>
 
         {/* Посещено */}
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s', marginBottom: attExpanded ? 8 : 16 }}
             onClick={() => setAttExpanded(v => !v)}
@@ -341,7 +341,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {stats && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>в этом мес.: <strong>{stats.monthVisited}</strong> зан.</div>}
           </div>
           {attExpanded && (
-            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, minHeight: 80 }}>
+            <div style={{ flex: 1, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                 История посещений ({attDetails.length})
               </div>
