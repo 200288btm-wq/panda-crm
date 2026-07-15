@@ -362,6 +362,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           📅 Записать на даты — {d.name}
         </button>
       ))}
+      <div style={{ marginBottom: 14 }} />
       <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Контакты</div>
       <div style={{ marginBottom: 14 }}>
         {(client.contacts || []).map((c, i) => (
