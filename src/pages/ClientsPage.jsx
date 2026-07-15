@@ -351,6 +351,11 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           return (
             <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />{d.name}
+              {d.enrollment_type === 'calendar' && (
+                <button onClick={() => setEnrollModal({ client, direction: d })}
+                  style={{ marginLeft: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color, fontWeight: 700, padding: '0 2px' }}
+                  title="Записать на даты">📅</button>
+              )}
             </span>
           )
         })}
@@ -500,6 +505,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
   const [dirFilter, setDirFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
+  const [enrollModal, setEnrollModal] = useState(null) // { client, direction }
   const [showEdit, setShowEdit] = useState(null)
   const [showFreeze, setShowFreeze] = useState(null)
   const [addresses, setAddresses] = useState([])
@@ -743,7 +749,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           onClose={() => setShowFreeze(null)}
           onSaved={() => {
             setShowFreeze(null)
-            // Закрываем и переоткрываем карточку клиента чтобы перезагрузить заморозки
             if (showDetail) {
               const cid = showDetail.id
               setShowDetail(null)
@@ -755,6 +760,197 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           }}
         />
       )}
+      {enrollModal && (
+        <EnrollModal
+          client={enrollModal.client}
+          direction={enrollModal.direction}
+          studioId={studioId}
+          onClose={() => setEnrollModal(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Модалка записи на конкретные даты ───────────────────────
+function EnrollModal({ client, direction, studioId, onClose }) {
+  const today = new Date()
+  const [selectedDates, setSelectedDates] = useState([])
+  const [existingEnrollments, setExistingEnrollments] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState(null)
+  const [viewMonth, setViewMonth] = useState({ year: today.getFullYear(), month: today.getMonth() })
+
+  useEffect(() => { loadExisting() }, [])
+
+  const loadExisting = async () => {
+    const { data } = await supabase.from('enrollments')
+      .select('*')
+      .eq('client_id', client.id)
+      .eq('direction_id', direction.id)
+      .eq('status', 'enrolled')
+    setExistingEnrollments(data || [])
+  }
+
+  const fmt2 = n => String(n).padStart(2, '0')
+  const toStr = (y, m, d) => `${y}-${fmt2(m+1)}-${fmt2(d)}`
+
+  const daysInMonth = new Date(viewMonth.year, viewMonth.month + 1, 0).getDate()
+  const firstDow = new Date(viewMonth.year, viewMonth.month, 1).getDay()
+  const offset = (firstDow + 6) % 7
+
+  // Дни недели на которых стоит занятие
+  const scheduleStr = direction.schedule || ''
+  const scheduleDows = []
+  const DAY_MAP = { 'пн': 1, 'вт': 2, 'ср': 3, 'чт': 4, 'пт': 5, 'сб': 6, 'вс': 0 }
+  Object.entries(DAY_MAP).forEach(([key, val]) => {
+    if (scheduleStr.toLowerCase().includes(key)) scheduleDows.push(val)
+  })
+
+  const toggleDate = (ds) => {
+    setSelectedDates(prev => prev.includes(ds) ? prev.filter(x => x !== ds) : [...prev, ds])
+  }
+
+  const isExisting = (ds) => existingEnrollments.some(e => e.date === ds)
+  const isSelected = (ds) => selectedDates.includes(ds)
+  const isScheduled = (dow) => scheduleDows.length === 0 || scheduleDows.includes(dow)
+
+  const save = async () => {
+    if (!selectedDates.length) { setMsg({ type: 'error', text: 'Выберите хотя бы одну дату' }); return }
+    setSaving(true)
+    const toInsert = selectedDates
+      .filter(ds => !isExisting(ds))
+      .map(ds => ({ studio_id: studioId, direction_id: direction.id, client_id: client.id, date: ds, status: 'enrolled' }))
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from('enrollments').insert(toInsert)
+      if (error) { setMsg({ type: 'error', text: error.message }); setSaving(false); return }
+    }
+    setMsg({ type: 'success', text: `Записан на ${toInsert.length} занятий` })
+    setSelectedDates([])
+    loadExisting()
+    setSaving(false)
+    setTimeout(() => setMsg(null), 2000)
+  }
+
+  const cancelEnrollment = async (enrollmentId) => {
+    await supabase.from('enrollments').update({ status: 'cancelled' }).eq('id', enrollmentId)
+    loadExisting()
+  }
+
+  const color = direction.color || T.green
+  const DAYS_RU_SHORT = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 420, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 16, color: T.ink }}>📅 Запись на занятия</div>
+            <div style={{ fontSize: 13, color: T.muted }}>{client.child_name} · {direction.name}</div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: T.muted }}>✕</button>
+        </div>
+
+        {/* Навигация по месяцам */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => {
+            const d = new Date(viewMonth.year, viewMonth.month - 1)
+            setViewMonth({ year: d.getFullYear(), month: d.getMonth() })
+          }}>◀</button>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>
+            {new Date(viewMonth.year, viewMonth.month).toLocaleString('ru-RU', { month: 'long', year: 'numeric' })}
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => {
+            const d = new Date(viewMonth.year, viewMonth.month + 1)
+            setViewMonth({ year: d.getFullYear(), month: d.getMonth() })
+          }}>▶</button>
+        </div>
+
+        {/* Дни недели */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
+          {DAYS_RU_SHORT.map(d => (
+            <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: T.muted, padding: '2px 0' }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Календарь */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 16 }}>
+          {Array(offset).fill(null).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: daysInMonth }, (_, i) => {
+            const day = i + 1
+            const date = new Date(viewMonth.year, viewMonth.month, day)
+            const dow = date.getDay()
+            const ds = toStr(viewMonth.year, viewMonth.month, day)
+            const isPast = date < new Date(today.getFullYear(), today.getMonth(), today.getDate())
+            const scheduled = isScheduled(dow)
+            const existing = isExisting(ds)
+            const selected = isSelected(ds)
+            const existingEnroll = existingEnrollments.find(e => e.date === ds)
+
+            return (
+              <div key={day} onClick={() => !isPast && scheduled && !existing && toggleDate(ds)}
+                style={{
+                  textAlign: 'center', padding: '6px 2px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                  cursor: isPast || !scheduled || existing ? 'default' : 'pointer',
+                  background: existing ? color + '33' : selected ? color : scheduled && !isPast ? T.cream : 'transparent',
+                  color: existing ? color : selected ? 'white' : isPast || !scheduled ? T.muted : T.ink,
+                  border: existing ? `2px solid ${color}` : selected ? `2px solid ${color}` : '2px solid transparent',
+                  opacity: isPast ? 0.4 : 1,
+                  position: 'relative',
+                }}>
+                {day}
+                {existing && (
+                  <button onClick={e => { e.stopPropagation(); cancelEnrollment(existingEnroll.id) }}
+                    style={{ position: 'absolute', top: -4, right: -4, background: '#e05a5a', border: 'none', borderRadius: '50%', width: 14, height: 14, fontSize: 9, color: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Легенда */}
+        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: T.muted, marginBottom: 16, flexWrap: 'wrap' }}>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: color + '33', border: `1.5px solid ${color}`, marginRight: 4 }} />Уже записан</span>
+          <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: color, marginRight: 4 }} />Выбрано</span>
+          {scheduleDows.length > 0 && <span>Занятия по расписанию подсвечены</span>}
+        </div>
+
+        {selectedDates.length > 0 && (
+          <div style={{ background: T.greenBg, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: T.greenDark, fontWeight: 600 }}>
+            Выбрано дат: {selectedDates.length}
+          </div>
+        )}
+
+        {/* Существующие записи */}
+        {existingEnrollments.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 6, textTransform: 'uppercase' }}>Уже записан ({existingEnrollments.length})</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {existingEnrollments.sort((a,b) => a.date.localeCompare(b.date)).map(e => (
+                <span key={e.id} style={{ background: color + '22', color, border: `1px solid ${color}44`, borderRadius: 8, padding: '2px 8px', fontSize: 12, fontWeight: 600 }}>
+                  {new Date(e.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                  <button onClick={() => cancelEnrollment(e.id)} style={{ marginLeft: 4, background: 'none', border: 'none', cursor: 'pointer', color, fontSize: 11 }}>✕</button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {msg && (
+          <div style={{ fontSize: 12, marginBottom: 10, padding: '8px 12px', borderRadius: 8,
+            background: msg.type === 'error' ? '#fde8e8' : T.greenBg,
+            color: msg.type === 'error' ? '#e05a5a' : T.greenDark, fontWeight: 600 }}>
+            {msg.type === 'error' ? '⚠️' : '✅'} {msg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={save} disabled={saving || !selectedDates.length} style={{ flex: 1 }}>
+            {saving ? 'Сохраняем...' : `✅ Записать (${selectedDates.length})`}
+          </button>
+          <button className="btn btn-outline" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
     </div>
   )
 }

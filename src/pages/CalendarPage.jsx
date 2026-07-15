@@ -62,8 +62,9 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = []) => {
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = [], enrollments = []) => {
   const dow = date.getDay()
+  const ds = dateStr(date)
   const events = []
   directions.forEach(d => {
     const timeForDay = getTimeForDow(dow, d.schedule)
@@ -91,7 +92,6 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
     const dirGroups = (d.groups || [])
     const relevantFilterGroups = filterGroups.filter(gid => dirGroups.some(g => String(g.id) === gid))
     if (relevantFilterGroups.length > 0) {
-      // Если для этого направления выбраны конкретные подгруппы — показываем только их
       const hasGroup = relevantFilterGroups.some(gid => dirGroups.some(g => String(g.id) === gid))
       if (!hasGroup) return
     }
@@ -99,15 +99,24 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
     const timeMin = parseTime(timeForDay)
     if (timeMin === null) return
 
-    let students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
-    // Если выбраны подгруппы — фильтруем учеников по подгруппе
-    if (relevantFilterGroups.length > 0) {
-      students = students.filter(c => {
-        const clientGroups = (c.group_ids || [])
-        return relevantFilterGroups.some(gid => clientGroups.map(String).includes(gid))
-      })
+    let students
+    if (d.enrollment_type === 'calendar') {
+      // Только те кто записался на конкретную дату
+      const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
+      const enrolledIds = dayEnrollments.map(e => e.client_id)
+      students = clients.filter(c => enrolledIds.includes(c.id))
+      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+    } else {
+      students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+      // Если выбраны подгруппы — фильтруем учеников по подгруппе
+      if (relevantFilterGroups.length > 0) {
+        students = students.filter(c => {
+          const clientGroups = (c.group_ids || [])
+          return relevantFilterGroups.some(gid => clientGroups.map(String).includes(gid))
+        })
+      }
+      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
     }
-    if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
     // Цвет: по направлению или по адресу
     let eventColor = d.color || DEFAULT_COLOR
@@ -126,6 +135,8 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       teacher: d.teacher_name, dirId: d.id, students,
       color: eventColor, duration: d.duration || '1 час',
       durationMin: parseDuration(d.duration),
+      enrollmentType: d.enrollment_type || 'group',
+      maxPerSlot: d.max_per_slot || 0,
     })
   })
   events.sort((a,b) => a.timeMin - b.timeMin)
@@ -135,6 +146,20 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 // Attendance modal
 function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange }) {
   const [attendance, setAttendance] = useState({})
+  const [enrollments, setEnrollments] = useState([])
+
+  // Загружаем enrollments на видимый диапазон дат
+  useEffect(() => {
+    const loadEnrollments = async () => {
+      // Определяем диапазон — текущий месяц ±1
+      const from = dateStr(addDays(new Date(), -60))
+      const to = dateStr(addDays(new Date(), 60))
+      const { data } = await supabase.from('enrollments')
+        .select('*').gte('date', from).lte('date', to)
+      if (data) setEnrollments(data)
+    }
+    loadEnrollments()
+  }, [])
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
   const ds = dateStr(date)
@@ -184,16 +209,27 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
       {events.map((ev, i) => {
         const canMark = isPast && (isAdmin || (myTeacherName && ev.teacher === myTeacherName))
         const presentCount = ev.students.filter(s => attendance[`${s.id}_${ev.dirId}`]).length
+        const isCalendar = ev.enrollmentType === 'calendar'
+        const maxSlot = ev.maxPerSlot || 0
         return (
           <div key={i} style={{ marginBottom:20 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}` }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{ev.name}</div>
-                <div style={{ fontSize:12, color:T.muted }}>🕐 {ev.time} · ⏱ {ev.duration} · 👩‍🏫 {ev.teacher}</div>
+                <div style={{ fontSize:12, color:T.muted }}>🕐 {ev.time} · ⏱ {ev.duration}{ev.teacher ? ` · 👩‍🏫 ${ev.teacher}` : ''}</div>
               </div>
-              <span className="badge badge-green">{presentCount}/{ev.students.length}</span>
+              {isCalendar ? (
+                <span className={`badge ${maxSlot > 0 && ev.students.length >= maxSlot ? 'badge-red' : ev.students.length > 0 ? 'badge-green' : 'badge-gray'}`}>
+                  📅 {ev.students.length}{maxSlot > 0 ? `/${maxSlot}` : ''} зап.
+                </span>
+              ) : (
+                <span className="badge badge-green">{presentCount}/{ev.students.length}</span>
+              )}
             </div>
-            {ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет учеников</div>}
+            {isCalendar && ev.students.length === 0 && (
+              <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет записавшихся на этот день</div>
+            )}
+            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет учеников</div>}
             {ev.students.map(s => {
               const key = `${s.id}_${ev.dirId}`
               const present = attendance[key]
@@ -223,7 +259,7 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, enrollments = [] }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -231,7 +267,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
     if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
     if (!events.length) return []
 
@@ -336,8 +372,12 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
                   boxSizing:'border-box',
                 }}>
                   <div style={{ fontSize:10, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
-                  {height > 28 && <div style={{ fontSize:9, color:ev.color+'cc' }}>{ev.time} · {ev.students.length} чел.</div>}
-                  {height > 44 && <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
+                  {height > 28 && <div style={{ fontSize:9, color:ev.color+'cc' }}>
+                    {ev.time} · {ev.enrollmentType === 'calendar'
+                      ? `${ev.students.length}${ev.maxPerSlot > 0 ? `/${ev.maxPerSlot}` : ''} зап.`
+                      : `${ev.students.length} чел.`}
+                  </div>}
+                  {height > 44 && ev.teacher && <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
                 </div>
               )
             })}
@@ -356,7 +396,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, enrollments = [] }) {
   const now = new Date()
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
   useEffect(() => {
@@ -377,7 +417,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
@@ -596,7 +636,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
-          filterGroups={filterGroups}
+          filterGroups={filterGroups} enrollments={enrollments}
         />
       )}
 
@@ -608,7 +648,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
-          filterGroups={filterGroups}
+          filterGroups={filterGroups} enrollments={enrollments}
         />
       )}
 
@@ -690,7 +730,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups)}
+          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
           teachers={teachers}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}

@@ -193,7 +193,9 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     duration: direction.duration||'1 час',
     color: direction.color||DIRECTION_COLORS[0], max_capacity: direction.max_capacity||0,
     category_ids: direction.category_ids || [],
-  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
+    enrollment_type: direction.enrollment_type || 'group',
+    max_per_slot: direction.max_per_slot || 0,
+  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0 })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -243,6 +245,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         color: f.color,
         max_capacity: +f.max_capacity || 0,
         category_ids: f.category_ids || [],
+        enrollment_type: f.enrollment_type || 'group',
+        max_per_slot: +f.max_per_slot || 0,
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -280,6 +284,39 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         <div className="form-group"><label className="form-label">Цвет направления</label>
           <ColorPicker value={f.color} onChange={v=>set('color',v)} />
         </div>
+      </div>
+
+      {/* Формат записи */}
+      <div className="form-group">
+        <label className="form-label">Формат записи</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          {[['group','👥 Групповой'],['calendar','📅 По записи на даты']].map(([val, label]) => (
+            <label key={val} onClick={() => set('enrollment_type', val)} style={{
+              flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+              border: `2px solid ${f.enrollment_type === val ? T.green : T.border}`,
+              background: f.enrollment_type === val ? T.greenBg : T.cream,
+              textAlign: 'center', fontWeight: 600, fontSize: 13,
+              color: f.enrollment_type === val ? T.greenDark : T.ink,
+            }}>{label}</label>
+          ))}
+        </div>
+        {f.enrollment_type === 'group' && (
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            Клиенты записаны в направление целиком. В расписании видны все активные ученики направления.
+          </div>
+        )}
+        {f.enrollment_type === 'calendar' && (
+          <div>
+            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 8 }}>
+              Клиенты записываются на конкретные даты. В расписании видно сколько человек записалось на каждый день.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Макс. участников на занятие</label>
+              <input className="form-input" type="number" min="0" value={f.max_per_slot}
+                onChange={e => set('max_per_slot', e.target.value)} placeholder="0 = без ограничений" />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Блок подгрупп */}
@@ -553,7 +590,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 </div>
               </div>
 
-              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>⏱ {d.duration||'1 час'}</div>
+              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>
+                ⏱ {d.duration||'1 час'}
+                {d.enrollment_type === 'calendar' && (
+                  <span style={{ marginLeft: 8, background: T.greenBg, color: T.greenDark, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
+                    📅 По записи{d.max_per_slot > 0 ? ` (макс. ${d.max_per_slot})` : ''}
+                  </span>
+                )}
+              </div>
 
               {!showLegacy && (
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
