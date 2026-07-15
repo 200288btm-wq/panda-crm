@@ -342,6 +342,36 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         </div>
       )}
 
+      {/* История оплат — сразу под карточкой оплат */}
+      {payExpanded && (
+        <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}` }}>
+          <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
+            {cPay.length ? cPay.map(p => {
+              const today = new Date().toISOString().slice(0, 10)
+              const isExpired = p.expires_at && p.expires_at < today
+              return (
+                <div key={p.id} className="fin-row" style={{ opacity: isExpired ? 0.6 : 1 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>
+                      {p.payment_type}
+                      {isExpired && <span style={{ marginLeft: 6, fontSize: 10, color: '#e05a5a', fontWeight: 700, background: '#fee2e2', padding: '1px 6px', borderRadius: 99 }}>истёк</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted }}>{p.payment_date}</div>
+                    {p.expires_at && (
+                      <div style={{ fontSize: 11, color: isExpired ? '#e05a5a' : '#c47a00', fontWeight: 600 }}>
+                        ⏱ {isExpired ? 'Истёк' : 'Истекает'} {new Date(p.expires_at).toLocaleDateString('ru-RU')}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
+                </div>
+              )
+            }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>📌 Источник</div>
@@ -382,32 +412,6 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         ))}
       </div>
       <div className="divider" />
-      {payExpanded && (
-        <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}` }}>
-          <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
-          {cPay.length ? cPay.map(p => {
-            const today = new Date().toISOString().slice(0, 10)
-            const isExpired = p.expires_at && p.expires_at < today
-            return (
-              <div key={p.id} className="fin-row" style={{ opacity: isExpired ? 0.6 : 1 }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 13 }}>
-                    {p.payment_type}
-                    {isExpired && <span style={{ marginLeft: 6, fontSize: 10, color: '#e05a5a', fontWeight: 700, background: '#fee2e2', padding: '1px 6px', borderRadius: 99 }}>истёк</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.muted }}>{p.payment_date}</div>
-                  {p.expires_at && (
-                    <div style={{ fontSize: 11, color: isExpired ? '#e05a5a' : '#c47a00', fontWeight: 600 }}>
-                      ⏱ {isExpired ? 'Истёк' : 'Истекает'} {new Date(p.expires_at).toLocaleDateString('ru-RU')}
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
-              </div>
-            )
-          }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
-        </div>
-      )}
     </Modal>
   )
 }
