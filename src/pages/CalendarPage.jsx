@@ -171,8 +171,6 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
       .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
     onAttendanceChange && onAttendanceChange()
   }
-  const isPast = date <= today
-  const ds = dateStr(date)
 
   useEffect(() => {
     supabase.from('attendance').select('*').eq('date', ds).then(({ data }) => {
