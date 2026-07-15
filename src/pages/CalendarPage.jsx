@@ -146,20 +146,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 // Attendance modal
 function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange }) {
   const [attendance, setAttendance] = useState({})
-  const [enrollments, setEnrollments] = useState([])
 
-  // Загружаем enrollments на видимый диапазон дат
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      // Определяем диапазон — текущий месяц ±1
-      const from = dateStr(addDays(new Date(), -60))
-      const to = dateStr(addDays(new Date(), 60))
-      const { data } = await supabase.from('enrollments')
-        .select('*').gte('date', from).lte('date', to)
-      if (data) setEnrollments(data)
-    }
-    loadEnrollments()
-  }, [])
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
   const ds = dateStr(date)
@@ -506,6 +493,18 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
   const [filterAddress, setFilterAddress] = useState('all')
   const [colorMode, setColorMode] = useState('direction') // 'direction' | 'address'
   const [onlyWithStudents, setOnlyWithStudents] = useState(false)
+  const [enrollments, setEnrollments] = useState([])
+
+  useEffect(() => {
+    const loadEnrollments = async () => {
+      const from = dateStr(addDays(new Date(), -60))
+      const to = dateStr(addDays(new Date(), 60))
+      const { data } = await supabase.from('enrollments')
+        .select('*').gte('date', from).lte('date', to)
+      if (data) setEnrollments(data)
+    }
+    loadEnrollments()
+  }, [])
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
