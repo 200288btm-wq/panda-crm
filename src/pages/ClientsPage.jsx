@@ -273,7 +273,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0, alignItems: 'start' }}>
         {/* Оплачено */}
         <div>
           <div
@@ -293,7 +293,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {stats && <div style={{ fontSize: 12, color: T.greenDark, marginTop: 2 }}>в этом мес.: <strong>{stats.monthPaid}</strong> зан.</div>}
           </div>
           {payExpanded && (
-            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}` }}>
+            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, minHeight: 80 }}>
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
                 {cPay.length ? cPay.map(p => {
@@ -341,7 +341,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {stats && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>в этом мес.: <strong>{stats.monthVisited}</strong> зан.</div>}
           </div>
           {attExpanded && (
-            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}` }}>
+            <div style={{ marginBottom: 16, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, minHeight: 80 }}>
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                 История посещений ({attDetails.length})
               </div>
