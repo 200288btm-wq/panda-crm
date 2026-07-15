@@ -136,7 +136,7 @@ function ClientModal({ client, directions, onClose, onSave }) {
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment, onEnroll }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
@@ -352,7 +352,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, fontSize: 12, fontWeight: 700, background: color + '22', color, border: `1px solid ${color}44` }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, display: 'inline-block' }} />{d.name}
               {d.enrollment_type === 'calendar' && (
-                <button onClick={() => setEnrollModal({ client, direction: d })}
+                <button onClick={() => onEnroll && onEnroll({ client, direction: d })}
                   style={{ marginLeft: 4, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color, fontWeight: 700, padding: '0 2px' }}
                   title="Записать на даты">📅</button>
               )}
@@ -741,6 +741,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           onFreeze={(c) => setShowFreeze(c)}
           onDelete={isDirector ? deleteClient : null}
           onAddPayment={navigate ? (c) => { setShowDetail(null); navigate('payments', { clientId: c.id }) } : null}
+          onEnroll={(data) => setEnrollModal(data)}
         />
       )}
       {showFreeze && (
