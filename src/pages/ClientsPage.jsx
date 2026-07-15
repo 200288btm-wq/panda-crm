@@ -499,7 +499,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     : ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание']
   const STATUS_COLORS_MAP = clientStatuses.length > 0
     ? Object.fromEntries(clientStatuses.map(s => [s.name, s.color]))
-    : STATUS_COLORS_MAP
+    : STATUS_COLORS
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')
