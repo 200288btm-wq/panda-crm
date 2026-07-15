@@ -144,10 +144,33 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 }
 
 // Attendance modal
-function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange }) {
+function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId }) {
   const [attendance, setAttendance] = useState({})
+  const [enrolling, setEnrolling] = useState(null) // dirId для которого открыт поиск
+  const [enrollSearch, setEnrollSearch] = useState('')
+  const [enrolling2, setEnrolling2] = useState(false)
 
   const today = new Date(); today.setHours(0,0,0,0)
+  const isPast = date <= today
+  const ds = dateStr(date)
+
+  const enroll = async (clientId, dirId) => {
+    setEnrolling2(true)
+    await supabase.from('enrollments').upsert({
+      studio_id: studioId, direction_id: dirId, client_id: clientId,
+      date: ds, status: 'enrolled'
+    }, { onConflict: 'studio_id,direction_id,client_id,date' })
+    setEnrolling(null); setEnrollSearch('')
+    setEnrolling2(false)
+    onAttendanceChange && onAttendanceChange()
+  }
+
+  const cancelEnroll = async (clientId, dirId) => {
+    await supabase.from('enrollments')
+      .update({ status: 'cancelled' })
+      .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
+    onAttendanceChange && onAttendanceChange()
+  }
   const isPast = date <= today
   const ds = dateStr(date)
 
@@ -227,17 +250,60 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
                     <div style={{ fontWeight:700, fontSize:13 }}>{s.child_name}</div>
                     <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
                   </div>
-                  <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
-                    padding:'5px 14px', borderRadius:10, border:'none',
-                    cursor: canMark ? 'pointer' : 'not-allowed',
-                    fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                    background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
-                    color: present ? T.greenDark : isPast ? T.red : T.muted,
-                    opacity: canMark ? 1 : 0.55,
-                  }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                  {isCalendar ? (
+                    <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 12px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕ Отменить</button>
+                  ) : (
+                    <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                      padding:'5px 14px', borderRadius:10, border:'none',
+                      cursor: canMark ? 'pointer' : 'not-allowed',
+                      fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                      background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
+                      color: present ? T.greenDark : isPast ? T.red : T.muted,
+                      opacity: canMark ? 1 : 0.55,
+                    }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                  )}
                 </div>
               )
             })}
+
+            {/* Кнопка записи для calendar-направлений */}
+            {isCalendar && isAdmin && (
+              <div style={{ padding:'8px 14px' }}>
+                {enrolling === ev.dirId ? (
+                  <div>
+                    <input className="form-input" autoFocus placeholder="Поиск клиента..."
+                      value={enrollSearch} onChange={e => setEnrollSearch(e.target.value)}
+                      style={{ marginBottom: 8 }} />
+                    <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10 }}>
+                      {clients
+                        .filter(c => c.child_name?.toLowerCase().includes(enrollSearch.toLowerCase()) && !ev.students.find(s => s.id === c.id))
+                        .slice(0, 10)
+                        .map(c => (
+                          <div key={c.id} onClick={() => enroll(c.id, ev.dirId)}
+                            style={{ padding:'9px 14px', cursor:'pointer', fontSize:13, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:8 }}
+                            onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                            onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                            <div className="avatar" style={{ background:hashColor(c.child_name), width:26, height:26, fontSize:11 }}>{(c.child_name||'?')[0]}</div>
+                            <div>
+                              <div style={{ fontWeight:600 }}>{c.child_name}</div>
+                              <div style={{ fontSize:11, color:T.muted }}>{c.adult_name}</div>
+                            </div>
+                          </div>
+                        ))}
+                      {clients.filter(c => c.child_name?.toLowerCase().includes(enrollSearch.toLowerCase()) && !ev.students.find(s => s.id === c.id)).length === 0 && (
+                        <div style={{ padding:'10px 14px', fontSize:13, color:T.muted }}>Клиенты не найдены</div>
+                      )}
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => { setEnrolling(null); setEnrollSearch('') }} style={{ marginTop:8 }}>Отмена</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-outline btn-sm" onClick={() => setEnrolling(ev.dirId)}
+                    disabled={maxSlot > 0 && ev.students.length >= maxSlot}>
+                    {maxSlot > 0 && ev.students.length >= maxSlot ? '🔒 Мест нет' : '+ Записать клиента'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )
       })}
@@ -480,7 +546,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload }) {
+export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload, studioId }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
@@ -731,9 +797,15 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           date={selectedDay}
           events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
           teachers={teachers}
+          clients={clients}
+          studioId={studioId}
           onClose={() => setSelectedDay(null)}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
-          onAttendanceChange={reload}
+          onAttendanceChange={() => { reload && reload(); setEnrollments([]); setTimeout(() => {
+            const from = dateStr(addDays(new Date(), -60))
+            const to = dateStr(addDays(new Date(), 60))
+            supabase.from('enrollments').select('*').gte('date', from).lte('date', to).then(({ data }) => { if (data) setEnrollments(data) })
+          }, 100) }}
         />
       )}
     </div>
