@@ -22,6 +22,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   })
   const [rates, setRates] = useState([]) // ставки по направлениям
   const [loadingRates, setLoadingRates] = useState(false)
+  const [hiredError, setHiredError] = useState(false)
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
@@ -53,7 +54,13 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     <Modal title={teacher ? `✏️ ${teacher.name}` : '+ Новый педагог'} onClose={onClose}
       footer={<>
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
-        <button className="btn btn-primary" onClick={() => onSave(f, rates)}>Сохранить</button>
+        <button className="btn btn-primary" onClick={() => {
+          if (!f.hired) {
+            setHiredError(true)
+            return
+          }
+          onSave(f, rates)
+        }}>Сохранить</button>
       </>}>
 
       {/* Основная информация */}
@@ -75,11 +82,24 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
       </div>
       <div className="form-row">
         <div className="form-group">
-          <label className="form-label">Дата приёма</label>
-          <input className="form-input" type="date" value={f.hired} onChange={e => set('hired', e.target.value)} />
+          <label className="form-label">Дата приёма *</label>
+          <input className="form-input" type="date" value={f.hired}
+            onChange={e => { set('hired', e.target.value); setHiredError(false) }}
+            style={{ borderColor: hiredError ? '#e05a5a' : undefined }} />
+          {hiredError && (
+            <div style={{ marginTop: 8, background: '#fde8e8', borderRadius: 10, padding: '10px 14px', border: '1px solid #e05a5a22' }}>
+              <div style={{ fontSize: 13, color: '#e05a5a', fontWeight: 600, marginBottom: 6 }}>
+                ⚠️ Укажите дату начала работы
+              </div>
+              <button onClick={() => { set('hired', new Date().toISOString().slice(0, 10)); setHiredError(false) }}
+                style={{ fontSize: 12, color: T.green, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
+                Использовать сегодняшнюю дату ({new Date().toLocaleDateString('ru-RU')})
+              </button>
+            </div>
+          )}
         </div>
         <div className="form-group">
-          <label className="form-label">Дата договора</label>
+          <label className="form-label">Дата договора <span style={{ fontWeight: 400, color: T.muted }}>(необязательно)</span></label>
           <input className="form-input" type="date" value={f.contract_date} onChange={e => set('contract_date', e.target.value)} />
         </div>
       </div>
