@@ -71,7 +71,9 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
       <div className="form-row">
         <div className="form-group">
           <label className="form-label">Телефон</label>
-          <input className="form-input" value={f.phone} onChange={e => set('phone', e.target.value)} placeholder="+7 xxx" />
+          <input className="form-input" value={f.phone} onChange={e => set('phone', e.target.value)}
+            onFocus={e => { if (!f.phone) set('phone', '+7') }}
+            placeholder="+7 xxx" />
         </div>
         <div className="form-group">
           <label className="form-label">Статус</label>
@@ -143,7 +145,10 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
         <div className="form-group">
           <label className="form-label">Оклад, ₽</label>
           <input className="form-input" type="number" value={f.salary_amount}
-            onChange={e => set('salary_amount', +e.target.value)} placeholder="30000" />
+            onChange={e => set('salary_amount', e.target.value)}
+            onFocus={e => { if (+e.target.value === 0) set('salary_amount', '') }}
+            onBlur={e => { if (e.target.value === '') set('salary_amount', 0) }}
+            placeholder="30000" />
         </div>
       )}
 
@@ -172,7 +177,9 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                       <div className="form-group">
                         <label className="form-label">Ставка, ₽</label>
                         <input className="form-input" type="number" value={r.rate}
-                          onChange={e => setRate(d.id, 'rate', +e.target.value)} />
+                          onChange={e => setRate(d.id, 'rate', e.target.value)}
+                          onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate', '') }}
+                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate', 0) }} />                          onChange={e => setRate(d.id, 'rate', +e.target.value)} />
                       </div>
                     </div>
                   )}
@@ -181,17 +188,24 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                       <div className="form-group">
                         <label className="form-label">Неполная группа, ₽</label>
                         <input className="form-input" type="number" value={r.rate_part}
-                          onChange={e => setRate(d.id, 'rate_part', +e.target.value)} />
+                          onChange={e => setRate(d.id, 'rate_part', e.target.value)}
+                          onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate_part', '') }}
+                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate_part', 0) }} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Полная группа, ₽</label>
                         <input className="form-input" type="number" value={r.rate_full}
-                          onChange={e => setRate(d.id, 'rate_full', +e.target.value)} />
+                          onChange={e => setRate(d.id, 'rate_full', e.target.value)}
+                          onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate_full', '') }}
+                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate_full', 0) }} />
                       </div>
                       <div className="form-group">
                         <label className="form-label">Полная группа от (чел.)</label>
                         <input className="form-input" type="number" value={r.min_students}
-                          onChange={e => setRate(d.id, 'min_students', +e.target.value)} placeholder="5" />
+                          onChange={e => setRate(d.id, 'min_students', e.target.value)}
+                          onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'min_students', '') }}
+                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'min_students', 0) }}
+                          placeholder="5" />
                         <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
                           До {r.min_students || '?'} чел. → {fmt(r.rate_part)}, от {r.min_students || '?'} чел. → {fmt(r.rate_full)}
                         </div>
