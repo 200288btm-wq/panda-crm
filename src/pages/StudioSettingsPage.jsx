@@ -778,7 +778,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
       // Для педагогов добавляем пустой лист ставок
       if (type === 'teachers') {
-        const wsRates = XLSX.utils.aoa_to_sheet([['ФИО педагога', 'Направление', 'Тип', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)'], ['Коноваленко Ольга', 'Рисование', 'Фиксированная', 600, '', '', '']])
+        const wsRates = XLSX.utils.aoa_to_sheet([['ФИО педагога', 'Направление', 'Тип (за занятие/по кол-ву учеников)', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)'], ['Коноваленко Ольга', 'Рисование', 'За занятие', 600, '', '', '']])
         wsRates['!cols'] = Array(7).fill({ wch: 22 })
         XLSX.utils.book_append_sheet(wb, wsRates, 'Ставки педагогов')
       }
@@ -810,19 +810,32 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         onWithData: () => {
           setDialog(null)
           const wb2 = XLSX.utils.book_new()
-          Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
-            let rows = [tmpl.columns]
-            if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
-            else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
-            else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.rate||0,t.hired||'']))
-            else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
-            else if (type === 'expenses') rows = rows.concat(expenses.map(e => [e.expense_date||'',e.expense_type||'',e.category||'',e.amount||0,e.comment||'']))
-            else if (type === 'subscriptions') rows = rows.concat(subscriptions.map(s => [s.name||'',s.price||0,s.lessons_count||0]))
-            const ws = XLSX.utils.aoa_to_sheet(rows)
-            ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-            XLSX.utils.book_append_sheet(wb2, ws, tmpl.label)
+          // Загружаем ставки асинхронно
+          supabase.from('teacher_rates').select('*').eq('studio_id', studioId).then(({ data: rates }) => {
+            Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
+              let rows = [tmpl.columns]
+              if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
+              else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
+              else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
+              else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
+              else if (type === 'expenses') rows = rows.concat(expenses.map(e => [e.expense_date||'',e.expense_type||'',e.category||'',e.amount||0,e.comment||'']))
+              else if (type === 'subscriptions') rows = rows.concat(subscriptions.map(s => [s.name||'',s.price||0,s.lessons_count||0]))
+              const ws = XLSX.utils.aoa_to_sheet(rows)
+              ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+              XLSX.utils.book_append_sheet(wb2, ws, tmpl.label)
+            })
+            // Добавляем лист ставок педагогов
+            const ratesRows = [['ФИО педагога', 'Направление', 'Тип (за занятие/по кол-ву учеников)', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)']]
+            ;(rates || []).forEach(r => {
+              const teacher = teachers.find(t => t.id === r.teacher_id)
+              const direction = directions.find(d => d.id === r.direction_id)
+              ratesRows.push([teacher?.name||'', direction?.name||'', r.rate_type==='per_lesson'?'За занятие':'По кол-ву учеников', r.rate_type==='per_lesson'?r.rate||0:'', r.rate_type==='by_students'?r.rate_part||0:'', r.rate_type==='by_students'?r.rate_full||0:'', r.rate_type==='by_students'?r.min_students||0:''])
+            })
+            const wsRates = XLSX.utils.aoa_to_sheet(ratesRows)
+            wsRates['!cols'] = Array(7).fill({ wch: 26 })
+            XLSX.utils.book_append_sheet(wb2, wsRates, 'Ставки педагогов')
+            XLSX.writeFile(wb2, 'все_данные.xlsx')
           })
-          XLSX.writeFile(wb2, 'все_данные.xlsx')
         },
         onEmpty: () => {
           setDialog(null)
@@ -832,6 +845,10 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
             XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
           })
+          // Добавляем пустой лист ставок педагогов
+          const wsRates = XLSX.utils.aoa_to_sheet([['ФИО педагога', 'Направление', 'Тип (за занятие/по кол-ву учеников)', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)'], ['Коноваленко Ольга', 'Рисование', 'За занятие', 600, '', '', '']])
+          wsRates['!cols'] = Array(7).fill({ wch: 26 })
+          XLSX.utils.book_append_sheet(wb, wsRates, 'Ставки педагогов')
           XLSX.writeFile(wb, 'шаблоны_все.xlsx')
         },
       })
