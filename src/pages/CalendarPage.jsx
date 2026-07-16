@@ -144,15 +144,35 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 }
 
 // Attendance modal
-function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId }) {
   const [attendance, setAttendance] = useState({})
-  const [enrolling, setEnrolling] = useState(null) // dirId для которого открыт поиск
+  const [enrolling, setEnrolling] = useState(null)
   const [enrollSearch, setEnrollSearch] = useState('')
   const [enrolling2, setEnrolling2] = useState(false)
+  const [localEnrollments, setLocalEnrollments] = useState([])
 
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
   const ds = dateStr(date)
+
+  useEffect(() => {
+    // Загружаем enrollments для этого дня
+    supabase.from('enrollments').select('*').eq('date', ds).eq('status', 'enrolled')
+      .then(({ data }) => { if (data) setLocalEnrollments(data) })
+  }, [ds])
+
+  // Пересчитываем events с учётом localEnrollments
+  const events = initialEvents.map(ev => {
+    if (ev.enrollmentType !== 'calendar') return ev
+    const enrolledIds = localEnrollments.filter(e => e.direction_id === ev.dirId).map(e => e.client_id)
+    return { ...ev, students: clients.filter(c => enrolledIds.includes(c.id)) }
+  })
+
+  const reloadEnrollments = async () => {
+    const { data } = await supabase.from('enrollments').select('*').eq('date', ds).eq('status', 'enrolled')
+    if (data) setLocalEnrollments(data)
+    onAttendanceChange && onAttendanceChange()
+  }
 
   const enroll = async (clientId, dirId) => {
     setEnrolling2(true)
@@ -162,14 +182,14 @@ function DayModal({ date, events, teachers = [], onClose, isAdmin, myTeacherName
     }, { onConflict: 'studio_id,direction_id,client_id,date' })
     setEnrolling(null); setEnrollSearch('')
     setEnrolling2(false)
-    onAttendanceChange && onAttendanceChange()
+    await reloadEnrollments()
   }
 
   const cancelEnroll = async (clientId, dirId) => {
     await supabase.from('enrollments')
       .update({ status: 'cancelled' })
       .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
-    onAttendanceChange && onAttendanceChange()
+    await reloadEnrollments()
   }
 
   useEffect(() => {
