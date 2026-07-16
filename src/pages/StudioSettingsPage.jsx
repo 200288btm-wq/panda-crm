@@ -13,6 +13,7 @@ const TABS = [
   { id: 'finance',    label: 'Финансы' },
   { id: 'statuses',   label: 'Статусы клиентов' },
   { id: 'data',       label: 'Данные' },
+  { id: 'plan',       label: '⭐ Тариф' },
   { id: 'bot',        label: 'Telegram' },
   { id: 'booking',    label: 'Онлайн-запись' },
 ]
@@ -59,6 +60,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [statuses, setStatuses] = useState([])
   const [newStatus, setNewStatus] = useState({ name: '', color: 'badge-gray' })
   const [statusMsg, setStatusMsg] = useState(null)
+  const [planInfo, setPlanInfo] = useState(null)
   const [addrMsg, setAddrMsg] = useState(null)
   const [showAddAddr, setShowAddAddr] = useState(false)
   const [editAddr, setEditAddr] = useState(null)
@@ -100,12 +102,13 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const loadAll = async () => {
-    const [s, c, p, et, addr] = await Promise.all([
+    const [s, c, p, et, addr, plan] = await Promise.all([
       supabase.from('studio_settings').select('*').eq('studio_id', studioId).maybeSingle(),
       supabase.from('price_categories').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('subscription_periods').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('expense_types').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('addresses').select('*').eq('studio_id', studioId).order('id'),
+      supabase.from('studio_subscriptions').select('*').eq('studio_id', studioId).maybeSingle(),
     ])
     if (s.data) setSettings(s.data)
     else setSettings({ studio_id: studioId, studio_name: studio?.name || '', logo_url: '', address: '', inn: '', stamp_url: '', phone: '', email: '', website: '' })
@@ -113,6 +116,8 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (p.data) setPeriods(p.data)
     if (et.data) setExpenseTypes(et.data)
     if (addr.data) setAddresses(addr.data)
+    if (plan.data) setPlanInfo(plan.data)
+    else setPlanInfo({ plan: 'free', expires_at: null })
   }
 
   const set = (k, v) => setSettings(prev => ({ ...prev, [k]: v }))
@@ -473,6 +478,9 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         T={T}
       />}
 
+      {/* ── Тариф ── */}
+      {tab === 'plan' && <PlanTab planInfo={planInfo} T={T} />}
+
       {/* ── Telegram ── */}
       {tab === 'bot' && <>
         <div style={{ maxWidth: 600 }}>
@@ -505,6 +513,73 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {/* ── Онлайн-запись ── */}
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
+    </div>
+  )
+}
+
+function PlanTab({ planInfo, T }) {
+  const PLANS = {
+    free:  { label: 'Free',  color: '#9ca3af', desc: 'До 10 клиентов', price: 'Бесплатно', features: ['До 10 клиентов', 'Базовый учёт', 'Telegram-бот'] },
+    start: { label: 'Start', color: '#3b82f6', desc: 'До 100 клиентов', price: '690 ₽/мес', features: ['До 100 клиентов', 'Все функции', 'Экспорт данных', 'Онлайн-запись'] },
+    pro:   { label: 'Pro',   color: '#a855f7', desc: 'Без ограничений', price: '1 490 ₽/мес', features: ['Без ограничений', 'Несколько студий', 'Приоритетная поддержка', 'Аналитика'] },
+  }
+
+  const current = planInfo?.plan || 'free'
+  const plan = PLANS[current]
+  const expires = planInfo?.expires_at
+
+  return (
+    <div style={{ maxWidth: 500 }}>
+      {/* Текущий тариф */}
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `2px solid ${plan.color}`, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <div style={{ background: plan.color + '22', borderRadius: 10, padding: '6px 14px', fontWeight: 800, fontSize: 18, color: plan.color, fontFamily: 'Nunito,sans-serif' }}>
+            {plan.label}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: T.ink }}>Текущий тариф</div>
+            <div style={{ fontSize: 13, color: T.muted }}>{plan.desc} · {plan.price}</div>
+          </div>
+        </div>
+
+        {expires && (
+          <div style={{ fontSize: 13, color: new Date(expires) < new Date() ? '#e05a5a' : T.greenDark, fontWeight: 600, marginBottom: 12 }}>
+            {new Date(expires) < new Date() ? '⚠️ Тариф истёк ' : '✅ Активен до '}{new Date(expires).toLocaleDateString('ru-RU')}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+          {plan.features.map(f => (
+            <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: T.ink }}>
+              <span style={{ color: plan.color, fontWeight: 700 }}>✓</span> {f}
+            </div>
+          ))}
+        </div>
+
+        <a href="https://uchteno-landing.vercel.app/#faq" target="_blank" rel="noopener noreferrer"
+          style={{ display: 'inline-block', padding: '10px 20px', borderRadius: 12, background: plan.color, color: 'white', fontWeight: 700, fontSize: 14, textDecoration: 'none', fontFamily: 'Nunito,sans-serif' }}>
+          {current === 'free' ? '🚀 Улучшить тариф' : '🔄 Изменить тариф'}
+        </a>
+      </div>
+
+      {/* Все тарифы */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Object.entries(PLANS).filter(([key]) => key !== current).map(([key, p]) => (
+          <div key={key} style={{ background: 'white', borderRadius: 14, padding: '14px 18px', border: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ background: p.color + '22', borderRadius: 8, padding: '4px 10px', fontWeight: 800, fontSize: 14, color: p.color, fontFamily: 'Nunito,sans-serif' }}>{p.label}</div>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: T.ink }}>{p.desc}</div>
+                <div style={{ fontSize: 12, color: T.muted }}>{p.price}</div>
+              </div>
+            </div>
+            <a href="https://uchteno-landing.vercel.app/#faq" target="_blank" rel="noopener noreferrer"
+              style={{ padding: '7px 14px', borderRadius: 10, border: `1.5px solid ${p.color}`, color: p.color, fontWeight: 700, fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Перейти →
+            </a>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
