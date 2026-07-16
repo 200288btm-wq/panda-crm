@@ -171,7 +171,6 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const reloadEnrollments = async () => {
     const { data } = await supabase.from('enrollments').select('*').eq('date', ds).eq('status', 'enrolled')
     if (data) setLocalEnrollments(data)
-    onAttendanceChange && onAttendanceChange()
   }
 
   const enroll = async (clientId, dirId) => {
