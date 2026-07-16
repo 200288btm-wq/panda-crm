@@ -777,15 +777,6 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         text: 'В CRM уже есть данные. Скачать все шаблоны с текущими данными или пустые?',
         onWithData: () => {
           setDialog(null)
-          const wb = XLSX.utils.book_new()
-          Object.keys(TEMPLATES).forEach(type => doDownloadTemplate(type, true) || (() => {
-            const tmpl = TEMPLATES[type]
-            let rows = [tmpl.columns]
-            const ws = XLSX.utils.aoa_to_sheet(rows)
-            ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
-            XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
-          })())
-          // Собираем все в один файл
           const wb2 = XLSX.utils.book_new()
           Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
             let rows = [tmpl.columns]
