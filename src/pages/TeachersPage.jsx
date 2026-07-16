@@ -179,7 +179,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                         <input className="form-input" type="number" value={r.rate}
                           onChange={e => setRate(d.id, 'rate', e.target.value)}
                           onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate', '') }}
-                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate', 0) }} />                          onChange={e => setRate(d.id, 'rate', +e.target.value)} />
+                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate', 0) }} />
                       </div>
                     </div>
                   )}
