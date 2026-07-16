@@ -270,7 +270,16 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
                   </div>
                   {isCalendar ? (
-                    <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 12px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕ Отменить</button>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: 'pointer',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: attendance[`${s.id}_${ev.dirId}`] ? T.greenBg : '#f5f5f0',
+                        color: attendance[`${s.id}_${ev.dirId}`] ? T.greenDark : T.muted,
+                      }}>{attendance[`${s.id}_${ev.dirId}`] ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                    </div>
                   ) : (
                     <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
                       padding:'5px 14px', borderRadius:10, border:'none',
