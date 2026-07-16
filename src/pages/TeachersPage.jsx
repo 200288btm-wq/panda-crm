@@ -564,7 +564,16 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       await supabase.from('teacher_rates').delete().eq('teacher_id', teacherId)
       const toInsert = rates
         .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
-        .map(r => ({ ...r, teacher_id: teacherId, studio_id: studioId, id: undefined }))
+        .map(r => ({
+          teacher_id: teacherId,
+          studio_id: studioId,
+          direction_id: r.direction_id,
+          rate_type: r.rate_type || 'per_lesson',
+          rate: +r.rate || 0,
+          rate_part: +r.rate_part || 0,
+          rate_full: +r.rate_full || 0,
+          min_students: +r.min_students || 0,
+        }))
       if (toInsert.length > 0) await supabase.from('teacher_rates').insert(toInsert)
     }
 
