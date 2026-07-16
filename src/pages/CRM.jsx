@@ -13,6 +13,7 @@ import FinancePage from './FinancePage'
 import StaffPage from './StaffPage'
 import ProfilePage from './ProfilePage'
 import StudioSettingsPage from './StudioSettingsPage'
+import AdminPage from './AdminPage'
 import SubscriptionsPage from './SubscriptionsPage'
 import LeadsPage from './Leads'
 import AddressesPage from './AddressesPage'
@@ -58,6 +59,8 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [addresses, setAddresses] = useState([])
   const [studioSettings, setStudioSettings] = useState(null)
   const [clientStatuses, setClientStatuses] = useState([])
+  const [adminOpen, setAdminOpen] = useState(false)
+  const [logoClicks, setLogoClicks] = useState(0)
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
@@ -188,7 +191,12 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const SidebarContent = () => (
     <>
       <div className="sidebar-logo">
-        <div className="logo-row">
+        <div className="logo-row" onClick={() => {
+          const next = logoClicks + 1
+          setLogoClicks(next)
+          if (next >= 5) { setAdminOpen(true); setLogoClicks(0) }
+          setTimeout(() => setLogoClicks(0), 3000)
+        }} style={{ cursor: 'pointer' }}>
           {collapsed && !isMobile ? (
             <PandaIcon size={32} />
           ) : (
@@ -411,6 +419,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           </div>
         </Modal>
       )}
+      {adminOpen && <AdminPage onClose={() => setAdminOpen(false)} />}
     </div>
   )
 }
