@@ -399,7 +399,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       {cDirs.filter(d => d.enrollment_type === 'calendar').map(d => (
         <button key={d.id} onClick={() => onEnroll && onEnroll({ client, direction: d })}
           style={{ marginBottom: 8, marginRight: 6, padding: '4px 10px', borderRadius: 99, border: `1.5px solid ${(d.color || T.green) + '88'}`, background: (d.color || T.green) + '22', color: d.color || T.green, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
-          <span style={{ fontSize: 9, background: d.color || T.green, borderRadius: '50%', width: 7, height: 7, display: 'inline-block' }} />
+          <span style={{ fontSize: 11 }}>📅</span>
           Записать на даты — {d.name}
         </button>
       ))}
