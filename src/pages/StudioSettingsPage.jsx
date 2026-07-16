@@ -700,8 +700,8 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     },
     teachers: {
       label: 'Педагоги',
-      columns: ['ФИО*', 'Телефон', 'Статус', 'Ставка за занятие', 'Дата приёма (ГГГГ-ММ-ДД)'],
-      example: ['Коноваленко Ольга', '+79001234567', 'Активен', '600', '2024-01-01'],
+      columns: ['ФИО*', 'Телефон', 'Статус', 'Тип оплаты (За занятие/Оклад)', 'Оклад (если оклад), ₽', 'Дата приёма (ГГГГ-ММ-ДД)*'],
+      example: ['Коноваленко Ольга', '+79001234567', 'Активен', 'За занятие', '', '2024-01-01'],
     },
     directions: {
       label: 'Направления',
@@ -731,14 +731,40 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     return { name, ws }
   }
 
-  const doDownloadTemplate = (type, withData) => {
+  const doDownloadTemplate = async (type, withData) => {
     const tmpl = TEMPLATES[type]
     const wb = XLSX.utils.book_new()
     if (withData) {
       let rows = [tmpl.columns]
       if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
       else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
-      else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.rate||0,t.hired||'']))
+      else if (type === 'teachers') {
+        rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
+        const ws = XLSX.utils.aoa_to_sheet(rows)
+        ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
+        XLSX.utils.book_append_sheet(wb, ws, 'Педагоги')
+        // Загружаем ставки по направлениям
+        const { data: rates } = await supabase.from('teacher_rates').select('*').eq('studio_id', studioId)
+        const ratesRows = [['ФИО педагога', 'Направление', 'Тип', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)']]
+        ;(rates || []).forEach(r => {
+          const teacher = teachers.find(t => t.id === r.teacher_id)
+          const direction = directions.find(d => d.id === r.direction_id)
+          ratesRows.push([
+            teacher?.name || '',
+            direction?.name || '',
+            r.rate_type === 'per_lesson' ? 'Фиксированная' : 'По кол-ву учеников',
+            r.rate_type === 'per_lesson' ? r.rate || 0 : '',
+            r.rate_type === 'by_students' ? r.rate_part || 0 : '',
+            r.rate_type === 'by_students' ? r.rate_full || 0 : '',
+            r.rate_type === 'by_students' ? r.min_students || 0 : '',
+          ])
+        })
+        const wsRates = XLSX.utils.aoa_to_sheet(ratesRows)
+        wsRates['!cols'] = Array(7).fill({ wch: 22 })
+        XLSX.utils.book_append_sheet(wb, wsRates, 'Ставки педагогов')
+        XLSX.writeFile(wb, 'педагоги_данные.xlsx')
+        return
+      }
       else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
       else if (type === 'expenses') rows = rows.concat(expenses.map(e => [e.expense_date||'',e.expense_type||'',e.category||'',e.amount||0,e.comment||'']))
       else if (type === 'subscriptions') rows = rows.concat(subscriptions.map(s => [s.name||'',s.price||0,s.lessons_count||0]))
@@ -750,6 +776,12 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       const ws = XLSX.utils.aoa_to_sheet([tmpl.columns, tmpl.example])
       ws['!cols'] = tmpl.columns.map(() => ({ wch: 22 }))
       XLSX.utils.book_append_sheet(wb, ws, tmpl.label)
+      // Для педагогов добавляем пустой лист ставок
+      if (type === 'teachers') {
+        const wsRates = XLSX.utils.aoa_to_sheet([['ФИО педагога', 'Направление', 'Тип', 'Ставка фикс, ₽', 'Неполная группа, ₽', 'Полная группа, ₽', 'Порог (чел.)'], ['Коноваленко Ольга', 'Рисование', 'Фиксированная', 600, '', '', '']])
+        wsRates['!cols'] = Array(7).fill({ wch: 22 })
+        XLSX.utils.book_append_sheet(wb, wsRates, 'Ставки педагогов')
+      }
       XLSX.writeFile(wb, `шаблон_${type}.xlsx`)
     }
   }
