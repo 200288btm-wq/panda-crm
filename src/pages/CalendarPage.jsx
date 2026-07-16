@@ -176,10 +176,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
   const enroll = async (clientId, dirId) => {
     setEnrolling2(true)
-    await supabase.from('enrollments').upsert({
+    const { data, error } = await supabase.from('enrollments').upsert({
       studio_id: studioId, direction_id: dirId, client_id: clientId,
       date: ds, status: 'enrolled'
     }, { onConflict: 'studio_id,direction_id,client_id,date' })
+    console.log('enroll result:', { data, error, clientId, dirId, ds, studioId })
     setEnrolling(null); setEnrollSearch('')
     setEnrolling2(false)
     await reloadEnrollments()
