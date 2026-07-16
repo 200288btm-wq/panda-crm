@@ -398,8 +398,9 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       </div>
       {cDirs.filter(d => d.enrollment_type === 'calendar').map(d => (
         <button key={d.id} onClick={() => onEnroll && onEnroll({ client, direction: d })}
-          style={{ marginBottom: 6, marginRight: 6, padding: '5px 12px', borderRadius: 10, border: `1.5px solid ${d.color || T.green}`, background: 'white', color: d.color || T.green, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-          📅 Записать на даты — {d.name}
+          style={{ marginBottom: 8, marginRight: 6, padding: '4px 10px', borderRadius: 99, border: `1.5px solid ${(d.color || T.green) + '88'}`, background: (d.color || T.green) + '22', color: d.color || T.green, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
+          <span style={{ fontSize: 9, background: d.color || T.green, borderRadius: '50%', width: 7, height: 7, display: 'inline-block' }} />
+          Записать на даты — {d.name}
         </button>
       ))}
       <div className="divider" />
