@@ -826,7 +826,14 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           teachers={teachers}
           clients={clients}
           studioId={studioId}
-          onClose={() => setSelectedDay(null)}
+          onClose={() => {
+            setSelectedDay(null)
+            // Перезагружаем enrollments чтобы обновить счётчик в календаре
+            const from = dateStr(addDays(new Date(), -60))
+            const to = dateStr(addDays(new Date(), 60))
+            supabase.from('enrollments').select('*').gte('date', from).lte('date', to)
+              .then(({ data }) => { if (data) setEnrollments(data) })
+          }}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={() => { reload && reload(); setEnrollments([]); setTimeout(() => {
             const from = dateStr(addDays(new Date(), -60))
