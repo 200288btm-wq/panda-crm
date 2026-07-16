@@ -32,7 +32,12 @@ const Msg = ({ msg }) => msg ? (
 ) : null
 
 export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [] }) {
-  const [tab, setTab] = useState('main')
+  const [tab, setTab] = useState(() => localStorage.getItem('settingsTab') || 'main')
+
+  const switchTab = (id) => {
+    setTab(id)
+    localStorage.setItem('settingsTab', id)
+  }
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
@@ -245,7 +250,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {/* Вкладки */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{
+          <button key={t.id} onClick={() => switchTab(t.id)} style={{
             padding: '7px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
             background: tab === t.id ? T.green : T.cream,
             color: tab === t.id ? 'white' : T.ink,
