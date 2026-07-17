@@ -997,6 +997,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         const { data: existingPayments } = await supabase.from('payments').select('payment_date, client_id, amount').eq('studio_id', studioId)
         const existingPaymentKeys = new Set((existingPayments||[]).map(p => `${p.payment_date}_${p.client_id}_${p.amount}`))
         const existingClientPhones = new Set((existingClients||[]).flatMap(c => (c.contacts||[]).filter(x=>x.type==='Телефон').map(x=>x.val.replace(/\D/g,'').slice(-9))))
+        const existingClientNames = new Set((existingClients||[]).map(c => c.child_name?.toLowerCase().trim()))
         const existingTeacherNames = new Set((existingTeachers||[]).map(t => t.name?.toLowerCase().trim()))
         const existingDirNames = new Set((existingDirs||[]).map(d => d.name?.toLowerCase().trim()))
         const existingSubNames = new Set((existingSubs||[]).map(s => s.name?.toLowerCase().trim()))
