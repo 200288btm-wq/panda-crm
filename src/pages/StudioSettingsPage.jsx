@@ -982,10 +982,36 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     try {
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf)
+
+      // Для общего файла — запускаем импорт по каждому листу
+      if (type === 'all') {
+        let totalInserted = 0, allErrors = []
+        const sheetTypeMap = {
+          'клиент': 'clients', 'оплат': 'payments', 'педагог': 'teachers',
+          'направлен': 'directions', 'расход': 'expenses', 'абонемент': 'subscriptions',
+        }
+        for (const sheetName of wb.SheetNames) {
+          const sheetLower = sheetName.toLowerCase()
+          if (sheetLower.includes('ставк')) continue // ставки обрабатываются отдельно в секции teachers
+          const matchedType = Object.entries(sheetTypeMap).find(([key]) => sheetLower.includes(key))?.[1]
+          if (!matchedType) continue
+          // Эмулируем импорт каждого листа через тот же обработчик
+          // просто меняем currentImportType и rows
+        }
+        // Упрощённо — показываем что нужно загружать по отдельности
+        showMsg('error', 'Для общего файла используйте отдельные кнопки загрузки по разделам. Общая загрузка в разработке.')
+        setImporting(null)
+        return
+      }
+
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+        .filter(row => {
+          // Фильтруем строки-подсказки (начинаются с ⚠️ в любой колонке)
+          return !Object.values(row).some(v => String(v).startsWith('⚠️'))
+        })
 
-      if (!rows.length) { showMsg('error', 'Файл пустой'); setImporting(null); return }
+      if (!rows.length) { showMsg('error', 'Файл пустой или содержит только подсказки'); setImporting(null); return }
 
       let inserted = 0, errors = []
 
@@ -1056,25 +1082,67 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'teachers') {
-        const { data: existingTeachers } = await supabase.from('teachers').select('name').eq('studio_id', studioId)
+        const { data: existingTeachers } = await supabase.from('teachers').select('id, name').eq('studio_id', studioId)
         const existingNames = new Set((existingTeachers || []).map(t => t.name?.toLowerCase().trim()))
+        const teacherIdMap = {} // name -> id для импорта ставок
 
+        // Основной лист — педагоги
         for (const row of rows) {
           const name = String(row['ФИО*'] || row['ФИО'] || '').trim()
-          if (!name) { errors.push('Пропущено ФИО'); continue }
+          // Пропускаем пустые строки и строки-подсказки
+          if (!name || name.startsWith('⚠️')) continue
           if (existingNames.has(name.toLowerCase())) {
             errors.push(`Дубликат: педагог «${name}» уже существует`); continue
           }
-          const { error } = await supabase.from('teachers').insert({
+          const salaryTypeRaw = String(row['Тип оплаты (За занятие/Оклад)'] || '').trim().toLowerCase()
+          const salaryType = salaryTypeRaw.includes('оклад') ? 'salary' : 'per_lesson'
+          const { data: inserted_teacher, error } = await supabase.from('teachers').insert({
             studio_id: studioId,
             name,
             phone: String(row['Телефон'] || '').trim() || null,
             status: String(row['Статус'] || 'Активен').trim(),
-            rate: +row['Ставка за занятие'] || 0,
-            hired: String(row['Дата приёма (ГГГГ-ММ-ДД)'] || '').trim() || null,
-          })
-          if (error) errors.push(`${name}: ${error.message}`)
-          else inserted++
+            salary_type: salaryType,
+            salary_amount: salaryType === 'salary' ? (+row['Оклад (если оклад), ₽'] || 0) : 0,
+            hired: String(row['Дата приёма (ГГГГ-ММ-ДД)*'] || row['Дата приёма (ГГГГ-ММ-ДД)'] || '').trim() || null,
+          }).select().single()
+          if (error) { errors.push(`${name}: ${error.message}`); continue }
+          inserted++
+          teacherIdMap[name.toLowerCase()] = inserted_teacher.id
+        }
+
+        // Второй лист — ставки педагогов
+        const ratesSheetName = wb.SheetNames.find(n => n.toLowerCase().includes('ставк'))
+        if (ratesSheetName) {
+          const wsRates = wb.Sheets[ratesSheetName]
+          const ratesRows = XLSX.utils.sheet_to_json(wsRates, { defval: '' })
+          const { data: allTeachers } = await supabase.from('teachers').select('id, name').eq('studio_id', studioId)
+          const { data: allDirs } = await supabase.from('directions').select('id, name').eq('studio_id', studioId)
+
+          for (const row of ratesRows) {
+            const teacherName = String(row['ФИО педагога'] || '').trim()
+            const dirName = String(row['Направление'] || '').trim()
+            if (!teacherName || teacherName.startsWith('⚠️') || !dirName) continue
+
+            const teacher = allTeachers?.find(t => t.name.toLowerCase() === teacherName.toLowerCase())
+            const dir = allDirs?.find(d => d.name.toLowerCase() === dirName.toLowerCase())
+            if (!teacher) { errors.push(`Ставки: педагог не найден «${teacherName}»`); continue }
+            if (!dir) { errors.push(`Ставки: направление не найдено «${dirName}»`); continue }
+
+            const typeRaw = String(row['Тип (за занятие/по кол-ву учеников)'] || '').toLowerCase()
+            const rateType = typeRaw.includes('кол') ? 'by_students' : 'per_lesson'
+
+            const { error } = await supabase.from('teacher_rates').upsert({
+              teacher_id: teacher.id,
+              studio_id: studioId,
+              direction_id: dir.id,
+              rate_type: rateType,
+              rate: rateType === 'per_lesson' ? (+row['Ставка фикс, ₽'] || 0) : 0,
+              rate_part: rateType === 'by_students' ? (+row['Неполная группа, ₽'] || 0) : 0,
+              rate_full: rateType === 'by_students' ? (+row['Полная группа, ₽'] || 0) : 0,
+              min_students: rateType === 'by_students' ? (+row['Порог (чел.)'] || 0) : 0,
+            }, { onConflict: 'teacher_id,direction_id' })
+            if (error) errors.push(`Ставка ${teacherName}/${dirName}: ${error.message}`)
+          }
         }
       }
 
@@ -1202,8 +1270,11 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           Скачайте шаблон, заполните данные и загрузите обратно.
         </div>
 
-        <button className="btn btn-outline" onClick={downloadAllTemplates} style={{ marginBottom: 16, width: '100%' }}>
+        <button className="btn btn-outline" onClick={downloadAllTemplates} style={{ marginBottom: 8, width: '100%' }}>
           📋 Скачать все шаблоны одним файлом
+        </button>
+        <button className="btn btn-primary" onClick={() => startImport('all')} disabled={!!importing} style={{ marginBottom: 16, width: '100%' }}>
+          {importing === 'all' ? '⏳ Загружаем...' : '⬆️ Загрузить общий файл'}
         </button>
 
         {importMsg && (
