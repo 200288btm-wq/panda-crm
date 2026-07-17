@@ -113,7 +113,7 @@ function AddLeadModal({ onClose, onSaved }) {
 }
 
 // Модалка создания клиента из заявки
-function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
+function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) {
   const [form, setForm] = useState({
     child_name: lead.child_name || '',
     parent_name: lead.parent_name || '',
@@ -148,7 +148,6 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted }) {
       status: form.status,
       paid_lessons: 0,
       visited_lessons: 0,
-      balance: 0,
       discount: 0,
       comment: form.comment.trim() || null,
       studio_id: studioId,
@@ -438,7 +437,7 @@ export default function Leads({ directions = [], studioId }) {
       {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} onSaved={fetchLeads} />}
 
       {convertLead && (
-        <ConvertLeadModal lead={convertLead} directions={directions}
+        <ConvertLeadModal lead={convertLead} directions={directions} studioId={studioId}
           onClose={() => setConvertLead(null)}
           onConverted={() => { fetchLeads(); setConvertLead(null) }} />
       )}
