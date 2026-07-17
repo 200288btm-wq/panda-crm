@@ -983,23 +983,85 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf)
 
-      // Для общего файла — запускаем импорт по каждому листу
+      // Для общего файла — читаем все листы
       if (type === 'all') {
         let totalInserted = 0, allErrors = []
-        const sheetTypeMap = {
-          'клиент': 'clients', 'оплат': 'payments', 'педагог': 'teachers',
-          'направлен': 'directions', 'расход': 'expenses', 'абонемент': 'subscriptions',
-        }
+        const { data: existingClients } = await supabase.from('clients').select('child_name, contacts').eq('studio_id', studioId)
+        const { data: existingTeachers } = await supabase.from('teachers').select('id, name').eq('studio_id', studioId)
+        const { data: existingDirs } = await supabase.from('directions').select('id, name').eq('studio_id', studioId)
+        const { data: existingSubs } = await supabase.from('subscriptions').select('name').eq('studio_id', studioId)
+
+        const existingClientNames = new Set((existingClients||[]).map(c => c.child_name?.toLowerCase().trim()))
+        const existingClientPhones = new Set((existingClients||[]).flatMap(c => (c.contacts||[]).filter(x=>x.type==='Телефон').map(x=>x.val.replace(/\D/g,'').slice(-9))))
+        const existingTeacherNames = new Set((existingTeachers||[]).map(t => t.name?.toLowerCase().trim()))
+        const existingDirNames = new Set((existingDirs||[]).map(d => d.name?.toLowerCase().trim()))
+        const existingSubNames = new Set((existingSubs||[]).map(s => s.name?.toLowerCase().trim()))
+
         for (const sheetName of wb.SheetNames) {
-          const sheetLower = sheetName.toLowerCase()
-          if (sheetLower.includes('ставк')) continue // ставки обрабатываются отдельно в секции teachers
-          const matchedType = Object.entries(sheetTypeMap).find(([key]) => sheetLower.includes(key))?.[1]
-          if (!matchedType) continue
-          // Эмулируем импорт каждого листа через тот же обработчик
-          // просто меняем currentImportType и rows
+          const lower = sheetName.toLowerCase()
+          const sheetRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
+            .filter(row => !Object.values(row).some(v => String(v).startsWith('⚠️')))
+
+          if (lower.includes('клиент')) {
+            for (const row of sheetRows) {
+              const name = String(row['Имя ребёнка*']||row['Имя ребёнка']||'').trim()
+              if (!name) continue
+              if (existingClientNames.has(name.toLowerCase())) { allErrors.push(`Дубликат клиент: ${name}`); continue }
+              const phone = String(row['Телефон*']||row['Телефон']||'').trim()
+              if (phone) { const d = phone.replace(/\D/g,'').slice(-9); if (existingClientPhones.has(d)) { allErrors.push(`Дубликат телефон: ${phone}`); continue } }
+              const { error } = await supabase.from('clients').insert({ studio_id: studioId, child_name: name, adult_name: String(row['Имя родителя']||'').trim()||null, contacts: phone?[{type:'Телефон',val:phone}]:[], status: String(row['Статус']||'Новый').trim(), paid_lessons: +row['Оплачено занятий']||0, visited_lessons: +row['Посещено занятий']||0, discount: +row['Скидка %']||0, birthday: String(row['Дата рождения (ГГГГ-ММ-ДД)']||'').trim()||null, source: String(row['Источник']||'').trim()||null, comment: String(row['Комментарий']||'').trim()||null })
+              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+            }
+          } else if (lower.includes('педагог') && !lower.includes('ставк')) {
+            for (const row of sheetRows) {
+              const name = String(row['ФИО*']||row['ФИО']||'').trim()
+              if (!name || name.startsWith('⚠️')) continue
+              if (existingTeacherNames.has(name.toLowerCase())) { allErrors.push(`Дубликат педагог: ${name}`); continue }
+              const salaryType = String(row['Тип оплаты (За занятие/Оклад)']||'').toLowerCase().includes('оклад') ? 'salary' : 'per_lesson'
+              const { error } = await supabase.from('teachers').insert({ studio_id: studioId, name, phone: String(row['Телефон']||'').trim()||null, status: String(row['Статус']||'Активен').trim(), salary_type: salaryType, salary_amount: salaryType==='salary'?(+row['Оклад (если оклад), ₽']||0):0, hired: String(row['Дата приёма (ГГГГ-ММ-ДД)*']||row['Дата приёма (ГГГГ-ММ-ДД)']||'').trim()||null })
+              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+            }
+          } else if (lower.includes('ставк')) {
+            const { data: allT } = await supabase.from('teachers').select('id,name').eq('studio_id', studioId)
+            const { data: allD } = await supabase.from('directions').select('id,name').eq('studio_id', studioId)
+            for (const row of sheetRows) {
+              const tName = String(row['ФИО педагога']||'').trim()
+              const dName = String(row['Направление']||'').trim()
+              if (!tName || !dName || tName.startsWith('⚠️')) continue
+              const t = allT?.find(x => x.name.toLowerCase()===tName.toLowerCase())
+              const d = allD?.find(x => x.name.toLowerCase()===dName.toLowerCase())
+              if (!t||!d) { allErrors.push(`Ставка: не найден ${!t?`педагог ${tName}`:`направление ${dName}`}`); continue }
+              const rType = String(row['Тип (за занятие/по кол-ву учеников)']||'').toLowerCase().includes('кол') ? 'by_students' : 'per_lesson'
+              await supabase.from('teacher_rates').upsert({ teacher_id:t.id, studio_id:studioId, direction_id:d.id, rate_type:rType, rate:rType==='per_lesson'?(+row['Ставка фикс, ₽']||0):0, rate_part:rType==='by_students'?(+row['Неполная группа, ₽']||0):0, rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0, min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0 }, { onConflict: 'teacher_id,direction_id' })
+            }
+          } else if (lower.includes('направлен')) {
+            for (const row of sheetRows) {
+              const name = String(row['Название*']||row['Название']||'').trim()
+              if (!name) continue
+              if (existingDirNames.has(name.toLowerCase())) { allErrors.push(`Дубликат направление: ${name}`); continue }
+              const { error } = await supabase.from('directions').insert({ studio_id:studioId, name, teacher_name:String(row['Педагог']||'').trim()||null, schedule:String(row['Расписание']||'').trim()||null, cost_abo:+row['Цена абонемент']||0, cost_single:+row['Цена разовое']||0, max_capacity:+row['Вместимость']||0 })
+              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+            }
+          } else if (lower.includes('расход')) {
+            for (const row of sheetRows) {
+              const date = String(row['Дата (ГГГГ-ММ-ДД)*']||row['Дата']||'').trim()
+              const expType = String(row['Вид расхода*']||row['Вид расхода']||'').trim()
+              if (!date||!expType) continue
+              const { error } = await supabase.from('expenses').insert({ studio_id:studioId, expense_date:date, expense_type:expType, category:String(row['Категория (Периодичный/Разовый)']||'Разовый').trim(), amount:+row['Сумма*']||+row['Сумма']||0, comment:String(row['Комментарий']||'').trim()||null })
+              if (error) allErrors.push(`${date} ${expType}: ${error.message}`); else totalInserted++
+            }
+          } else if (lower.includes('абонемент')) {
+            for (const row of sheetRows) {
+              const name = String(row['Название*']||row['Название']||'').trim()
+              if (!name) continue
+              if (existingSubNames.has(name.toLowerCase())) { allErrors.push(`Дубликат абонемент: ${name}`); continue }
+              const { error } = await supabase.from('subscriptions').insert({ studio_id:studioId, name, price:+row['Цена*']||+row['Цена']||0, lessons_count:+row['Количество занятий*']||+row['Количество занятий']||0, is_active:true })
+              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+            }
+          }
         }
-        // Упрощённо — показываем что нужно загружать по отдельности
-        showMsg('error', 'Для общего файла используйте отдельные кнопки загрузки по разделам. Общая загрузка в разработке.')
+        setImportResult({ inserted: totalInserted, errors: allErrors })
+        if (totalInserted > 0 && reload) reload()
         setImporting(null)
         return
       }
