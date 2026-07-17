@@ -986,6 +986,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       // Для общего файла — читаем все листы
       if (type === 'all') {
         let totalInserted = 0, allErrors = []
+        const importDetails = {} // { 'Клиенты': 5, 'Педагоги': 2, ... }
         const { data: existingClients } = await supabase.from('clients').select('child_name, contacts').eq('studio_id', studioId)
         const { data: existingTeachers } = await supabase.from('teachers').select('id, name').eq('studio_id', studioId)
         const { data: existingDirs } = await supabase.from('directions').select('id, name').eq('studio_id', studioId)
@@ -1010,7 +1011,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               const phone = String(row['Телефон*']||row['Телефон']||'').trim()
               if (phone) { const d = phone.replace(/\D/g,'').slice(-9); if (existingClientPhones.has(d)) { allErrors.push(`Дубликат телефон: ${phone}`); continue } }
               const { error } = await supabase.from('clients').insert({ studio_id: studioId, child_name: name, adult_name: String(row['Имя родителя']||'').trim()||null, contacts: phone?[{type:'Телефон',val:phone}]:[], status: String(row['Статус']||'Новый').trim(), paid_lessons: +row['Оплачено занятий']||0, visited_lessons: +row['Посещено занятий']||0, discount: +row['Скидка %']||0, birthday: String(row['Дата рождения (ГГГГ-ММ-ДД)']||'').trim()||null, source: String(row['Источник']||'').trim()||null, comment: String(row['Комментарий']||'').trim()||null })
-              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+              if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Клиенты'] = (importDetails['Клиенты']||0)+1 }
             }
           } else if (lower.includes('педагог') && !lower.includes('ставк')) {
             for (const row of sheetRows) {
@@ -1019,7 +1020,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               if (existingTeacherNames.has(name.toLowerCase())) { allErrors.push(`Дубликат педагог: ${name}`); continue }
               const salaryType = String(row['Тип оплаты (За занятие/Оклад)']||'').toLowerCase().includes('оклад') ? 'salary' : 'per_lesson'
               const { error } = await supabase.from('teachers').insert({ studio_id: studioId, name, phone: String(row['Телефон']||'').trim()||null, status: String(row['Статус']||'Активен').trim(), salary_type: salaryType, salary_amount: salaryType==='salary'?(+row['Оклад (если оклад), ₽']||0):0, hired: String(row['Дата приёма (ГГГГ-ММ-ДД)*']||row['Дата приёма (ГГГГ-ММ-ДД)']||'').trim()||null })
-              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+              if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Педагоги'] = (importDetails['Педагоги']||0)+1 }
             }
           } else if (lower.includes('ставк')) {
             const { data: allT } = await supabase.from('teachers').select('id,name').eq('studio_id', studioId)
@@ -1032,7 +1033,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               const d = allD?.find(x => x.name.toLowerCase()===dName.toLowerCase())
               if (!t||!d) { allErrors.push(`Ставка: не найден ${!t?`педагог ${tName}`:`направление ${dName}`}`); continue }
               const rType = String(row['Тип (за занятие/по кол-ву учеников)']||'').toLowerCase().includes('кол') ? 'by_students' : 'per_lesson'
-              await supabase.from('teacher_rates').upsert({ teacher_id:t.id, studio_id:studioId, direction_id:d.id, rate_type:rType, rate:rType==='per_lesson'?(+row['Ставка фикс, ₽']||0):0, rate_part:rType==='by_students'?(+row['Неполная группа, ₽']||0):0, rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0, min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0 }, { onConflict: 'teacher_id,direction_id' })
+              importDetails['Ставки педагогов'] = (importDetails['Ставки педагогов']||0)+1; await supabase.from('teacher_rates').upsert({ teacher_id:t.id, studio_id:studioId, direction_id:d.id, rate_type:rType, rate:rType==='per_lesson'?(+row['Ставка фикс, ₽']||0):0, rate_part:rType==='by_students'?(+row['Неполная группа, ₽']||0):0, rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0, min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0 }, { onConflict: 'teacher_id,direction_id' })
             }
           } else if (lower.includes('направлен')) {
             for (const row of sheetRows) {
@@ -1040,7 +1041,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               if (!name) continue
               if (existingDirNames.has(name.toLowerCase())) { allErrors.push(`Дубликат направление: ${name}`); continue }
               const { error } = await supabase.from('directions').insert({ studio_id:studioId, name, teacher_name:String(row['Педагог']||'').trim()||null, schedule:String(row['Расписание']||'').trim()||null, cost_abo:+row['Цена абонемент']||0, cost_single:+row['Цена разовое']||0, max_capacity:+row['Вместимость']||0 })
-              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+              if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Направления'] = (importDetails['Направления']||0)+1 }
             }
           } else if (lower.includes('расход')) {
             for (const row of sheetRows) {
@@ -1048,7 +1049,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               const expType = String(row['Вид расхода*']||row['Вид расхода']||'').trim()
               if (!date||!expType) continue
               const { error } = await supabase.from('expenses').insert({ studio_id:studioId, expense_date:date, expense_type:expType, category:String(row['Категория (Периодичный/Разовый)']||'Разовый').trim(), amount:+row['Сумма*']||+row['Сумма']||0, comment:String(row['Комментарий']||'').trim()||null })
-              if (error) allErrors.push(`${date} ${expType}: ${error.message}`); else totalInserted++
+              if (error) allErrors.push(`${date} ${expType}: ${error.message}`); else { totalInserted++; importDetails['Расходы'] = (importDetails['Расходы']||0)+1 }
             }
           } else if (lower.includes('абонемент')) {
             for (const row of sheetRows) {
@@ -1056,11 +1057,11 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               if (!name) continue
               if (existingSubNames.has(name.toLowerCase())) { allErrors.push(`Дубликат абонемент: ${name}`); continue }
               const { error } = await supabase.from('subscriptions').insert({ studio_id:studioId, name, price:+row['Цена*']||+row['Цена']||0, lessons_count:+row['Количество занятий*']||+row['Количество занятий']||0, is_active:true })
-              if (error) allErrors.push(`${name}: ${error.message}`); else totalInserted++
+              if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Абонементы'] = (importDetails['Абонементы']||0)+1 }
             }
           }
         }
-        setImportResult({ inserted: totalInserted, errors: allErrors })
+        setImportResult({ inserted: totalInserted, errors: allErrors, details: importDetails })
         if (totalInserted > 0 && reload) reload()
         setImporting(null)
         return
@@ -1352,6 +1353,13 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             <div style={{ fontWeight: 700, fontSize: 13, color: T.greenDark, marginBottom: 4 }}>
               ✅ Импортировано: {importResult.inserted} записей
             </div>
+            {importResult.details && Object.entries(importResult.details).length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {Object.entries(importResult.details).map(([section, count]) => (
+                  <div key={section} style={{ fontSize: 12, color: T.greenDark }}>• {section}: {count}</div>
+                ))}
+              </div>
+            )}
             {importResult.errors.length > 0 && (
               <div style={{ fontSize: 12, color: '#e05a5a', marginTop: 6 }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Ошибки ({importResult.errors.length}):</div>
