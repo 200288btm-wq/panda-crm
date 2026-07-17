@@ -224,7 +224,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) 
   )
 }
 
-export default function Leads({ directions = [], studioId }) {
+export default function Leads({ directions = [], studioId, reload }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState('all')
@@ -439,7 +439,7 @@ export default function Leads({ directions = [], studioId }) {
       {convertLead && (
         <ConvertLeadModal lead={convertLead} directions={directions} studioId={studioId}
           onClose={() => setConvertLead(null)}
-          onConverted={() => { fetchLeads(); setConvertLead(null) }} />
+          onConverted={() => { fetchLeads(); setConvertLead(null); reload && reload() }} />
       )}
     </div>
   )
