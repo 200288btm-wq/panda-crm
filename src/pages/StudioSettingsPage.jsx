@@ -1381,8 +1381,9 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             {importResult.errors.length > 0 && (
               <div style={{ fontSize: 12, color: '#e05a5a', marginTop: 6 }}>
                 <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Ошибки ({importResult.errors.length}):</div>
-                {importResult.errors.slice(0, 5).map((e, i) => <div key={i}>• {e}</div>)}
-                {importResult.errors.length > 5 && <div>...и ещё {importResult.errors.length - 5}</div>}
+                <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {importResult.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
               </div>
             )}
           </div>
