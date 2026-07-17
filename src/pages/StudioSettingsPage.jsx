@@ -1029,14 +1029,12 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           } else if (lower.includes('ставк')) {
             const { data: allT } = await supabase.from('teachers').select('id,name').eq('studio_id', studioId)
             const { data: allD } = await supabase.from('directions').select('id,name').eq('studio_id', studioId)
-            console.log('Importing rates sheet:', sheetName, 'rows:', sheetRows.length, 'teachers:', allT?.length, 'dirs:', allD?.length)
             for (const row of sheetRows) {
               const tName = String(row['ФИО педагога']||'').trim()
               const dName = String(row['Направление']||'').trim()
-              if (!tName || !dName || tName.startsWith('⚠️')) { console.log('Skip row:', tName, dName); continue }
+              if (!tName || !dName || tName.startsWith('⚠️')) continue
               const t = allT?.find(x => x.name.toLowerCase()===tName.toLowerCase())
               const d = allD?.find(x => x.name.toLowerCase()===dName.toLowerCase())
-              console.log('Rate row:', tName, '->', t?.id, dName, '->', d?.id)
               if (!t||!d) { allErrors.push(`Ставка: не найден ${!t?`педагог "${tName}"`:`направление "${dName}"`}`); continue }
               const rType = String(row['Тип (за занятие/по кол-ву учеников)']||'').toLowerCase().includes('кол') ? 'by_students' : 'per_lesson'
               const { error } = await supabase.from('teacher_rates').upsert({
@@ -1046,7 +1044,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
                 rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0,
                 min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0,
               }, { onConflict: 'teacher_id,direction_id' })
-              if (error) { console.error('Rate error:', error); allErrors.push(`Ставка ${tName}/${dName}: ${error.message}`) }
+              if (error) allErrors.push(`Ставка ${tName}/${dName}: ${error.message}`)
               else { importDetails['Ставки педагогов'] = (importDetails['Ставки педагогов']||0)+1; totalInserted++ }
             }
           } else if (lower.includes('направлен')) {
