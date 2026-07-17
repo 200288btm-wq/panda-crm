@@ -992,7 +992,10 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         const { data: existingDirs } = await supabase.from('directions').select('id, name').eq('studio_id', studioId)
         const { data: existingSubs } = await supabase.from('subscriptions').select('name').eq('studio_id', studioId)
 
-        const existingClientNames = new Set((existingClients||[]).map(c => c.child_name?.toLowerCase().trim()))
+        const { data: existingExpenses } = await supabase.from('expenses').select('expense_date, expense_type, amount').eq('studio_id', studioId)
+        const existingExpenseKeys = new Set((existingExpenses||[]).map(e => `${e.expense_date}_${e.expense_type}_${e.amount}`))
+        const { data: existingPayments } = await supabase.from('payments').select('payment_date, client_id, amount').eq('studio_id', studioId)
+        const existingPaymentKeys = new Set((existingPayments||[]).map(p => `${p.payment_date}_${p.client_id}_${p.amount}`))
         const existingClientPhones = new Set((existingClients||[]).flatMap(c => (c.contacts||[]).filter(x=>x.type==='Телефон').map(x=>x.val.replace(/\D/g,'').slice(-9))))
         const existingTeacherNames = new Set((existingTeachers||[]).map(t => t.name?.toLowerCase().trim()))
         const existingDirNames = new Set((existingDirs||[]).map(d => d.name?.toLowerCase().trim()))
@@ -1047,9 +1050,12 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             for (const row of sheetRows) {
               const date = String(row['Дата (ГГГГ-ММ-ДД)*']||row['Дата']||'').trim()
               const expType = String(row['Вид расхода*']||row['Вид расхода']||'').trim()
+              const amount = +row['Сумма*']||+row['Сумма']||0
               if (!date||!expType) continue
-              const { error } = await supabase.from('expenses').insert({ studio_id:studioId, expense_date:date, expense_type:expType, category:String(row['Категория (Периодичный/Разовый)']||'Разовый').trim(), amount:+row['Сумма*']||+row['Сумма']||0, comment:String(row['Комментарий']||'').trim()||null })
-              if (error) allErrors.push(`${date} ${expType}: ${error.message}`); else { totalInserted++; importDetails['Расходы'] = (importDetails['Расходы']||0)+1 }
+              const key = `${date}_${expType}_${amount}`
+              if (existingExpenseKeys.has(key)) { allErrors.push(`Дубликат расход: ${date} ${expType} ${amount}₽`); continue }
+              const { error } = await supabase.from('expenses').insert({ studio_id:studioId, expense_date:date, expense_type:expType, category:String(row['Категория (Периодичный/Разовый)']||'Разовый').trim(), amount, comment:String(row['Комментарий']||'').trim()||null })
+              if (error) allErrors.push(`${date} ${expType}: ${error.message}`); else { totalInserted++; importDetails['Расходы'] = (importDetails['Расходы']||0)+1; existingExpenseKeys.add(key) }
             }
           } else if (lower.includes('абонемент')) {
             for (const row of sheetRows) {
@@ -1121,8 +1127,9 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'payments') {
-        // Получаем клиентов для поиска по имени
         const { data: cls } = await supabase.from('clients').select('id, child_name').eq('studio_id', studioId)
+        const { data: existingPay } = await supabase.from('payments').select('payment_date, client_id, amount').eq('studio_id', studioId)
+        const existingPayKeys = new Set((existingPay||[]).map(p => `${p.payment_date}_${p.client_id}_${p.amount}`))
         for (const row of rows) {
           const clientName = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
           const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
@@ -1130,17 +1137,16 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           if (!clientName || !date) { errors.push(`Пропущено имя или дата`); continue }
           const client = cls?.find(c => c.child_name === clientName)
           if (!client) { errors.push(`Клиент не найден: ${clientName}`); continue }
+          const key = `${date}_${client.id}_${amount}`
+          if (existingPayKeys.has(key)) { errors.push(`Дубликат оплата: ${clientName} ${date} ${amount}₽`); continue }
           const { error } = await supabase.from('payments').insert({
-            studio_id: studioId,
-            client_id: client.id,
-            payment_date: date,
+            studio_id: studioId, client_id: client.id, payment_date: date,
             payment_type: String(row['Тип (Абонемент/Разовое/Пробное)'] || 'Абонемент').trim(),
-            amount,
-            lessons_count: +row['Занятий'] || 0,
+            amount, lessons_count: +row['Занятий'] || 0,
             comment: String(row['Комментарий'] || '').trim() || null,
           })
           if (error) errors.push(`${clientName}: ${error.message}`)
-          else inserted++
+          else { inserted++; existingPayKeys.add(key) }
         }
       }
 
@@ -1234,21 +1240,22 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       }
 
       if (type === 'expenses') {
+        const { data: existingExp } = await supabase.from('expenses').select('expense_date, expense_type, amount').eq('studio_id', studioId)
+        const existingExpKeys = new Set((existingExp||[]).map(e => `${e.expense_date}_${e.expense_type}_${e.amount}`))
         for (const row of rows) {
           const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
           const expType = String(row['Вид расхода*'] || row['Вид расхода'] || '').trim()
           const amount = +row['Сумма*'] || +row['Сумма'] || 0
           if (!date || !expType) { errors.push('Пропущена дата или вид расхода'); continue }
+          const key = `${date}_${expType}_${amount}`
+          if (existingExpKeys.has(key)) { errors.push(`Дубликат: расход ${date} ${expType} ${amount}₽`); continue }
           const { error } = await supabase.from('expenses').insert({
-            studio_id: studioId,
-            expense_date: date,
-            expense_type: expType,
+            studio_id: studioId, expense_date: date, expense_type: expType,
             category: String(row['Категория (Периодичный/Разовый)'] || 'Разовый').trim(),
-            amount,
-            comment: String(row['Комментарий'] || '').trim() || null,
+            amount, comment: String(row['Комментарий'] || '').trim() || null,
           })
           if (error) errors.push(`${date} ${expType}: ${error.message}`)
-          else inserted++
+          else { inserted++; existingExpKeys.add(key) }
         }
       }
 
