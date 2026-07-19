@@ -511,6 +511,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
             {saving ? 'Сохранение...' : '✅ Сохранить'}
           </button>
           <Msg msg={msg} />
+          {settings.bot_token && <WebhookButton token={settings.bot_token} T={T} />}
         </Section>
         </div>
       </>}
@@ -604,6 +605,48 @@ function CategoryRow({ item, onRename, onDelete }) {
       )}
       <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>✏️</button>
       <button className="btn btn-ghost btn-sm" onClick={() => onDelete(item.id, item.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+    </div>
+  )
+}
+
+function WebhookButton({ token, T }) {
+  const [status, setStatus] = useState(null) // null | 'loading' | 'ok' | 'error'
+  const [msg, setMsg] = useState('')
+
+  const connect = async () => {
+    setStatus('loading')
+    setMsg('')
+    try {
+      const res = await fetch('https://uchteno-bot.vercel.app/api/set-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setStatus('ok')
+        setMsg('Вебхук успешно зарегистрирован! Бот готов к работе.')
+      } else {
+        setStatus('error')
+        setMsg(data.description || 'Ошибка регистрации вебхука')
+      }
+    } catch (e) {
+      setStatus('error')
+      setMsg('Ошибка соединения: ' + e.message)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 16, padding: '14px 16px', background: T.cream, borderRadius: 12, border: `1px solid ${T.border}` }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 6 }}>🔗 Подключение бота</div>
+      <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        После сохранения токена нажмите кнопку чтобы зарегистрировать вебхук — без этого бот не будет отвечать клиентам.
+      </div>
+      <button className="btn btn-outline" onClick={connect} disabled={status === 'loading'}>
+        {status === 'loading' ? '⏳ Подключаем...' : '🔗 Подключить бота'}
+      </button>
+      {status === 'ok' && <div style={{ marginTop: 8, fontSize: 13, color: T.greenDark, fontWeight: 600 }}>✅ {msg}</div>}
+      {status === 'error' && <div style={{ marginTop: 8, fontSize: 13, color: '#e05a5a', fontWeight: 600 }}>⚠️ {msg}</div>}
     </div>
   )
 }
