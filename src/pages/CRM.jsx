@@ -58,6 +58,15 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [subscriptions, setSubscriptions] = useState([])
   const [addresses, setAddresses] = useState([])
   const [studioSettings, setStudioSettings] = useState(null)
+
+  // Feature flags — по умолчанию все включены
+  const features = {
+    teachers:   studioSettings?.feature_teachers   !== false,
+    addresses:  studioSettings?.feature_addresses  !== false,
+    subgroups:  studioSettings?.feature_subgroups  !== false,
+    categories: studioSettings?.feature_categories !== false,
+    freeze:     studioSettings?.feature_freeze     !== false,
+  }
   const [clientStatuses, setClientStatuses] = useState([])
   const [adminOpen, setAdminOpen] = useState(false)
   const [logoClicks, setLogoClicks] = useState(0)
@@ -178,7 +187,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     ]},
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
-      { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin },
+      { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin && features.teachers },
       { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
     ]},
     { section: 'Управление', items: [
@@ -186,7 +195,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features }
 
   const SidebarContent = () => (
     <>
