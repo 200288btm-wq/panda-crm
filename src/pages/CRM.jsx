@@ -59,7 +59,6 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [addresses, setAddresses] = useState([])
   const [studioSettings, setStudioSettings] = useState(null)
 
-  // Feature flags — по умолчанию все включены
   const features = {
     teachers:   studioSettings?.feature_teachers   !== false,
     addresses:  studioSettings?.feature_addresses  !== false,

@@ -136,7 +136,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment, onEnroll, features = {} }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment, onEnroll, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
@@ -257,7 +257,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           }}>Снять</button>
         </div>
       ) : (
-        features.freeze !== false && <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        features.freeze && <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => onFreeze && onFreeze(client)}
@@ -512,7 +512,7 @@ function CommentToggle({ comment }) {
   )
 }
 
-export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId, clientStatuses = [], features = {} }) {
+export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId, clientStatuses = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   // Формируем статусы — из БД если есть, иначе fallback на дефолтные
   const STATUSES_LIST = clientStatuses.length > 0
     ? clientStatuses.map(s => s.name)

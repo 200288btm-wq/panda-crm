@@ -135,7 +135,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       ? await supabase.from('studio_settings').update({ ...data, updated_at: new Date().toISOString() }).eq('id', id)
       : await supabase.from('studio_settings').insert(data)
     setMsg(error ? { type: 'error', text: error.message } : { type: 'success', text: 'Настройки сохранены' })
-    if (!error) loadAll()
+    if (!error) { loadAll(); reload && reload() }
     setSaving(false)
     setTimeout(() => setMsg(null), 2000)
   }
