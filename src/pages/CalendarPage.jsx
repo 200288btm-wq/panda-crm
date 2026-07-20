@@ -573,7 +573,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload, studioId }) {
+export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload, studioId, features = {} }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
@@ -661,7 +661,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
 
         {/* Строка 2: фильтры */}
         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-          {isAdmin && (
+          {isAdmin && features.teachers !== false && (
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <span style={{ fontSize:11, color:T.muted, fontWeight:600, whiteSpace:'nowrap' }}>Педагог:</span>
               <select style={selectStyle} value={filterTeacher} onChange={e => setFilterTeacher(e.target.value)}>
@@ -683,7 +683,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
             style={{ fontSize:11, padding:'5px 8px', whiteSpace:'nowrap', background: onlyWithStudents ? T.green : T.cream, color: onlyWithStudents ? 'white' : T.muted, border: `1.5px solid ${onlyWithStudents ? T.green : T.border}` }}>
             👥 {onlyWithStudents ? 'С учениками ✓' : 'С учениками'}
           </button>
-          {addresses.length > 0 && (
+          {addresses.length > 0 && features.addresses !== false && (
             <div style={{ display:'flex', alignItems:'center', gap:4 }}>
               <span style={{ fontSize:11, color:T.muted, fontWeight:600, whiteSpace:'nowrap' }}>Адрес:</span>
               <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>

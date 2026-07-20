@@ -12,6 +12,7 @@ const TABS = [
   { id: 'staff',      label: 'Сотрудники' },
   { id: 'finance',    label: 'Финансы' },
   { id: 'statuses',   label: 'Статусы клиентов' },
+  { id: 'features',   label: '⚙️ Функции' },
   { id: 'data',       label: 'Данные' },
   { id: 'plan',       label: '⭐ Тариф' },
   { id: 'bot',        label: 'Telegram' },
@@ -483,6 +484,11 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         T={T}
       />}
 
+      {/* ── Функции ── */}
+      {tab === 'features' && (
+        <FeaturesTab settings={settings} onChange={(k, v) => setSettings(p => ({ ...p, [k]: v }))} onSave={saveSettings} saving={saving} msg={msg} T={T} />
+      )}
+
       {/* ── Тариф ── */}
       {tab === 'plan' && <PlanTab planInfo={planInfo} T={T} />}
 
@@ -519,6 +525,73 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {/* ── Онлайн-запись ── */}
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
 
+    </div>
+  )
+}
+
+function FeaturesTab({ settings, onChange, onSave, saving, msg, T }) {
+  const features = [
+    {
+      key: 'feature_teachers',
+      label: 'Педагоги',
+      icon: '👩‍🏫',
+      desc: 'Раздел педагогов, ставки, выплаты, фильтр по педагогу в расписании',
+    },
+    {
+      key: 'feature_addresses',
+      label: 'Несколько адресов',
+      icon: '📍',
+      desc: 'Управление адресами, привязка подгрупп к адресам, фильтр по адресу в расписании',
+    },
+    {
+      key: 'feature_subgroups',
+      label: 'Подгруппы',
+      icon: '👥',
+      desc: 'Подгруппы внутри направлений, распределение учеников по подгруппам',
+    },
+    {
+      key: 'feature_categories',
+      label: 'Категории стоимости',
+      icon: '💰',
+      desc: 'Разные цены для разных категорий клиентов (льготная, стандартная и т.д.)',
+    },
+    {
+      key: 'feature_freeze',
+      label: 'Заморозка абонементов',
+      icon: '❄️',
+      desc: 'Возможность заморозить абонемент клиента на определённый период',
+    },
+  ]
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <div style={{ fontSize: 13, color: T.muted, marginBottom: 20, lineHeight: 1.6 }}>
+        Включайте только те функции которые вам нужны — лишние разделы и кнопки будут скрыты. Изменения вступают в силу после сохранения.
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+        {features.map(f => {
+          const enabled = settings[f.key] !== false
+          return (
+            <div key={f.key} onClick={() => onChange(f.key, !enabled)}
+              style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: `2px solid ${enabled ? T.green : T.border}`, cursor: 'pointer', transition: 'border 0.15s, background 0.15s', display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ fontSize: 24 }}>{f.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginBottom: 2 }}>{f.label}</div>
+                <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>{f.desc}</div>
+              </div>
+              <div style={{ width: 44, height: 24, borderRadius: 99, background: enabled ? T.green : '#ddd', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
+                <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'white', position: 'absolute', top: 3, left: enabled ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <button className="btn btn-primary" onClick={onSave} disabled={saving}>
+        {saving ? 'Сохранение...' : '✅ Сохранить настройки'}
+      </button>
+      <Msg msg={msg} />
     </div>
   )
 }
