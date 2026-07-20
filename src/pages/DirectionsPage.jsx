@@ -114,7 +114,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx }) {
+function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {} }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
@@ -149,20 +149,23 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
             onChange={e => onChange({ ...group, name: e.target.value })}
             placeholder="Онежская утро / Хуторская / Вечер..." />
         </div>
-        <div className="form-group">
-          <label className="form-label">Педагог</label>
-          <select className="form-input" value={group.teacher_id || ''}
-            onChange={e => onChange({ ...group, teacher_id: e.target.value ? +e.target.value : null })}>
-            <option value="">— не назначен —</option>
-            {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
+        {features.teachers && (
+          <div className="form-group">
+            <label className="form-label">Педагог</label>
+            <select className="form-input" value={group.teacher_id || ''}
+              onChange={e => onChange({ ...group, teacher_id: e.target.value ? +e.target.value : null })}>
+              <option value="">— не назначен —</option>
+              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
       </div>
-      <div className="form-group">
-        <label className="form-label">Адрес</label>
-        <select className="form-input" value={group.address_id || ''}
-          onChange={e => onChange({ ...group, address_id: e.target.value ? +e.target.value : null })}>
-          <option value="">— не указан —</option>
+      {features.addresses && (
+        <div className="form-group">
+          <label className="form-label">Адрес</label>
+          <select className="form-input" value={group.address_id || ''}
+            onChange={e => onChange({ ...group, address_id: e.target.value ? +e.target.value : null })}>
+            <option value="">— не указан —</option>
           {addresses.map(a => <option key={a.id} value={a.id}>{a.name}{a.address ? ` (${a.address})` : ''}</option>)}
         </select>
         {addresses.length === 0 && (
@@ -171,6 +174,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
           </div>
         )}
       </div>
+      )}
       <div className="form-group" style={{ marginBottom:0 }}>
         <label className="form-label">Расписание подгруппы</label>
         <ScheduleBuilder slots={slots} compact onChange={handleSlots} />
@@ -179,7 +183,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], onClose, onSave }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], onClose, onSave, features = {} }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -193,9 +197,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     duration: direction.duration||'1 час',
     color: direction.color||DIRECTION_COLORS[0], max_capacity: direction.max_capacity||0,
     category_ids: direction.category_ids || [],
-    enrollment_type: direction.enrollment_type || 'group',
-    max_per_slot: direction.max_per_slot || 0,
-  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0 })
+  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -245,8 +247,6 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         color: f.color,
         max_capacity: +f.max_capacity || 0,
         category_ids: f.category_ids || [],
-        enrollment_type: f.enrollment_type || 'group',
-        max_per_slot: +f.max_per_slot || 0,
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -286,39 +286,6 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         </div>
       </div>
 
-      {/* Формат записи */}
-      <div className="form-group">
-        <label className="form-label">Формат записи</label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          {[['group','👥 Групповой'],['calendar','📅 По записи на даты']].map(([val, label]) => (
-            <label key={val} onClick={() => set('enrollment_type', val)} style={{
-              flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
-              border: `2px solid ${f.enrollment_type === val ? T.green : T.border}`,
-              background: f.enrollment_type === val ? T.greenBg : T.cream,
-              textAlign: 'center', fontWeight: 600, fontSize: 13,
-              color: f.enrollment_type === val ? T.greenDark : T.ink,
-            }}>{label}</label>
-          ))}
-        </div>
-        {f.enrollment_type === 'group' && (
-          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-            Клиенты записаны в направление целиком. В расписании видны все активные ученики направления.
-          </div>
-        )}
-        {f.enrollment_type === 'calendar' && (
-          <div>
-            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 8 }}>
-              Клиенты записываются на конкретные даты. В расписании видно сколько человек записалось на каждый день.
-            </div>
-            <div className="form-group">
-              <label className="form-label">Макс. участников на занятие</label>
-              <input className="form-input" type="number" min="0" value={f.max_per_slot}
-                onChange={e => set('max_per_slot', e.target.value)} placeholder="0 = без ограничений" />
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* Блок подгрупп */}
       <div style={{ marginTop:18, marginBottom:14 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
@@ -336,7 +303,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
           <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
             isOnly={groups.length === 1}
             onChange={ng => updateGroup(idx, ng)}
-            onRemove={() => removeGroup(idx)} />
+            onRemove={() => removeGroup(idx)} features={features} />
         ))}
       </div>
 
@@ -407,7 +374,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin, studioId }) {
+export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
@@ -541,8 +508,33 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   }
   const onDragEnd = () => { setDragId(null); setDragOverId(null) }
 
+  // Направления без педагогов — показываем только если педагоги включены
+  const dirsWithoutTeacher = features.teachers
+    ? directions.filter(d => {
+        const groups = groupsByDirection[d.id] || []
+        return groups.length === 0 ? !d.teacher_name : groups.every(g => !g.teacher_id)
+      })
+    : []
+
   return (
     <div>
+      {/* Уведомление о направлениях без педагогов */}
+      {features.teachers && dirsWithoutTeacher.length > 0 && (
+        <div style={{ background: '#fde8e8', borderRadius: 12, padding: '12px 16px', marginBottom: 16, border: '1px solid #e05a5a33' }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#c0392b', marginBottom: 6 }}>
+            ⚠️ В некоторых направлениях не указан педагог
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {dirsWithoutTeacher.map(d => (
+              <span key={d.id} onClick={() => setShowEdit(d)}
+                style={{ background: '#e05a5a22', color: '#c0392b', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid #e05a5a44' }}>
+                {d.name} →
+              </span>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>Нажмите на направление чтобы добавить педагога</div>
+        </div>
+      )}
       {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:18 }}><button className="btn btn-primary" onClick={()=>setShowAdd(true)}>+ Новое направление</button></div>}
       {isAdmin && (localDirs || directions).length > 1 && (
         <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -590,14 +582,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 </div>
               </div>
 
-              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>
-                ⏱ {d.duration||'1 час'}
-                {d.enrollment_type === 'calendar' && (
-                  <span style={{ marginLeft: 8, background: T.greenBg, color: T.greenDark, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
-                    📅 По записи{d.max_per_slot > 0 ? ` (макс. ${d.max_per_slot})` : ''}
-                  </span>
-                )}
-              </div>
+              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>⏱ {d.duration||'1 час'}</div>
 
               {!showLegacy && (
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
@@ -722,8 +707,8 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         </div>
       )}
 
-      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowAdd(false)} onSave={save} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowEdit(null)} onSave={save} />}
+      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowAdd(false)} onSave={save} features={features} />}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowEdit(null)} onSave={save} features={features} />}
     </div>
   )
 }

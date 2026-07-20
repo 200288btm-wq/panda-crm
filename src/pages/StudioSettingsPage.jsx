@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
-  { id: 'addresses',  label: 'Адреса' },
+  { id: 'addresses',  label: 'Адреса',     feature: 'addresses' },
   { id: 'staff',      label: 'Сотрудники' },
   { id: 'finance',    label: 'Финансы' },
   { id: 'statuses',   label: 'Статусы клиентов' },
@@ -32,7 +32,7 @@ const Msg = ({ msg }) => msg ? (
   </div>
 ) : null
 
-export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [] }) {
+export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [tab, setTab] = useState(() => localStorage.getItem('settingsTab') || 'main')
 
   const switchTab = (id) => {
@@ -250,7 +250,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     <div>
       {/* Вкладки */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, flexWrap: 'wrap' }}>
-        {TABS.map(t => (
+        {TABS.filter(t => !t.feature || features[t.feature]).map(t => (
           <button key={t.id} onClick={() => switchTab(t.id)} style={{
             padding: '7px 14px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
             background: tab === t.id ? T.green : T.cream,
