@@ -67,77 +67,111 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
   const ds = dateStr(date)
   const events = []
   directions.forEach(d => {
-    const timeForDay = getTimeForDow(dow, d.schedule)
-    if (!timeForDay) return
+    // Фильтр по направлению
     if (Array.isArray(filterDir)) {
       if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
     } else {
       if (filterDir !== 'all' && String(d.id) !== filterDir) return
     }
-    if (filterTeacher !== 'all') {
-      const t = teachers.find(t => String(t.id) === filterTeacher)
-      if (t && !(t.direction_ids||[]).includes(d.id)) return
-    }
     if (filterChild !== 'all') {
       const child = clients.find(c => String(c.id) === filterChild)
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
-    // Фильтр по адресу
-    if (filterAddress !== 'all') {
-      const groups = (d.groups || [])
-      const hasAddr = groups.some(g => String(g.address_id) === filterAddress)
-      if (!hasAddr) return
-    }
-    // Фильтр по подгруппам
+
     const dirGroups = (d.groups || [])
     const relevantFilterGroups = filterGroups.filter(gid => dirGroups.some(g => String(g.id) === gid))
-    if (relevantFilterGroups.length > 0) {
-      const hasGroup = relevantFilterGroups.some(gid => dirGroups.some(g => String(g.id) === gid))
-      if (!hasGroup) return
-    }
 
-    const timeMin = parseTime(timeForDay)
-    if (timeMin === null) return
+    // Если у направления есть подгруппы — обрабатываем каждую с её расписанием
+    const hasSubgroups = dirGroups.length > 0
 
-    let students
-    if (d.enrollment_type === 'calendar') {
-      // Только те кто записался на конкретную дату
-      const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
-      const enrolledIds = dayEnrollments.map(e => e.client_id)
-      students = clients.filter(c => enrolledIds.includes(c.id))
-      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
-    } else {
-      students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
-      // Если выбраны подгруппы — фильтруем учеников по подгруппе
-      if (relevantFilterGroups.length > 0) {
-        students = students.filter(c => {
-          const clientGroups = (c.group_ids || [])
-          return relevantFilterGroups.some(gid => clientGroups.map(String).includes(gid))
+    if (hasSubgroups) {
+      dirGroups.forEach(group => {
+        // Фильтр по выбранным подгруппам
+        if (relevantFilterGroups.length > 0 && !relevantFilterGroups.includes(String(group.id))) return
+
+        const groupSchedule = group.schedule || d.schedule
+        const timeForDay = getTimeForDow(dow, groupSchedule)
+        if (!timeForDay) return
+
+        // Фильтр по педагогу подгруппы
+        if (filterTeacher !== 'all' && String(group.teacher_id) !== filterTeacher) return
+
+        // Фильтр по адресу подгруппы
+        if (filterAddress !== 'all' && String(group.address_id) !== filterAddress) return
+
+        const timeMin = parseTime(timeForDay)
+        if (timeMin === null) return
+
+        // Ученики подгруппы
+        let students
+        if (d.enrollment_type === 'calendar') {
+          const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
+          const enrolledIds = dayEnrollments.map(e => e.client_id)
+          students = clients.filter(c => enrolledIds.includes(c.id))
+        } else {
+          students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+          // Фильтруем по подгруппе
+          students = students.filter(c => {
+            const clientGroups = (c.group_ids || []).map(String)
+            // Если у клиента не указана подгруппа — показываем во всех
+            if (clientGroups.length === 0) return true
+            return clientGroups.includes(String(group.id))
+          })
+        }
+        if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+
+        // Педагог подгруппы
+        const groupTeacher = teachers.find(t => t.id === group.teacher_id)
+
+        // Цвет
+        let eventColor = d.color || DEFAULT_COLOR
+        if (colorMode === 'address' && group.address_id) {
+          const addr = addresses.find(a => String(a.id) === String(group.address_id))
+          if (addr?.color) eventColor = addr.color
+        }
+
+        events.push({
+          name: dirGroups.length > 1 ? `${d.name} · ${group.name || ''}`.trim() : d.name,
+          timeMin, time: timeForDay,
+          teacher: groupTeacher?.name || d.teacher_name, dirId: d.id, groupId: group.id, students,
+          color: eventColor, duration: d.duration || '1 час',
+          durationMin: parseDuration(d.duration),
+          enrollmentType: d.enrollment_type || 'group',
+          maxPerSlot: d.max_per_slot || 0,
         })
+      })
+    } else {
+      // Старая логика — направление без подгрупп
+      const timeForDay = getTimeForDow(dow, d.schedule)
+      if (!timeForDay) return
+      if (filterTeacher !== 'all') {
+        const t = teachers.find(t => String(t.id) === filterTeacher)
+        if (t && !(t.direction_ids||[]).includes(d.id)) return
+      }
+      if (filterAddress !== 'all') return // нет подгрупп — нет адреса
+
+      const timeMin = parseTime(timeForDay)
+      if (timeMin === null) return
+
+      let students
+      if (d.enrollment_type === 'calendar') {
+        const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
+        const enrolledIds = dayEnrollments.map(e => e.client_id)
+        students = clients.filter(c => enrolledIds.includes(c.id))
+      } else {
+        students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
       }
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
-    }
 
-    // Цвет: по направлению или по адресу
-    let eventColor = d.color || DEFAULT_COLOR
-    if (colorMode === 'address') {
-      const group = filterAddress !== 'all'
-        ? dirGroups.find(g => String(g.address_id) === filterAddress)
-        : dirGroups.find(g => g.address_id)
-      if (group?.address_id) {
-        const addr = addresses.find(a => String(a.id) === String(group.address_id))
-        if (addr?.color) eventColor = addr.color
-      }
+      events.push({
+        name: d.name, timeMin, time: timeForDay,
+        teacher: d.teacher_name, dirId: d.id, students,
+        color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
+        durationMin: parseDuration(d.duration),
+        enrollmentType: d.enrollment_type || 'group',
+        maxPerSlot: d.max_per_slot || 0,
+      })
     }
-
-    events.push({
-      name: d.name, timeMin, time: timeForDay,
-      teacher: d.teacher_name, dirId: d.id, students,
-      color: eventColor, duration: d.duration || '1 час',
-      durationMin: parseDuration(d.duration),
-      enrollmentType: d.enrollment_type || 'group',
-      maxPerSlot: d.max_per_slot || 0,
-    })
   })
   events.sort((a,b) => a.timeMin - b.timeMin)
   return events
