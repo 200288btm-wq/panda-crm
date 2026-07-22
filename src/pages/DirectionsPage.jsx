@@ -297,10 +297,10 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       {/* Формат записи */}
       <div className="form-group">
         <label className="form-label">Формат записи</label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          {[['group','👥 Групповой'],['calendar','📅 По записи на даты']].map(([val, label]) => (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          {[['group','👥 Групповой'],['calendar','📅 По записи на даты'],['client_days','🗓 По дням клиента']].map(([val, label]) => (
             <label key={val} onClick={() => set('enrollment_type', val)} style={{
-              flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+              flex: '1 1 30%', minWidth: 120, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
               border: `2px solid ${f.enrollment_type === val ? T.green : T.border}`,
               background: f.enrollment_type === val ? T.greenBg : T.cream,
               textAlign: 'center', fontWeight: 600, fontSize: 13,
@@ -323,6 +323,11 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
               <input className="form-input" type="number" min="0" value={f.max_per_slot}
                 onChange={e => set('max_per_slot', e.target.value)} placeholder="0 = без ограничений" />
             </div>
+          </div>
+        )}
+        {f.enrollment_type === 'client_days' && (
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            У каждого клиента отмечаются дни, по которым он ходит (из расписания направления). В расписании клиент появляется только в свои дни. Разовую запись в другой день можно добавить вручную прямо в календаре.
           </div>
         )}
       </div>
@@ -662,6 +667,11 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 {d.enrollment_type === 'calendar' && (
                   <span style={{ marginLeft: 8, background: T.greenBg, color: T.greenDark, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
                     📅 По записи{d.max_per_slot > 0 ? ` (макс. ${d.max_per_slot})` : ''}
+                  </span>
+                )}
+                {d.enrollment_type === 'client_days' && (
+                  <span style={{ marginLeft: 8, background: '#e0e7ff', color: '#4338ca', borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
+                    🗓 По дням клиента
                   </span>
                 )}
               </div>
