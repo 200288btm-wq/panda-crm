@@ -114,7 +114,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {} }) {
+function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
@@ -130,25 +130,29 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
 
   return (
     <div style={{ background:T.cream, borderRadius:12, padding:'14px 16px', marginBottom:10, border:`1.5px solid ${T.border}` }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-        <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:13, color:T.greenDark, textTransform:'uppercase', letterSpacing:'0.04em' }}>
-          📍 Подгруппа {idx + 1}
+      {!hideSubgroupLabel && (
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:13, color:T.greenDark, textTransform:'uppercase', letterSpacing:'0.04em' }}>
+            📍 Подгруппа {idx + 1}
+          </div>
+          {!isOnly && (
+            <button type="button"
+              onClick={() => { if (confirm(`Удалить подгруппу «${group.name || 'без названия'}»?`)) onRemove() }}
+              style={{ background:'none', border:'none', cursor:'pointer', color:T.red, fontSize:13, fontWeight:600, padding:'2px 6px' }}>
+              🗑 Удалить
+            </button>
+          )}
         </div>
-        {!isOnly && (
-          <button type="button"
-            onClick={() => { if (confirm(`Удалить подгруппу «${group.name || 'без названия'}»?`)) onRemove() }}
-            style={{ background:'none', border:'none', cursor:'pointer', color:T.red, fontSize:13, fontWeight:600, padding:'2px 6px' }}>
-            🗑 Удалить
-          </button>
-        )}
-      </div>
+      )}
       <div className="form-row">
-        <div className="form-group">
-          <label className="form-label">Название подгруппы</label>
-          <input className="form-input" value={group.name}
-            onChange={e => onChange({ ...group, name: e.target.value })}
-            placeholder="Онежская утро / Хуторская / Вечер..." />
-        </div>
+        {!hideSubgroupLabel && (
+          <div className="form-group">
+            <label className="form-label">Название подгруппы</label>
+            <input className="form-input" value={group.name}
+              onChange={e => onChange({ ...group, name: e.target.value })}
+              placeholder="Онежская утро / Хуторская / Вечер..." />
+          </div>
+        )}
         {features.teachers && (
           <div className="form-group">
             <label className="form-label">Педагог</label>
@@ -288,22 +292,32 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
 
       {/* Блок подгрупп */}
       <div style={{ marginTop:18, marginBottom:14 }}>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
-            👥 Подгруппы ({groups.length})
+        {features.subgroups && (
+          <>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
+                👥 Подгруппы ({groups.length})
+              </div>
+              <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
+                + Добавить подгруппу
+              </button>
+            </div>
+            <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>
+              У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
+            </div>
+          </>
+        )}
+        {!features.subgroups && (
+          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, marginBottom:10 }}>
+            🗓 Расписание и педагог
           </div>
-          <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
-            + Добавить подгруппу
-          </button>
-        </div>
-        <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>
-          У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
-        </div>
-        {groups.map((g, idx) => (
+        )}
+        {/* Если подгруппы выключены — показываем только первую */}
+        {(features.subgroups ? groups : groups.slice(0, 1)).map((g, idx) => (
           <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
-            isOnly={groups.length === 1}
+            isOnly={groups.length === 1 || !features.subgroups}
             onChange={ng => updateGroup(idx, ng)}
-            onRemove={() => removeGroup(idx)} features={features} />
+            onRemove={() => removeGroup(idx)} features={features} hideSubgroupLabel={!features.subgroups} />
         ))}
       </div>
 
