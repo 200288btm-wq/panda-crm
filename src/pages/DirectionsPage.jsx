@@ -309,7 +309,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         )}
         {!features.subgroups && (
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, marginBottom:10 }}>
-            🗓 Расписание и педагог
+            🗓 Расписание{features.teachers ? ' и педагог' : ''}
           </div>
         )}
         {/* Если подгруппы выключены — показываем только первую */}
