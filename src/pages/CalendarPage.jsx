@@ -698,7 +698,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
         </div>
 
         {/* Строка 3: переключатель цвета (только если есть адреса) */}
-        {addresses.length > 0 && (
+        {addresses.length > 0 && features.addresses && (
           <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:8, paddingTop:8, borderTop:`1px solid ${T.border}44` }}>
             <span style={{ fontSize:11, color:T.muted, fontWeight:600 }}>Цвет:</span>
             <div className="tabs" style={{ marginBottom:0 }}>

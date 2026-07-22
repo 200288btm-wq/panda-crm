@@ -359,7 +359,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {!dataLoading && page === 'finance'       && isDirector && <FinancePage {...props} />}
           {!dataLoading && page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
-          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={load} clientStatuses={clientStatuses} clients={clients} payments={payments} expenses={expenses} teachers={teachers} subscriptions={subscriptions} />}
+          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={load} clientStatuses={clientStatuses} clients={clients} payments={payments} expenses={expenses} teachers={teachers} subscriptions={subscriptions} features={features} />}
           {!dataLoading && page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} studioId={studio?.id} />}
           {!dataLoading && page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} />}
         </div>
