@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 import LoginPage from './pages/LoginPage'
 import CRM from './pages/CRM'
@@ -73,11 +73,15 @@ export default function App() {
   const [studios, setStudios] = useState([])       // все студии пользователя
   const [loading, setLoading] = useState(true)
   const [needPassword, setNeedPassword] = useState(false)
+  const loadedUserRef = useRef(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) loadUserData(session.user.id)
+      if (session) {
+        loadedUserRef.current = session.user.id
+        loadUserData(session.user.id)
+      }
       else setLoading(false)
     })
 
@@ -94,9 +98,17 @@ export default function App() {
         return
       }
       if (event === 'SIGNED_IN') {
-        if (session) loadUserData(session.user.id)
+        // Загружаем данные только при первом входе.
+        // При возврате фокуса на вкладку Supabase повторно шлёт SIGNED_IN /
+        // TOKEN_REFRESHED — в этом случае не перезагружаем, иначе закроются
+        // открытые формы и потеряются введённые данные.
+        if (session && !loadedUserRef.current) {
+          loadedUserRef.current = session.user.id
+          loadUserData(session.user.id)
+        }
       }
       if (event === 'SIGNED_OUT') {
+        loadedUserRef.current = null
         setStaff(null)
         setStudio(null)
         setStudios([])

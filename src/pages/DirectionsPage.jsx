@@ -201,7 +201,9 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     duration: direction.duration||'1 час',
     color: direction.color||DIRECTION_COLORS[0], max_capacity: direction.max_capacity||0,
     category_ids: direction.category_ids || [],
-  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [] })
+    enrollment_type: direction.enrollment_type || 'group',
+    max_per_slot: direction.max_per_slot || 0,
+  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0 })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -251,6 +253,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         color: f.color,
         max_capacity: +f.max_capacity || 0,
         category_ids: f.category_ids || [],
+        enrollment_type: f.enrollment_type || 'group',
+        max_per_slot: +f.max_per_slot || 0,
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -290,35 +294,92 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         </div>
       </div>
 
-      {/* Блок подгрупп */}
-      <div style={{ marginTop:18, marginBottom:14 }}>
-        {features.subgroups && (
-          <>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
-                👥 Подгруппы ({groups.length})
-              </div>
-              <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
-                + Добавить подгруппу
-              </button>
-            </div>
-            <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>
-              У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
-            </div>
-          </>
-        )}
-        {!features.subgroups && (
-          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, marginBottom:10 }}>
-            🗓 Расписание{features.teachers ? ' и педагог' : ''}
+      {/* Формат записи */}
+      <div className="form-group">
+        <label className="form-label">Формат записи</label>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          {[['group','👥 Групповой'],['calendar','📅 По записи на даты']].map(([val, label]) => (
+            <label key={val} onClick={() => set('enrollment_type', val)} style={{
+              flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+              border: `2px solid ${f.enrollment_type === val ? T.green : T.border}`,
+              background: f.enrollment_type === val ? T.greenBg : T.cream,
+              textAlign: 'center', fontWeight: 600, fontSize: 13,
+              color: f.enrollment_type === val ? T.greenDark : T.ink,
+            }}>{label}</label>
+          ))}
+        </div>
+        {f.enrollment_type === 'group' && (
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            Клиенты записаны в направление целиком. В расписании видны все активные ученики направления.
           </div>
         )}
-        {/* Если подгруппы выключены — показываем только первую */}
-        {(features.subgroups ? groups : groups.slice(0, 1)).map((g, idx) => (
-          <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
-            isOnly={groups.length === 1 || !features.subgroups}
-            onChange={ng => updateGroup(idx, ng)}
-            onRemove={() => removeGroup(idx)} features={features} hideSubgroupLabel={!features.subgroups} />
-        ))}
+        {f.enrollment_type === 'calendar' && (
+          <div>
+            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 8 }}>
+              Клиенты записываются на конкретные даты. В расписании видно сколько человек записалось на каждый день.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Макс. участников на занятие</label>
+              <input className="form-input" type="number" min="0" value={f.max_per_slot}
+                onChange={e => set('max_per_slot', e.target.value)} placeholder="0 = без ограничений" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Блок подгрупп */}
+      <div style={{ marginTop:18, marginBottom:14 }}>
+        {/* Есть ли уже существующие подгруппы (legacy) при выключенной функции */}
+        {(() => {
+          const hasLegacySubgroups = !features.subgroups && groups.length > 1
+          const showFull = features.subgroups || hasLegacySubgroups
+
+          return (
+            <>
+              {features.subgroups && (
+                <>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                    <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
+                      👥 Подгруппы ({groups.length})
+                    </div>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
+                      + Добавить подгруппу
+                    </button>
+                  </div>
+                  <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>
+                    У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
+                  </div>
+                </>
+              )}
+
+              {hasLegacySubgroups && (
+                <div style={{ background: '#fff3e0', borderRadius: 12, padding: '12px 16px', marginBottom: 12, border: '1px solid #f0a83533' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: '#c47a00', marginBottom: 4 }}>
+                    ⚠️ У этого направления есть подгруппы ({groups.length})
+                  </div>
+                  <div style={{ fontSize: 12, color: '#c47a00', lineHeight: 1.5 }}>
+                    Функция подгрупп отключена, но эти подгруппы были созданы раньше и продолжают работать. Вы можете удалить лишние подгруппы вручную. Чтобы снова добавлять подгруппы — включите функцию в настройках.
+                  </div>
+                </div>
+              )}
+
+              {!features.subgroups && !hasLegacySubgroups && (
+                <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, marginBottom:10 }}>
+                  🗓 Расписание{features.teachers ? ' и педагог' : ''}
+                </div>
+              )}
+
+              {/* Показываем подгруппы: все если функция вкл или есть legacy, иначе только первую */}
+              {(showFull ? groups : groups.slice(0, 1)).map((g, idx) => (
+                <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
+                  isOnly={groups.length === 1}
+                  onChange={ng => updateGroup(idx, ng)}
+                  onRemove={() => removeGroup(idx)} features={features}
+                  hideSubgroupLabel={!features.subgroups && !hasLegacySubgroups} />
+              ))}
+            </>
+          )
+        })()}
       </div>
 
       {/* Категории стоимости */}
@@ -596,7 +657,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 </div>
               </div>
 
-              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>⏱ {d.duration||'1 час'}</div>
+              <div style={{ fontSize:12, color:T.muted, marginBottom:8 }}>
+                ⏱ {d.duration||'1 час'}
+                {d.enrollment_type === 'calendar' && (
+                  <span style={{ marginLeft: 8, background: T.greenBg, color: T.greenDark, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
+                    📅 По записи{d.max_per_slot > 0 ? ` (макс. ${d.max_per_slot})` : ''}
+                  </span>
+                )}
+              </div>
 
               {!showLegacy && (
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
