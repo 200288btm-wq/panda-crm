@@ -13,10 +13,12 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
-    // Отключаем автообновление токена при возврате фокуса на вкладку —
-    // иначе onAuthStateChange триггерит перезагрузку данных и закрывает формы
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: false,
+    // Должно быть true: через URL приходят токены из писем восстановления
+    // пароля и подтверждения почты. С false ссылки из писем не работают.
+    // Потеря данных в формах решается через loadedUserRef в App.jsx,
+    // а не выключением этой опции.
+    detectSessionInUrl: true,
   },
 })
