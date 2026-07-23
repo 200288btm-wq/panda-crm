@@ -3,7 +3,6 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
-const DURATIONS = ['30 минут', '45 минут', '1 час', '1.5 часа', '2 часа', 'Полдня', 'Весь день']
 const DIRECTION_COLORS = ['#7BAF8E','#F2A65A','#7c3aed','#3b82f6','#ec4899','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#06b6d4']
 const WEEK_DAYS = [
   { key:'Пн', full:'Понедельник' }, { key:'Вт', full:'Вторник' },
@@ -199,7 +198,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], onClose, onSave, features = {} }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {} }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -220,7 +219,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     enrollment_type: direction.enrollment_type || 'group',
     max_per_slot: direction.max_per_slot || 0,
     payment_type: direction.payment_type || 'per_lesson',
-  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0, payment_type: 'per_lesson' })
+    duration_hours: direction.duration_hours ?? 1,
+  } : { name:'', launched: todayStr, duration:'1 час', duration_hours: 1, color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0, payment_type: 'per_lesson' })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -273,6 +273,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         enrollment_type: f.enrollment_type || 'group',
         max_per_slot: +f.max_per_slot || 0,
         payment_type: f.payment_type || 'per_lesson',
+        duration_hours: +f.duration_hours || 1,
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -292,9 +293,20 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       </div>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Длительность занятия</label>
-          <select className="form-input" value={f.duration} onChange={e=>set('duration',e.target.value)}>
-            {DURATIONS.map(d=><option key={d}>{d}</option>)}
+          <select className="form-input" value={f.duration} onChange={e => {
+            const name = e.target.value
+            const found = durations.find(x => x.name === name)
+            setF(p => ({ ...p, duration: name, duration_hours: found ? +found.hours : p.duration_hours }))
+          }}>
+            {durations.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
+            {f.duration && !durations.some(x => x.name === f.duration) && (
+              <option value={f.duration}>{f.duration} — нет в справочнике</option>
+            )}
           </select>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
+            {+f.duration_hours ? `${f.duration_hours} ч. — по этому значению считается оплата педагогам. ` : ''}
+            Список настраивается в «⚙️ Настройки → Справочники».
+          </div>
         </div>
         <div className="form-group"><label className="form-label">Дата запуска</label>
           <input className="form-input" type="date" value={f.launched} onChange={e=>set('launched',e.target.value)} />
@@ -501,6 +513,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const [showDetail, setShowDetail] = useState(null)
   const [directionGroups, setDirectionGroups] = useState([])
   const [priceCategories, setPriceCategories] = useState([])
+  const [durations, setDurations] = useState([])
   const [localDirs, setLocalDirs] = useState(null)
   const [dragId, setDragId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
@@ -535,7 +548,17 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     setPriceCategories(data || [])
   }
 
-  useEffect(() => { loadGroups(); loadCategories() }, [])
+  const loadDurations = async () => {
+    if (!studioId) return
+    const { data, error } = await supabase
+      .from('lesson_durations').select('*')
+      .eq('studio_id', studioId)
+      .order('sort_order').order('id')
+    if (error) { console.warn('lesson_durations not available:', error.message); setDurations([]); return }
+    setDurations(data || [])
+  }
+
+  useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId])
 
   const save = async ({ direction: dirData, groups: groupList }) => {
     let directionId = showEdit?.id
@@ -849,8 +872,8 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         </div>
       )}
 
-      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowAdd(false)} onSave={save} features={features} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} onClose={()=>setShowEdit(null)} onSave={save} features={features} />}
+      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features} />}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features} />}
     </div>
   )
 }

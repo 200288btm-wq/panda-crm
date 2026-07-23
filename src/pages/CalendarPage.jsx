@@ -29,6 +29,9 @@ const parseDuration = (dur) => {
   return 60
 }
 
+// Длительность в минутах: сначала часы из справочника, иначе разбор текста
+const durationMinutes = (d) => d?.duration_hours ? Math.round(+d.duration_hours * 60) : parseDuration(d?.duration)
+
 const DOW_TO_KEY = { 0:'Вс', 1:'Пн', 2:'Вт', 3:'Ср', 4:'Чт', 5:'Пт', 6:'Сб' }
 
 // Parse new format "Пн/Ср 17:30, Сб 13:00" or old format "Пн/Ср/Пт 10:00"
@@ -159,7 +162,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
           teachersList: dirTeachers,
           dirId: d.id, groupId: group.id, students,
           color: eventColor, duration: d.duration || '1 час',
-          durationMin: parseDuration(d.duration),
+          durationMin: durationMinutes(d),
           enrollmentType: d.enrollment_type || 'group',
           paymentType: d.payment_type || 'per_lesson',
           maxPerSlot: d.max_per_slot || 0,
@@ -211,7 +214,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         teachersList: dirTeachers,
         dirId: d.id, groupId: null, students,
         color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
-        durationMin: parseDuration(d.duration),
+        durationMin: durationMinutes(d),
         enrollmentType: d.enrollment_type || 'group',
         paymentType: d.payment_type || 'per_lesson',
         maxPerSlot: d.max_per_slot || 0,

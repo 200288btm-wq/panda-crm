@@ -10,7 +10,7 @@ const TABS = [
   { id: 'main',       label: 'Основное' },
   { id: 'addresses',  label: 'Адреса',     feature: 'addresses' },
   { id: 'staff',      label: 'Сотрудники' },
-  { id: 'finance',    label: 'Финансы' },
+  { id: 'finance',    label: 'Справочники' },
   { id: 'statuses',   label: 'Статусы клиентов' },
   { id: 'features',   label: '⚙️ Функции' },
   { id: 'data',       label: 'Данные' },
@@ -57,6 +57,10 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [newExpense, setNewExpense] = useState({ name: '', icon: '📦' })
 
   const [periods, setPeriods] = useState([])
+  const [durations, setDurations] = useState([])
+  const [newDuration, setNewDuration] = useState({ name: '', hours: '' })
+  const [durSaving, setDurSaving] = useState(false)
+  const [durMsg, setDurMsg] = useState(null)
   const [periodMsg, setPeriodMsg] = useState(null)
   const [newPeriod, setNewPeriod] = useState({ label: '', period_type: 'unlimited', duration_value: 1, duration_unit: 'months' })
 
@@ -108,13 +112,14 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const loadAll = async () => {
-    const [s, c, p, et, addr, plan] = await Promise.all([
+    const [s, c, p, et, addr, plan, dur] = await Promise.all([
       supabase.from('studio_settings').select('*').eq('studio_id', studioId).maybeSingle(),
       supabase.from('price_categories').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('subscription_periods').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('expense_types').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
       supabase.from('addresses').select('*').eq('studio_id', studioId).order('id'),
       supabase.from('studio_subscriptions').select('*').eq('studio_id', studioId).maybeSingle(),
+      supabase.from('lesson_durations').select('*').eq('studio_id', studioId).order('sort_order').order('id'),
     ])
     if (s.data) setSettings(s.data)
     else setSettings({ studio_id: studioId, studio_name: studio?.name || '', logo_url: '', address: '', inn: '', stamp_url: '', phone: '', email: '', website: '' })
@@ -124,6 +129,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (addr.data) setAddresses(addr.data)
     if (plan.data) setPlanInfo(plan.data)
     else setPlanInfo({ plan: 'free', expires_at: null })
+    if (dur.data) setDurations(dur.data)
   }
 
   const set = (k, v) => setSettings(prev => ({ ...prev, [k]: v }))
@@ -152,6 +158,37 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   // Категории
+  const addDuration = async () => {
+    const name = newDuration.name.trim()
+    const hours = +newDuration.hours
+    if (!name) { setDurMsg({ type: 'error', text: 'Укажите название' }); return }
+    if (!hours || hours <= 0) { setDurMsg({ type: 'error', text: 'Укажите количество часов больше нуля' }); return }
+    setDurSaving(true); setDurMsg(null)
+    const { error } = await supabase.from('lesson_durations')
+      .insert({ studio_id: studioId, name, hours, sort_order: durations.length })
+    setDurSaving(false)
+    if (error) { setDurMsg({ type: 'error', text: error.message }); return }
+    setNewDuration({ name: '', hours: '' })
+    setDurMsg({ type: 'success', text: 'Добавлено' })
+    loadAll()
+    setTimeout(() => setDurMsg(null), 2500)
+  }
+
+  const deleteDuration = async (id, name) => {
+    const used = directions.filter(d => d.duration === name)
+    const warn = used.length
+      ? `Длительность «${name}» указана у ${used.length} направлений (${used.map(d => d.name).join(', ')}). У них она останется, но выбрать её заново будет нельзя. Удалить?`
+      : `Удалить длительность «${name}»?`
+    if (!confirm(warn)) return
+    await supabase.from('lesson_durations').delete().eq('id', id)
+    loadAll()
+  }
+
+  const updateDuration = async (id, field, value) => {
+    await supabase.from('lesson_durations').update({ [field]: value }).eq('id', id)
+    loadAll()
+  }
+
   const addCategory = async () => {
     if (!newCatName.trim()) return
     setCatSaving(true); setCatMsg(null)
@@ -345,6 +382,41 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {/* ── Финансы ── */}
       {tab === 'finance' && <>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <Section title="Длительность занятий" icon="⏱">
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+            Варианты для выбора в направлении. Количество часов используется при расчёте оплаты педагогам, поэтому указывайте его даже для названий вроде «Полдня».
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+            {durations.map(d => (
+              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+                <input className="form-input" defaultValue={d.name}
+                  onBlur={e => { const v = e.target.value.trim(); if (v && v !== d.name) updateDuration(d.id, 'name', v) }}
+                  style={{ flex: 1, minWidth: 0, background: 'white' }} />
+                <input className="form-input" type="number" step="0.25" min="0" defaultValue={d.hours}
+                  onBlur={e => { const v = +e.target.value; if (v > 0 && v !== +d.hours) updateDuration(d.id, 'hours', v) }}
+                  style={{ width: 78, background: 'white' }} />
+                <span style={{ fontSize: 12, color: T.muted }}>ч.</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => deleteDuration(d.id, d.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+              </div>
+            ))}
+            {!durations.length && <div style={{ fontSize: 13, color: T.muted }}>Вариантов нет</div>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <input className="form-input" value={newDuration.name}
+              onChange={e => setNewDuration(p => ({ ...p, name: e.target.value }))}
+              placeholder="Название, например «Полдня»" style={{ flex: 1, minWidth: 0 }}
+              onKeyDown={e => e.key === 'Enter' && addDuration()} />
+            <input className="form-input" type="number" step="0.25" min="0" value={newDuration.hours}
+              onChange={e => setNewDuration(p => ({ ...p, hours: e.target.value }))}
+              placeholder="часы" style={{ width: 78 }}
+              onKeyDown={e => e.key === 'Enter' && addDuration()} />
+            <button className="btn btn-primary" onClick={addDuration} disabled={durSaving}>
+              {durSaving ? '...' : '+'}
+            </button>
+          </div>
+          <Msg msg={durMsg} />
+        </Section>
+
         <Section title="Категории абонементов" icon="🏷️">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Позволяют разделить абонементы по типам направлений: «Основная», «Лагерь», «Льготная».
