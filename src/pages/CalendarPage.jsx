@@ -103,11 +103,34 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         if (timeMin === null) return
 
         // Ученики подгруппы
+        const dayKey = DOW_TO_KEY[dow]
         let students
         if (d.enrollment_type === 'calendar') {
           const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
           const enrolledIds = dayEnrollments.map(e => e.client_id)
           students = clients.filter(c => enrolledIds.includes(c.id))
+        } else if (d.enrollment_type === 'client_days') {
+          // Клиент показывается только в свои дни и только в своей подгруппе
+          students = clients.filter(c => {
+            if (c.status !== 'Активен') return false
+            if (!(c.direction_ids||[]).includes(d.id)) return false
+            const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
+            if (!ws || !Array.isArray(ws.days)) return false
+            if (!ws.days.includes(dayKey)) return false
+            // Подгруппа: если у клиента указана — должна совпадать
+            if (ws.group_id && String(ws.group_id) !== String(group.id)) return false
+            return true
+          })
+          // Разовые записи в «чужой» день/подгруппу
+          const oneOff = enrollments.filter(e =>
+            e.direction_id === d.id && e.date === ds && e.status !== 'cancelled' &&
+            (!e.group_id || String(e.group_id) === String(group.id))
+          )
+          oneOff.forEach(e => {
+            if (students.some(s => s.id === e.client_id)) return
+            const c = clients.find(x => x.id === e.client_id)
+            if (c) students.push({ ...c, _oneOff: true })
+          })
         } else {
           students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
           // Фильтруем по подгруппе
@@ -153,11 +176,27 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       const timeMin = parseTime(timeForDay)
       if (timeMin === null) return
 
+      const dayKey = DOW_TO_KEY[dow]
       let students
       if (d.enrollment_type === 'calendar') {
         const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
         const enrolledIds = dayEnrollments.map(e => e.client_id)
         students = clients.filter(c => enrolledIds.includes(c.id))
+      } else if (d.enrollment_type === 'client_days') {
+        students = clients.filter(c => {
+          if (c.status !== 'Активен') return false
+          if (!(c.direction_ids||[]).includes(d.id)) return false
+          const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
+          if (!ws || !Array.isArray(ws.days)) return false
+          return ws.days.includes(dayKey)
+        })
+        // Разовые записи
+        const oneOff = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
+        oneOff.forEach(e => {
+          if (students.some(s => s.id === e.client_id)) return
+          const c = clients.find(x => x.id === e.client_id)
+          if (c) students.push({ ...c, _oneOff: true })
+        })
       } else {
         students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
       }
@@ -197,9 +236,22 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
   // Пересчитываем events с учётом localEnrollments
   const events = initialEvents.map(ev => {
-    if (ev.enrollmentType !== 'calendar') return ev
-    const enrolledIds = localEnrollments.filter(e => e.direction_id === ev.dirId).map(e => e.client_id)
-    return { ...ev, students: clients.filter(c => enrolledIds.includes(c.id)) }
+    if (ev.enrollmentType === 'calendar') {
+      const enrolledIds = localEnrollments.filter(e => e.direction_id === ev.dirId).map(e => e.client_id)
+      return { ...ev, students: clients.filter(c => enrolledIds.includes(c.id)) }
+    }
+    if (ev.enrollmentType === 'client_days') {
+      // Базовые ученики (по своим дням) + разовые записи
+      const base = ev.students.filter(s => !s._oneOff)
+      const oneOffIds = localEnrollments
+        .filter(e => e.direction_id === ev.dirId && (!e.group_id || String(e.group_id) === String(ev.groupId)))
+        .map(e => e.client_id)
+      const extra = clients
+        .filter(c => oneOffIds.includes(c.id) && !base.some(s => s.id === c.id))
+        .map(c => ({ ...c, _oneOff: true }))
+      return { ...ev, students: [...base, ...extra] }
+    }
+    return ev
   })
 
   const reloadEnrollments = async () => {
@@ -207,13 +259,12 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     if (data) setLocalEnrollments(data)
   }
 
-  const enroll = async (clientId, dirId) => {
+  const enroll = async (clientId, dirId, groupId = null) => {
     setEnrolling2(true)
-    const { data, error } = await supabase.from('enrollments').upsert({
+    await supabase.from('enrollments').upsert({
       studio_id: studioId, direction_id: dirId, client_id: clientId,
-      date: ds, status: 'enrolled'
+      date: ds, status: 'enrolled', group_id: groupId || null
     }, { onConflict: 'studio_id,direction_id,client_id,date' })
-    console.log('enroll result:', { data, error, clientId, dirId, ds, studioId })
     setEnrolling(null); setEnrollSearch('')
     setEnrolling2(false)
     await reloadEnrollments()
@@ -272,6 +323,8 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
         const canMark = isPast && (isAdmin || (myTeacherName && ev.teacher === myTeacherName))
         const presentCount = ev.students.filter(s => attendance[`${s.id}_${ev.dirId}`]).length
         const isCalendar = ev.enrollmentType === 'calendar'
+        const isClientDays = ev.enrollmentType === 'client_days'
+        const enrollKey = `${ev.dirId}_${ev.groupId || 0}`
         const maxSlot = ev.maxPerSlot || 0
         return (
           <div key={i} style={{ marginBottom:20 }}>
@@ -291,7 +344,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
             {isCalendar && ev.students.length === 0 && (
               <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет записавшихся на этот день</div>
             )}
-            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет учеников</div>}
+            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
             {ev.students.map(s => {
               const key = `${s.id}_${ev.dirId}`
               const present = attendance[key]
@@ -299,10 +352,27 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}` }}>
                   <div className="avatar" style={{ background:hashColor(s.child_name), width:30, height:30, fontSize:12 }}>{(s.child_name||'?')[0]}</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:700, fontSize:13 }}>{s.child_name}</div>
+                    <div style={{ fontWeight:700, fontSize:13 }}>
+                      {s.child_name}
+                      {s._oneOff && <span style={{ marginLeft:6, background:'#e0e7ff', color:'#4338ca', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>разово</span>}
+                    </div>
                     <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
                   </div>
-                  {isCalendar ? (
+                  {isClientDays ? (
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: canMark ? 'pointer' : 'not-allowed',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
+                        color: present ? T.greenDark : isPast ? T.red : T.muted,
+                        opacity: canMark ? 1 : 0.55,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      {s._oneOff && (
+                        <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                      )}
+                    </div>
+                  ) : isCalendar ? (
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
                         padding:'5px 14px', borderRadius:10, border:'none',
@@ -327,10 +397,10 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               )
             })}
 
-            {/* Кнопка записи для calendar-направлений */}
-            {isCalendar && isAdmin && (
+            {/* Кнопка записи (на даты / разовая в «чужой» день) */}
+            {(isCalendar || isClientDays) && isAdmin && (
               <div style={{ padding:'8px 14px' }}>
-                {enrolling === ev.dirId ? (
+                {enrolling === enrollKey ? (
                   <div>
                     <input className="form-input" autoFocus placeholder="Поиск клиента..."
                       value={enrollSearch} onChange={e => setEnrollSearch(e.target.value)}
@@ -340,7 +410,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                         .filter(c => c.child_name?.toLowerCase().includes(enrollSearch.toLowerCase()) && !ev.students.find(s => s.id === c.id))
                         .slice(0, 10)
                         .map(c => (
-                          <div key={c.id} onClick={() => enroll(c.id, ev.dirId)}
+                          <div key={c.id} onClick={() => enroll(c.id, ev.dirId, ev.groupId)}
                             style={{ padding:'9px 14px', cursor:'pointer', fontSize:13, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:8 }}
                             onMouseEnter={e => e.currentTarget.style.background = T.cream}
                             onMouseLeave={e => e.currentTarget.style.background = 'white'}>
@@ -358,9 +428,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     <button className="btn btn-ghost btn-sm" onClick={() => { setEnrolling(null); setEnrollSearch('') }} style={{ marginTop:8 }}>Отмена</button>
                   </div>
                 ) : (
-                  <button className="btn btn-outline btn-sm" onClick={() => setEnrolling(ev.dirId)}
-                    disabled={maxSlot > 0 && ev.students.length >= maxSlot}>
-                    {maxSlot > 0 && ev.students.length >= maxSlot ? '🔒 Мест нет' : '+ Записать клиента'}
+                  <button className="btn btn-outline btn-sm" onClick={() => setEnrolling(enrollKey)}
+                    disabled={isCalendar && maxSlot > 0 && ev.students.length >= maxSlot}>
+                    {isCalendar && maxSlot > 0 && ev.students.length >= maxSlot
+                      ? '🔒 Мест нет'
+                      : isClientDays ? '+ Разовая запись' : '+ Записать клиента'}
                   </button>
                 )}
               </div>

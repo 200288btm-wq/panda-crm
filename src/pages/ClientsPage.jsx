@@ -24,6 +24,21 @@ const calcAge = (birthday) => {
   return age
 }
 
+// Парсинг дней недели из расписания "Пн/Ср 17:30, Сб 13:00"
+const parseDaysFromSchedule = (schedule) => {
+  if (!schedule) return []
+  const days = []
+  const DAY_KEYS = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
+  schedule.split(',').forEach(part => {
+    const m = part.trim().match(/^([А-Яа-я/]+)\s+\d{1,2}:\d{2}/)
+    if (m) m[1].split('/').forEach(d => {
+      const day = d.trim()
+      if (DAY_KEYS.includes(day) && !days.includes(day)) days.push(day)
+    })
+  })
+  return DAY_KEYS.filter(d => days.includes(d))
+}
+
 function ClientModal({ client, directions, onClose, onSave, statuses = ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание'] }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
@@ -35,15 +50,37 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
     birthday: client.birthday || '',
     sex: client.sex || 'М',
     direction_ids: client.direction_ids || [],
+    weekly_schedule: client.weekly_schedule || {},
     paid_lessons: client.paid_lessons || 0,
     visited_lessons: client.visited_lessons || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
     comment: client.comment || '',
-  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
-
+  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
+
+  // Направления формата "по дням клиента" среди выбранных
+  const clientDayDirs = directions.filter(d =>
+    (f.direction_ids || []).includes(d.id) && d.enrollment_type === 'client_days'
+  )
+
+  // Установить/снять день для направления
+  const toggleClientDay = (dirId, day, groupId = null) => {
+    const ws = { ...(f.weekly_schedule || {}) }
+    const cur = ws[dirId] || { days: [], group_id: groupId }
+    const days = cur.days.includes(day) ? cur.days.filter(x => x !== day) : [...cur.days, day]
+    ws[dirId] = { days, group_id: groupId ?? cur.group_id ?? null }
+    set('weekly_schedule', ws)
+  }
+
+  const setClientGroup = (dirId, groupId) => {
+    const ws = { ...(f.weekly_schedule || {}) }
+    const cur = ws[dirId] || { days: [], group_id: null }
+    // При смене подгруппы сбрасываем дни (у подгруппы своё расписание)
+    ws[dirId] = { days: [], group_id: groupId }
+    set('weekly_schedule', ws)
+  }
 
   return (
     <Modal title={client ? `✏️ ${client.child_name}` : '+ Новый клиент'} onClose={onClose}
@@ -102,11 +139,76 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
               }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
                 {d.name}
+                {d.enrollment_type === 'client_days' && <span style={{ fontSize: 10 }}>🗓</span>}
               </label>
             )
           })}
         </div>
       </div>
+
+      {/* Дни посещения для направлений формата "по дням клиента" */}
+      {clientDayDirs.map(d => {
+        const groups = d.groups || []
+        const ws = (f.weekly_schedule || {})[d.id] || { days: [], group_id: null }
+        const color = d.color || DEFAULT_COLOR
+        // Расписание: из подгруппы если выбрана, иначе из направления
+        const selectedGroup = groups.find(g => g.id === ws.group_id)
+        const scheduleSource = selectedGroup ? selectedGroup.schedule : d.schedule
+        const availableDays = parseDaysFromSchedule(scheduleSource)
+
+        return (
+          <div key={d.id} style={{ background: color + '11', borderRadius: 12, padding: '12px 14px', marginBottom: 12, border: `1.5px solid ${color}44` }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: color, marginBottom: 8 }}>
+              🗓 Дни посещения — {d.name}
+            </div>
+
+            {/* Выбор подгруппы если есть */}
+            {groups.length > 0 && (
+              <div className="form-group" style={{ marginBottom: 10 }}>
+                <label className="form-label">Подгруппа</label>
+                <select className="form-input" value={ws.group_id || ''}
+                  onChange={e => setClientGroup(d.id, e.target.value ? +e.target.value : null)}>
+                  <option value="">— выберите подгруппу —</option>
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {availableDays.length === 0 ? (
+              <div style={{ fontSize: 12, color: T.muted }}>
+                {groups.length > 0 && !ws.group_id
+                  ? 'Сначала выберите подгруппу'
+                  : 'В расписании направления не заданы дни. Добавьте их в разделе «Направления».'}
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>Отметьте дни по которым ходит ребёнок:</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {availableDays.map(day => {
+                    const active = ws.days.includes(day)
+                    return (
+                      <div key={day} onClick={() => toggleClientDay(d.id, day, ws.group_id)}
+                        style={{
+                          width: 42, height: 42, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: 'pointer', fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14,
+                          background: active ? color : 'white',
+                          color: active ? 'white' : T.muted,
+                          border: `2px solid ${active ? color : T.border}`,
+                        }}>{day}</div>
+                    )
+                  })}
+                </div>
+                {ws.days.length > 0 && (
+                  <div style={{ fontSize: 11, color: color, fontWeight: 600, marginTop: 8 }}>
+                    Выбрано: {ws.days.join(', ')}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )
+      })}
+
       <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: T.muted, lineHeight: 1.6 }}>
         <strong style={{ color: T.ink }}>📌 Начальные остатки</strong> — заполните если переносите клиента из другой системы. Новым клиентам оставьте 0 — всё будет считаться автоматически из оплат и посещаемости.
       </div>
@@ -139,7 +241,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
 function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment, onEnroll, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
-  const [attDetails, setAttDetails] = useState([]) // подробные посещения с join
+  const [attDetails, setAttDetails] = useState([])
   const [attExpanded, setAttExpanded] = useState(false)
   const [payExpanded, setPayExpanded] = useState(false)
 
@@ -147,15 +249,11 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
     const fetchStats = async () => {
       const now = new Date()
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
-
-      // Paid lessons = initial balance + from payments table
       const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date, expires_at').eq('client_id', client.id)
       const today = new Date().toISOString().slice(0, 10)
       const paidFromPayments = (pays||[]).filter(p => !p.expires_at || p.expires_at >= today).reduce((s,p) => s + (+p.lessons_count||0), 0)
       const totalPaid = (client.paid_lessons || 0) + paidFromPayments
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
-
-      // Visited = initial balance + from attendance (с деталями для раскрываемого списка)
       const { data: att } = await supabase
         .from('attendance')
         .select('date, time, direction_id, teacher_id, address_id, group_id, present')
@@ -166,10 +264,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       const visitedFromAtt = (att||[]).length
       const totalVisited = (client.visited_lessons || 0) + visitedFromAtt
       const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
-
       setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
-
-      // Заморозки
       const { data: frz } = await supabase
         .from('subscription_freezes')
         .select('*')
@@ -186,12 +281,12 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
   const totalPaid = stats?.totalPaid ?? client.paid_lessons ?? 0
   const totalVisited = stats?.totalVisited ?? client.visited_lessons ?? 0
   const bal = calcBalance(totalPaid, totalVisited)
-
-  // Активная заморозка сейчас?
   const todayStr = new Date().toISOString().slice(0, 10)
   const activeFreeze = freezes.find(f => f.start_date <= todayStr && f.end_date >= todayStr)
-  // Будущая заморозка?
   const futureFreeze = freezes.find(f => f.start_date > todayStr)
+
+  // Направления формата "по дням клиента" среди направлений клиента
+  const clientDayDirs = cDirs.filter(d => d.enrollment_type === 'client_days')
 
   return (
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
@@ -236,8 +331,6 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           </div>
         </div>
       )}
-
-      {/* Блок заморозки */}
       {activeFreeze ? (
         <div style={{ background: '#e3f2fd', border: '1.5px solid #2196f3', borderRadius: 12, padding: '12px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 24 }}>❄️</span>
@@ -272,9 +365,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           )}
         </div>
       )}
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0, alignItems: 'start' }}>
-        {/* Оплачено */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s', marginBottom: payExpanded ? 8 : 16 }}
@@ -321,8 +412,6 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             </div>
           )}
         </div>
-
-        {/* Посещено */}
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s', marginBottom: attExpanded ? 8 : 16 }}
@@ -355,10 +444,10 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
                     const address = addresses?.find(adr => adr.id === a.address_id)
                     const dirColor = dir?.color || DEFAULT_COLOR
                     const dateObj = new Date(a.date)
-                    const dateStr = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })
+                    const dateStr2 = dateObj.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })
                     return (
                       <div key={i} style={{ background: 'white', borderRadius: 8, padding: '8px 10px', borderLeft: `3px solid ${dirColor}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, minWidth: 90 }}>{dateStr}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, minWidth: 90 }}>{dateStr2}</div>
                         {a.time && <div style={{ fontSize: 12, color: T.muted, minWidth: 50 }}>🕐 {a.time}</div>}
                         <div style={{ fontSize: 13, color: dirColor, fontWeight: 600 }}>{dir?.name || 'Направление удалено'}</div>
                         {teacher && <div style={{ fontSize: 12, color: T.muted }}>👩‍🏫 {teacher.name}</div>}
@@ -372,7 +461,6 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           )}
         </div>
       </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>📌 Источник</div>
@@ -396,6 +484,27 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         })}
         {!cDirs.length && <span style={{ fontSize: 13, color: T.muted }}>нет направлений</span>}
       </div>
+
+      {/* Дни посещения для формата "по дням клиента" */}
+      {clientDayDirs.map(d => {
+        const ws = (client.weekly_schedule || {})[d.id]
+        if (!ws || !ws.days || ws.days.length === 0) return null
+        const color = d.color || DEFAULT_COLOR
+        const group = (d.groups || []).find(g => g.id === ws.group_id)
+        return (
+          <div key={d.id} style={{ background: color + '11', borderRadius: 10, padding: '8px 12px', marginBottom: 8, border: `1px solid ${color}33` }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color, marginBottom: 4 }}>
+              🗓 {d.name}{group ? ` · ${group.name}` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {ws.days.map(day => (
+                <span key={day} style={{ background: color + '22', color, borderRadius: 6, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>{day}</span>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+
       {cDirs.filter(d => d.enrollment_type === 'calendar').map(d => (
         <button key={d.id} onClick={() => onEnroll && onEnroll({ client, direction: d })}
           style={{ marginBottom: 8, marginRight: 6, padding: '4px 10px', borderRadius: 99, border: `1.5px solid ${(d.color || T.green) + '88'}`, background: (d.color || T.green) + '22', color: d.color || T.green, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'inherit' }}>
@@ -417,7 +526,6 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
   )
 }
 
-// Модалка заморозки абонемента
 function FreezeModal({ client, onClose, onSaved }) {
   const todayISO = new Date().toISOString().slice(0, 10)
   const [startDate, setStartDate] = useState(todayISO)
@@ -425,15 +533,12 @@ function FreezeModal({ client, onClose, onSaved }) {
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-
-  // Конечная дата считается автоматически
   const endDate = (() => {
     if (!startDate || !days || days < 1) return ''
     const d = new Date(startDate)
     d.setDate(d.getDate() + (+days) - 1)
     return d.toISOString().slice(0, 10)
   })()
-
   const save = async () => {
     setError(null)
     if (!startDate) return setError('Укажите дату начала')
@@ -450,7 +555,6 @@ function FreezeModal({ client, onClose, onSaved }) {
     if (err) return setError('Не удалось сохранить: ' + err.message)
     onSaved && onSaved()
   }
-
   return (
     <Modal title={`❄️ Заморозка абонемента — ${client.child_name}`} onClose={onClose}
       footer={<><button className="btn btn-outline" onClick={onClose} disabled={saving}>Отмена</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Сохраняем…' : 'Заморозить'}</button></>}>
@@ -481,19 +585,17 @@ function FreezeModal({ client, onClose, onSaved }) {
   )
 }
 
-// Считает реальный баланс с учётом payments.lessons_count и expires_at
 const calcRealBalance = (client, payments) => {
   const today = new Date().toISOString().slice(0, 10)
   const paidFromPayments = payments
     .filter(p => p.client_id === client.id)
-    .filter(p => !p.expires_at || p.expires_at >= today) // исключаем просроченные
+    .filter(p => !p.expires_at || p.expires_at >= today)
     .reduce((s, p) => s + (+p.lessons_count || 0), 0)
   const totalPaid = (client.paid_lessons || 0) + paidFromPayments
   const totalVisited = client.visited_lessons || 0
   return { totalPaid, totalVisited, bal: calcBalance(totalPaid, totalVisited) }
 }
 
-// Раскрывающийся комментарий для мобильных карточек
 function CommentToggle({ comment }) {
   const [open, setOpen] = useState(false)
   return (
@@ -513,7 +615,6 @@ function CommentToggle({ comment }) {
 }
 
 export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId, clientStatuses = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
-  // Формируем статусы — из БД если есть, иначе fallback на дефолтные
   const STATUSES_LIST = clientStatuses.length > 0
     ? clientStatuses.map(s => s.name)
     : ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание']
@@ -525,31 +626,25 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
   const [dirFilter, setDirFilter] = useState('all')
   const [showAdd, setShowAdd] = useState(false)
   const [showDetail, setShowDetail] = useState(null)
-  const [enrollModal, setEnrollModal] = useState(null) // { client, direction }
+  const [enrollModal, setEnrollModal] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
   const [showFreeze, setShowFreeze] = useState(null)
   const [addresses, setAddresses] = useState([])
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
-
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768)
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-
-  // Автооткрытие карточки клиента по deepLink (например из дашборда)
   useEffect(() => {
     if (deepLink?.clientId && clients.length) {
       const c = clients.find(x => x.id === deepLink.clientId)
       if (c) { setShowDetail(c); setDeepLink(null) }
     }
   }, [deepLink, clients])
-
-  // Загружаем адреса один раз (для блока истории посещений)
   useEffect(() => {
     supabase.from('addresses').select('*').then(({ data }) => setAddresses(data || []))
   }, [])
-
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
     const match = !q || (c.child_name || '').toLowerCase().includes(q) || (c.adult_name || '').toLowerCase().includes(q)
@@ -557,7 +652,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const dir = dirFilter === 'all' || (c.direction_ids || []).includes(+dirFilter)
     return match && st && dir
   })
-
   const save = async (f) => {
     const cleaned = {
       ...f,
@@ -565,11 +659,11 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       balance: +f.balance || 0,
       discount: +f.discount || 0,
       direction_ids: f.direction_ids || [],
+      weekly_schedule: f.weekly_schedule || {},
       birthday: f.birthday || null,
       start_date: f.start_date || null,
     }
     if (showEdit) delete cleaned.visited_lessons
-
     if (showEdit) {
       const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
@@ -583,37 +677,28 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
     await reload()
   }
-
   const deleteClient = async (c) => {
     if (!confirm(`Удалить клиента «${c.child_name}»? Это действие нельзя отменить.`)) return
     await supabase.from('clients').delete().eq('id', c.id)
     setShowDetail(null)
     await reload()
   }
-
   return (
     <div>
-      {/* Filters row */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <div className="search-wrap">
           <span className="search-icon">🔍</span>
           <input className="search-input" placeholder="Поиск..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-
-        {/* Direction filter */}
         <select className="form-input" style={{ width: 'auto', padding: '8px 12px' }} value={dirFilter} onChange={e => setDirFilter(e.target.value)}>
           <option value="all">Все направления</option>
           {directions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
-
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAdd(true)}>+ Новый клиент</button>
       </div>
-
-      {/* Status tabs */}
       <div className="tabs" style={{ marginBottom: 14 }}>
         {['Все', ...STATUSES_LIST].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
       </div>
-
       <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
           <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th><th>Комментарий</th></tr></thead>
@@ -668,8 +753,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           </tbody>
         </table>
       </div>
-
-      {/* Мобильные карточки */}
       <div className="show-mobile" style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
         {filtered.map(c => {
           const age = calcAge(c.birthday)
@@ -679,7 +762,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           return (
             <div key={c.id} className="card" onClick={() => setShowDetail(c)}
               style={{ padding: '14px 16px', cursor: 'pointer', borderLeft: `4px solid ${hashColor(c.child_name)}` }}>
-              {/* Верхняя строка: аватар + имя + статус */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                 <div className="avatar" style={{ background: hashColor(c.child_name), width: 36, height: 36, fontSize: 14, flexShrink: 0 }}>
                   {(c.child_name || '?')[0]}
@@ -690,8 +772,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                 </div>
                 <span className={`badge ${STATUS_COLORS_MAP[c.status]}`}>{c.status}</span>
               </div>
-
-              {/* Средняя строка: взрослый + телефон */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 10 }}>
                 {c.adult_name && (
                   <div>
@@ -707,8 +787,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                   </div>
                 )}
               </div>
-
-              {/* Направления */}
               {dirs.length > 0 && (
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
                   {dirs.map(d => {
@@ -722,8 +800,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                   })}
                 </div>
               )}
-
-              {/* Баланс */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: c.comment ? 8 : 0 }}>
                 <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 13, padding: '2px 10px', borderRadius: 8, background: bal.bg, color: bal.color }}>
                   {bal.left > 0 ? `+${bal.left} зан.` : bal.left === 0 ? '0 зан.' : `${bal.left} зан.`}
@@ -731,8 +807,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                 <span style={{ fontSize: 11, color: T.muted }}>опл. {totalPaid} · пос. {totalVisited}</span>
                 {(c.discount || 0) > 0 && <span className="badge badge-orange" style={{ marginLeft: 'auto' }}>🎁 {c.discount}%</span>}
               </div>
-
-              {/* Комментарий — раскрывается по кнопке */}
               {c.comment && (
                 <CommentToggle comment={c.comment} />
               )}
@@ -746,7 +820,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           </div>
         )}
       </div>
-
       {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} statuses={STATUSES_LIST} />}
       {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} statuses={STATUSES_LIST} />}
       {showDetail && (
@@ -802,9 +875,7 @@ function EnrollModal({ client, direction, studioId, onClose }) {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
   const [viewMonth, setViewMonth] = useState({ year: today.getFullYear(), month: today.getMonth() })
-
   useEffect(() => { loadExisting() }, [])
-
   const loadExisting = async () => {
     const { data } = await supabase.from('enrollments')
       .select('*')
@@ -813,30 +884,23 @@ function EnrollModal({ client, direction, studioId, onClose }) {
       .eq('status', 'enrolled')
     setExistingEnrollments(data || [])
   }
-
   const fmt2 = n => String(n).padStart(2, '0')
   const toStr = (y, m, d) => `${y}-${fmt2(m+1)}-${fmt2(d)}`
-
   const daysInMonth = new Date(viewMonth.year, viewMonth.month + 1, 0).getDate()
   const firstDow = new Date(viewMonth.year, viewMonth.month, 1).getDay()
   const offset = (firstDow + 6) % 7
-
-  // Дни недели на которых стоит занятие
   const scheduleStr = direction.schedule || ''
   const scheduleDows = []
   const DAY_MAP = { 'пн': 1, 'вт': 2, 'ср': 3, 'чт': 4, 'пт': 5, 'сб': 6, 'вс': 0 }
   Object.entries(DAY_MAP).forEach(([key, val]) => {
     if (scheduleStr.toLowerCase().includes(key)) scheduleDows.push(val)
   })
-
   const toggleDate = (ds) => {
     setSelectedDates(prev => prev.includes(ds) ? prev.filter(x => x !== ds) : [...prev, ds])
   }
-
   const isExisting = (ds) => existingEnrollments.some(e => e.date === ds)
   const isSelected = (ds) => selectedDates.includes(ds)
   const isScheduled = (dow) => scheduleDows.length === 0 || scheduleDows.includes(dow)
-
   const save = async () => {
     if (!selectedDates.length) { setMsg({ type: 'error', text: 'Выберите хотя бы одну дату' }); return }
     setSaving(true)
@@ -853,15 +917,12 @@ function EnrollModal({ client, direction, studioId, onClose }) {
     setSaving(false)
     setTimeout(() => setMsg(null), 2000)
   }
-
   const cancelEnrollment = async (enrollmentId) => {
     await supabase.from('enrollments').update({ status: 'cancelled' }).eq('id', enrollmentId)
     loadExisting()
   }
-
   const color = direction.color || T.green
   const DAYS_RU_SHORT = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
-
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div style={{ background: 'white', borderRadius: 20, padding: 24, maxWidth: 420, width: '100%', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
@@ -872,8 +933,6 @@ function EnrollModal({ client, direction, studioId, onClose }) {
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: T.muted }}>✕</button>
         </div>
-
-        {/* Навигация по месяцам */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <button className="btn btn-ghost btn-sm" onClick={() => {
             const d = new Date(viewMonth.year, viewMonth.month - 1)
@@ -887,15 +946,11 @@ function EnrollModal({ client, direction, studioId, onClose }) {
             setViewMonth({ year: d.getFullYear(), month: d.getMonth() })
           }}>▶</button>
         </div>
-
-        {/* Дни недели */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
           {DAYS_RU_SHORT.map(d => (
             <div key={d} style={{ textAlign: 'center', fontSize: 11, fontWeight: 600, color: T.muted, padding: '2px 0' }}>{d}</div>
           ))}
         </div>
-
-        {/* Календарь */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 16 }}>
           {Array(offset).fill(null).map((_, i) => <div key={`e${i}`} />)}
           {Array.from({ length: daysInMonth }, (_, i) => {
@@ -908,7 +963,6 @@ function EnrollModal({ client, direction, studioId, onClose }) {
             const existing = isExisting(ds)
             const selected = isSelected(ds)
             const existingEnroll = existingEnrollments.find(e => e.date === ds)
-
             return (
               <div key={day} onClick={() => !isPast && scheduled && !existing && toggleDate(ds)}
                 style={{
@@ -929,21 +983,16 @@ function EnrollModal({ client, direction, studioId, onClose }) {
             )
           })}
         </div>
-
-        {/* Легенда */}
         <div style={{ display: 'flex', gap: 12, fontSize: 11, color: T.muted, marginBottom: 16, flexWrap: 'wrap' }}>
           <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: color + '33', border: `1.5px solid ${color}`, marginRight: 4 }} />Уже записан</span>
           <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: color, marginRight: 4 }} />Выбрано</span>
           {scheduleDows.length > 0 && <span>Занятия по расписанию подсвечены</span>}
         </div>
-
         {selectedDates.length > 0 && (
           <div style={{ background: T.greenBg, borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: T.greenDark, fontWeight: 600 }}>
             Выбрано дат: {selectedDates.length}
           </div>
         )}
-
-        {/* Существующие записи */}
         {existingEnrollments.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, marginBottom: 6, textTransform: 'uppercase' }}>Уже записан ({existingEnrollments.length})</div>
@@ -957,7 +1006,6 @@ function EnrollModal({ client, direction, studioId, onClose }) {
             </div>
           </div>
         )}
-
         {msg && (
           <div style={{ fontSize: 12, marginBottom: 10, padding: '8px 12px', borderRadius: 8,
             background: msg.type === 'error' ? '#fde8e8' : T.greenBg,
@@ -965,7 +1013,6 @@ function EnrollModal({ client, direction, studioId, onClose }) {
             {msg.type === 'error' ? '⚠️' : '✅'} {msg.text}
           </div>
         )}
-
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" onClick={save} disabled={saving || !selectedDates.length} style={{ flex: 1 }}>
             {saving ? 'Сохраняем...' : `✅ Записать (${selectedDates.length})`}
