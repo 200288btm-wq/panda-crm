@@ -93,8 +93,9 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         const timeForDay = getTimeForDow(dow, groupSchedule)
         if (!timeForDay) return
 
-        // Фильтр по педагогу подгруппы
-        if (filterTeacher !== 'all' && String(group.teacher_id) !== filterTeacher) return
+        // Педагоги направления — источник правды карточка педагога
+        const dirTeachers = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
+        if (filterTeacher !== 'all' && !dirTeachers.some(t => String(t.id) === filterTeacher)) return
 
         // Фильтр по адресу подгруппы
         if (filterAddress !== 'all' && String(group.address_id) !== filterAddress) return
@@ -143,8 +144,6 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         }
         if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
-        // Педагог подгруппы
-        const groupTeacher = teachers.find(t => t.id === group.teacher_id)
 
         // Цвет
         let eventColor = d.color || DEFAULT_COLOR
@@ -156,10 +155,13 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         events.push({
           name: dirGroups.length > 1 ? `${d.name} · ${group.name || ''}`.trim() : d.name,
           timeMin, time: timeForDay,
-          teacher: groupTeacher?.name || d.teacher_name, dirId: d.id, groupId: group.id, students,
+          teacher: dirTeachers.length === 1 ? dirTeachers[0].name : null,
+          teachersList: dirTeachers,
+          dirId: d.id, groupId: group.id, students,
           color: eventColor, duration: d.duration || '1 час',
           durationMin: parseDuration(d.duration),
           enrollmentType: d.enrollment_type || 'group',
+          paymentType: d.payment_type || 'per_lesson',
           maxPerSlot: d.max_per_slot || 0,
         })
       })
@@ -202,12 +204,16 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       }
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
+      const dirTeachers = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
       events.push({
         name: d.name, timeMin, time: timeForDay,
-        teacher: d.teacher_name, dirId: d.id, students,
+        teacher: dirTeachers.length === 1 ? dirTeachers[0].name : null,
+        teachersList: dirTeachers,
+        dirId: d.id, groupId: null, students,
         color: d.color || DEFAULT_COLOR, duration: d.duration || '1 час',
         durationMin: parseDuration(d.duration),
         enrollmentType: d.enrollment_type || 'group',
+        paymentType: d.payment_type || 'per_lesson',
         maxPerSlot: d.max_per_slot || 0,
       })
     }
@@ -223,6 +229,10 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [enrollSearch, setEnrollSearch] = useState('')
   const [enrolling2, setEnrolling2] = useState(false)
   const [localEnrollments, setLocalEnrollments] = useState([])
+  const [work, setWork] = useState({})        // ключ → { teacher_id: часы } — текущее состояние в интерфейсе
+  const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
+  const [lastWork, setLastWork] = useState({})   // состав с прошлого занятия — для подстановки
+  const [savingWork, setSavingWork] = useState(null)
 
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
@@ -278,6 +288,44 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   }
 
   useEffect(() => {
+    const loadWork = async () => {
+      const { data: wl } = await supabase.from('teacher_work_log').select('*').eq('date', ds)
+      const map = {}
+      ;(wl || []).forEach(r => {
+        const k = `${r.direction_id}_${r.group_id || 0}`
+        if (!map[k]) map[k] = {}
+        map[k][r.teacher_id] = +r.hours
+      })
+      setSavedWork(map)
+      setWork(map)
+      // Последний состав до этой даты — чтобы не заполнять каждый раз заново
+      const { data: prev } = await supabase.from('teacher_work_log')
+        .select('*').lt('date', ds).order('date', { ascending: false }).limit(300)
+      const last = {}
+      ;(prev || []).forEach(r => {
+        const k = `${r.direction_id}_${r.group_id || 0}`
+        if (!last[k]) last[k] = { date: r.date, rows: {} }
+        if (last[k].date === r.date) last[k].rows[r.teacher_id] = +r.hours
+      })
+      setLastWork(last)
+    }
+    loadWork()
+  }, [ds])
+
+  const saveWork = async (wkey, dirId, groupId, map) => {
+    setSavingWork(wkey)
+    await supabase.from('teacher_work_log').delete()
+      .eq('date', ds).eq('direction_id', dirId).eq('group_id', groupId || 0)
+    const rows = Object.entries(map).map(([tid, h]) => ({
+      studio_id: studioId, date: ds, direction_id: dirId,
+      group_id: groupId || 0, teacher_id: +tid, hours: +h || 0,
+    }))
+    if (rows.length) await supabase.from('teacher_work_log').insert(rows)
+    setSavedWork(p => ({ ...p, [wkey]: map }))
+    setSavingWork(null)
+  }
+
+  useEffect(() => {
     supabase.from('attendance').select('*').eq('date', ds).then(({ data }) => {
       if (data) {
         const map = {}
@@ -289,13 +337,17 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
   const toggle = async (clientId, dirId, ev) => {
     if (!isPast) return
-    const canMark = isAdmin || (myTeacherName && ev.teacher === myTeacherName)
+    const canMark = isAdmin || (myTeacherName && (ev.teachersList || []).some(t => t.name === myTeacherName))
     if (!canMark) return
     const key = `${clientId}_${dirId}`
     const newVal = !attendance[key]
     setAttendance(p => ({ ...p, [key]: newVal }))
-    // Snapshot: пытаемся подтянуть teacher_id по имени (для будущей истории)
-    const teacherObj = teachers.find(t => t.name === ev.teacher)
+    // Снимок педагога для истории: берём того, кто отмечен работавшим
+    const wkey = `${ev.dirId}_${ev.groupId || 0}`
+    const workedIds = Object.keys(work[wkey] || {})
+    const teacherObj = workedIds.length
+      ? teachers.find(t => t.id === +workedIds[0])
+      : ((ev.teachersList || []).length === 1 ? ev.teachersList[0] : null)
     await supabase.from('attendance').upsert(
       {
         date: ds,
@@ -320,18 +372,44 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       {!isPast && <div style={{ background:'#fff4e6', color:'#c47a00', borderRadius:10, padding:'10px 14px', marginBottom:16, fontSize:13, fontWeight:600 }}>⏳ Отмечать можно только прошедшие даты и сегодня</div>}
       {events.length === 0 && <div className="empty"><div className="empty-icon">🗓️</div><div className="empty-text">Занятий нет</div></div>}
       {events.map((ev, i) => {
-        const canMark = isPast && (isAdmin || (myTeacherName && ev.teacher === myTeacherName))
+        const canMark = isPast && (isAdmin || (myTeacherName && (ev.teachersList || []).some(t => t.name === myTeacherName)))
         const presentCount = ev.students.filter(s => attendance[`${s.id}_${ev.dirId}`]).length
         const isCalendar = ev.enrollmentType === 'calendar'
         const isClientDays = ev.enrollmentType === 'client_days'
         const enrollKey = `${ev.dirId}_${ev.groupId || 0}`
         const maxSlot = ev.maxPerSlot || 0
+
+        // ── Учёт работы педагогов ──
+        const wkey = enrollKey
+        const cands = ev.teachersList || []
+        const hourly = ev.paymentType === 'per_hour'
+        const defaultHours = Math.round((ev.durationMin / 60) * 10) / 10
+        const savedMap = savedWork[wkey]
+        const prefillMap = lastWork[wkey]?.rows
+        let shown = work[wkey]
+        let isPrefill = false
+        if (!shown) {
+          if (prefillMap && Object.keys(prefillMap).length) { shown = prefillMap; isPrefill = true }
+          else if (cands.length === 1) { shown = { [cands[0].id]: hourly ? defaultHours : 1 }; isPrefill = true }
+          else shown = {}
+        }
+        const workDirty = JSON.stringify(shown) !== JSON.stringify(savedMap || {})
+        const setWorkFor = (m) => setWork(p => ({ ...p, [wkey]: m }))
+        const toggleWorker = (tid) => {
+          const m = { ...shown }
+          if (m[tid] !== undefined) delete m[tid]
+          else m[tid] = hourly ? defaultHours : 1
+          setWorkFor(m)
+        }
         return (
           <div key={i} style={{ marginBottom:20 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}` }}>
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{ev.name}</div>
-                <div style={{ fontSize:12, color:T.muted }}>🕐 {ev.time} · ⏱ {ev.duration}{ev.teacher ? ` · 👩‍🏫 ${ev.teacher}` : ''}</div>
+                <div style={{ fontSize:12, color:T.muted }}>
+                  🕐 {ev.time} · ⏱ {ev.duration}
+                  {(ev.teachersList || []).length > 0 && ` · 👩‍🏫 ${ev.teachersList.map(t => t.name).join(', ')}`}
+                </div>
               </div>
               {isCalendar ? (
                 <span className={`badge ${maxSlot > 0 && ev.students.length >= maxSlot ? 'badge-red' : ev.students.length > 0 ? 'badge-green' : 'badge-gray'}`}>
@@ -341,6 +419,49 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 <span className="badge badge-green">{presentCount}/{ev.students.length}</span>
               )}
             </div>
+            {isAdmin && cands.length > 0 && (
+              <div style={{ background:T.cream, borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
+                  👩‍🏫 Кто работал{hourly ? ' и сколько часов' : ''}
+                </div>
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {cands.map(t => {
+                    const on = shown[t.id] !== undefined
+                    return (
+                      <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                        <div onClick={() => toggleWorker(t.id)} style={{
+                          padding:'5px 12px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:700,
+                          background: on ? ev.color : 'white',
+                          color: on ? 'white' : T.muted,
+                          border:`1.5px solid ${on ? ev.color : T.border}`,
+                        }}>{on ? '✓ ' : ''}{t.name}</div>
+                        {on && hourly && (
+                          <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                            <input type="number" step="0.5" min="0" value={shown[t.id]}
+                              onChange={e => setWorkFor({ ...shown, [t.id]: e.target.value })}
+                              style={{ width:72, padding:'4px 8px', borderRadius:8, border:`1.5px solid ${T.border}`, fontSize:13, fontFamily:'inherit', outline:'none' }} />
+                            <span style={{ fontSize:12, color:T.muted }}>ч.</span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                {workDirty ? (
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, flexWrap:'wrap' }}>
+                    <button className="btn btn-primary btn-sm" disabled={savingWork === wkey}
+                      onClick={() => saveWork(wkey, ev.dirId, ev.groupId, shown)}>
+                      {savingWork === wkey ? 'Сохраняем…' : '✓ Подтвердить'}
+                    </button>
+                    {isPrefill && <span style={{ fontSize:11, color:T.muted }}>подставлено по прошлому занятию</span>}
+                  </div>
+                ) : (
+                  Object.keys(shown).length > 0 && (
+                    <div style={{ fontSize:11, color:T.greenDark, marginTop:8, fontWeight:600 }}>✅ Записано</div>
+                  )
+                )}
+              </div>
+            )}
             {isCalendar && ev.students.length === 0 && (
               <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет записавшихся на этот день</div>
             )}
@@ -563,7 +684,11 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
                       ? `${ev.students.length}${ev.maxPerSlot > 0 ? `/${ev.maxPerSlot}` : ''} зап.`
                       : `${ev.students.length} чел.`}
                   </div>}
-                  {height > 44 && ev.teacher && <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>👩‍🏫 {ev.teacher}</div>}
+                  {height > 44 && (ev.teachersList || []).length > 0 && (
+                    <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                      👩‍🏫 {ev.teachersList.length === 1 ? ev.teachersList[0].name : `${ev.teachersList.length} педагога`}
+                    </div>
+                  )}
                 </div>
               )
             })}
