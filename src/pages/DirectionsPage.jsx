@@ -155,12 +155,24 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
         )}
         {features.teachers && (
           <div className="form-group">
-            <label className="form-label">Педагог</label>
-            <select className="form-input" value={group.teacher_id || ''}
-              onChange={e => onChange({ ...group, teacher_id: e.target.value ? +e.target.value : null })}>
-              <option value="">— не назначен —</option>
-              {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <label className="form-label">Педагоги</label>
+            {teachers.length === 0 ? (
+              <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
+                Пока никто не закреплён. Откройте раздел «👩‍🏫 Педагоги» и отметьте это направление в карточке нужного педагога.
+              </div>
+            ) : (
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {teachers.map(t => (
+                  <span key={t.id} style={{ background:T.greenBg, color:T.greenDark, borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700 }}>
+                    {t.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize:11, color:T.muted, marginTop:6, lineHeight:1.5 }}>
+              Список формируется автоматически из карточек педагогов.
+              {teachers.length > 1 && ' Кто вёл занятие в конкретный день — отмечается в расписании.'}
+            </div>
           </div>
         )}
       </div>
@@ -192,6 +204,10 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
     : []
+  // Педагоги направления — источник правды теперь карточка педагога
+  const directionTeachers = direction
+    ? (teachers || []).filter(t => (t.direction_ids || []).includes(direction.id))
+    : []
 
   const today = new Date()
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
@@ -203,7 +219,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     category_ids: direction.category_ids || [],
     enrollment_type: direction.enrollment_type || 'group',
     max_per_slot: direction.max_per_slot || 0,
-  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0 })
+    payment_type: direction.payment_type || 'per_lesson',
+  } : { name:'', launched: todayStr, duration:'1 час', color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0, payment_type: 'per_lesson' })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
@@ -255,6 +272,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         category_ids: f.category_ids || [],
         enrollment_type: f.enrollment_type || 'group',
         max_per_slot: +f.max_per_slot || 0,
+        payment_type: f.payment_type || 'per_lesson',
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
         teacher_name: cleaned[0]?.teacher_id
@@ -332,6 +350,29 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         )}
       </div>
 
+      {/* Формат оплаты педагога */}
+      {features.teachers && (
+        <div className="form-group">
+          <label className="form-label">Как оплачивается работа педагога</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            {[['per_lesson','📚 За занятие'],['per_hour','⏱ За час']].map(([val, label]) => (
+              <label key={val} onClick={() => set('payment_type', val)} style={{
+                flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                border: `2px solid ${f.payment_type === val ? T.green : T.border}`,
+                background: f.payment_type === val ? T.greenBg : T.cream,
+                textAlign: 'center', fontWeight: 600, fontSize: 13,
+                color: f.payment_type === val ? T.greenDark : T.ink,
+              }}>{label}</label>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            {f.payment_type === 'per_lesson'
+              ? 'Оплата за проведённое занятие. Ставка задаётся в карточке педагога — фиксированная или в зависимости от количества учеников.'
+              : 'Оплата за отработанные часы. В расписании отмечается, кто работал и сколько часов — можно указать несколько педагогов на один день.'}
+          </div>
+        </div>
+      )}
+
       {/* Блок подгрупп */}
       <div style={{ marginTop:18, marginBottom:14 }}>
         {/* Есть ли уже существующие подгруппы (legacy) при выключенной функции */}
@@ -376,7 +417,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
 
               {/* Показываем подгруппы: все если функция вкл или есть legacy, иначе только первую */}
               {(showFull ? groups : groups.slice(0, 1)).map((g, idx) => (
-                <GroupBlock key={g._key} group={g} teachers={teachers} addresses={addresses} idx={idx}
+                <GroupBlock key={g._key} group={g} teachers={directionTeachers} addresses={addresses} idx={idx}
                   isOnly={groups.length === 1}
                   onChange={ng => updateGroup(idx, ng)}
                   onRemove={() => removeGroup(idx)} features={features}
@@ -590,10 +631,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
 
   // Направления без педагогов — показываем только если педагоги включены
   const dirsWithoutTeacher = features.teachers
-    ? directions.filter(d => {
-        const groups = groupsByDirection[d.id] || []
-        return groups.length === 0 ? !d.teacher_name : groups.every(g => !g.teacher_id)
-      })
+    ? directions.filter(d => !(teachers || []).some(t => (t.direction_ids || []).includes(d.id)))
     : []
 
   return (
@@ -602,17 +640,17 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       {features.teachers && dirsWithoutTeacher.length > 0 && (
         <div style={{ background: '#fde8e8', borderRadius: 12, padding: '12px 16px', marginBottom: 16, border: '1px solid #e05a5a33' }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: '#c0392b', marginBottom: 6 }}>
-            ⚠️ В некоторых направлениях не указан педагог
+            ⚠️ К некоторым направлениям не закреплён педагог
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {dirsWithoutTeacher.map(d => (
-              <span key={d.id} onClick={() => setShowEdit(d)}
-                style={{ background: '#e05a5a22', color: '#c0392b', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', border: '1px solid #e05a5a44' }}>
-                {d.name} →
+              <span key={d.id}
+                style={{ background: '#e05a5a22', color: '#c0392b', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600, border: '1px solid #e05a5a44' }}>
+                {d.name}
               </span>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>Нажмите на направление чтобы добавить педагога</div>
+          <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>Откройте раздел «👩‍🏫 Педагоги» и отметьте эти направления в карточках педагогов</div>
         </div>
       )}
       {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:18 }}><button className="btn btn-primary" onClick={()=>setShowAdd(true)}>+ Новое направление</button></div>}
@@ -674,18 +712,27 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                     🗓 По дням клиента
                   </span>
                 )}
+                {d.payment_type === 'per_hour' && (
+                  <span style={{ marginLeft: 8, background: '#fff4e6', color: '#c47a00', borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
+                    ⏱ Почасовая оплата
+                  </span>
+                )}
               </div>
 
               {!showLegacy && (
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
                   {subgroups.map(sg => {
                     const slots = parseSlots(sg.schedule || '')
-                    const teacher = sg.teacher_id ? teachers.find(t => t.id === sg.teacher_id) : null
+                    const dirTeachers = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
                     const addr = sg.address_id ? addresses.find(a => a.id === sg.address_id) : null
                     return (
                       <div key={sg.id} style={{ background: color+'10', borderLeft:`3px solid ${color}`, borderRadius:8, padding:'8px 10px' }}>
                         <div style={{ fontWeight:800, fontSize:13, color:T.ink, marginBottom:3 }}>📍 {sg.name}</div>
-                        <div style={{ fontSize:12, color:T.muted, marginBottom:3 }}>👩‍🏫 {teacher?.name || '— педагог не назначен —'}</div>
+                        {features.teachers && (
+                          <div style={{ fontSize:12, color:T.muted, marginBottom:3 }}>
+                            👩‍🏫 {dirTeachers.length ? dirTeachers.map(t => t.name).join(', ') : '— педагог не закреплён —'}
+                          </div>
+                        )}
                         {addr && (
                           <div style={{ fontSize:12, marginBottom:4, display:'flex', alignItems:'center', gap:4 }}>
                             <span style={{ width:8, height:8, borderRadius:'50%', background:addr.color||'#999', display:'inline-block', flexShrink:0 }} />
@@ -715,7 +762,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                       ) : <div style={{ fontSize:13, color:T.muted }}>🕐 {d.schedule||'—'}</div>
                     })()}
                   </div>
-                  <div style={{ fontSize:13, color:T.muted, marginBottom:12 }}>👩‍🏫 {d.teacher_name||'—'}</div>
+                  {features.teachers && (() => {
+                    const dt = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
+                    return <div style={{ fontSize:13, color:T.muted, marginBottom:12 }}>👩‍🏫 {dt.length ? dt.map(t => t.name).join(', ') : '—'}</div>
+                  })()}
                 </>
               )}
 
