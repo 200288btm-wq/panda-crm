@@ -316,8 +316,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         </div>
       </div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label">Макс. учеников в группе</label>
-          <input className="form-input" type="number" min="0" value={f.max_capacity} onChange={e=>set('max_capacity',e.target.value)} placeholder="0 = без ограничений" />
+        <div className="form-group"><label className="form-label">Макс. учеников на занятии</label>
+          <input className="form-input" type="number" min="0" value={f.max_per_slot} onChange={e=>set('max_per_slot',e.target.value)} placeholder="0 = без ограничений" />
         </div>
         <div className="form-group"><label className="form-label">Цвет направления</label>
           <ColorPicker value={f.color} onChange={v=>set('color',v)} />
@@ -344,20 +344,23 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
           </div>
         )}
         {f.enrollment_type === 'calendar' && (
-          <div>
-            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 8 }}>
-              Клиенты записываются на конкретные даты. В расписании видно сколько человек записалось на каждый день.
-            </div>
-            <div className="form-group">
-              <label className="form-label">Макс. участников на занятие</label>
-              <input className="form-input" type="number" min="0" value={f.max_per_slot}
-                onChange={e => set('max_per_slot', e.target.value)} placeholder="0 = без ограничений" />
-            </div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            Клиенты записываются на конкретные даты. В расписании видно сколько человек записалось на каждый день. Больше указанного выше лимита записать не получится.
           </div>
         )}
         {f.enrollment_type === 'client_days' && (
-          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-            У каждого клиента отмечаются дни, по которым он ходит (из расписания направления). В расписании клиент появляется только в свои дни. Разовую запись в другой день можно добавить вручную прямо в календаре.
+          <div>
+            <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 10 }}>
+              У каждого клиента отмечаются дни, по которым он ходит (из расписания направления). В расписании клиент появляется только в свои дни. Разовую запись в другой день можно добавить вручную прямо в календаре.
+            </div>
+            <div className="form-group" style={{ marginBottom: 0, maxWidth: 260 }}>
+              <label className="form-label">Всего в направлении</label>
+              <input className="form-input" type="number" min="0" value={f.max_capacity}
+                onChange={e => set('max_capacity', e.target.value)} placeholder="0 = без ограничений" />
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
+                Сколько человек ходит на направление вообще. Отличается от лимита на занятии, потому что каждый приходит только в свои дни.
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -687,7 +690,11 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
           const color = d.color||DIRECTION_COLORS[0]
           const auto = calcAutoPrice(d, subscriptions)
-          const cap = d.max_capacity||0
+          // Групповое — лимит занятия, «по дням клиента» — общий состав,
+          // «по записи на даты» — постоянного состава нет, сравнивать не с чем
+          const cap = d.enrollment_type === 'calendar' ? 0
+            : d.enrollment_type === 'client_days' ? (d.max_capacity || 0)
+            : (d.max_per_slot || 0)
           const isFull = cap>0 && cnt>=cap
           const isNear = cap>0 && cnt>=cap*0.8
           const subgroups = groupsByDirection[d.id] || []

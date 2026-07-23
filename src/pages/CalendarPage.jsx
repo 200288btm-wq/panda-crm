@@ -381,6 +381,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
         const isClientDays = ev.enrollmentType === 'client_days'
         const enrollKey = `${ev.dirId}_${ev.groupId || 0}`
         const maxSlot = ev.maxPerSlot || 0
+        const isSlotFull = maxSlot > 0 && ev.students.length >= maxSlot
 
         // ── Учёт работы педагогов ──
         const wkey = enrollKey
@@ -419,7 +420,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                   📅 {ev.students.length}{maxSlot > 0 ? `/${maxSlot}` : ''} зап.
                 </span>
               ) : (
-                <span className="badge badge-green">{presentCount}/{ev.students.length}</span>
+                <span className={`badge ${isSlotFull ? 'badge-orange' : 'badge-green'}`}>
+                  {presentCount}/{ev.students.length}{maxSlot > 0 ? ` из ${maxSlot}` : ''}
+                </span>
               )}
             </div>
             {isAdmin && cands.length > 0 && (
@@ -553,8 +556,8 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                   </div>
                 ) : (
                   <button className="btn btn-outline btn-sm" onClick={() => setEnrolling(enrollKey)}
-                    disabled={isCalendar && maxSlot > 0 && ev.students.length >= maxSlot}>
-                    {isCalendar && maxSlot > 0 && ev.students.length >= maxSlot
+                    disabled={isSlotFull}>
+                    {isSlotFull
                       ? '🔒 Мест нет'
                       : isClientDays ? '+ Разовая запись' : '+ Записать клиента'}
                   </button>
