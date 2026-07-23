@@ -276,9 +276,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         duration_hours: +f.duration_hours || 1,
         // Для совместимости со старой логикой:
         schedule: cleaned[0]?.schedule || '',
-        teacher_name: cleaned[0]?.teacher_id
-          ? (teachers.find(t => t.id === cleaned[0].teacher_id)?.name || '')
-          : '',
+        // Legacy-поле: держим его в согласии с карточками педагогов
+        teacher_name: directionTeachers.map(t => t.name).join(', '),
         groups: cleaned.map(g => g.name),
       },
       groups: cleaned,

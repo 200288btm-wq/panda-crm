@@ -77,6 +77,7 @@ export default function BookingPage() {
   const [enrollments, setEnrollments] = useState([]) // записи на конкретные даты
   const [roster, setRoster] = useState([])           // состав направлений, без персональных данных
   const [leadsByDir, setLeadsByDir] = useState([])   // заявки, которые тоже занимают места
+  const [teachers, setTeachers] = useState([])       // педагоги — источник правды их карточки
   const [step, setStep] = useState(1) // 1: выбор программы, 2: выбор даты, 3: форма, 4: успех
   const [selectedDir, setSelectedDir] = useState(null)
   const [selectedDates, setSelectedDates] = useState([]) // массив выбранных дат
@@ -92,7 +93,7 @@ export default function BookingPage() {
     const horizon = new Date(); horizon.setDate(horizon.getDate() + 120)
     const horizonIso = horizon.toISOString().slice(0, 10)
 
-    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: enr }, { data: cl }] = await Promise.all([
+    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: enr }, { data: cl }, { data: th }] = await Promise.all([
       supabase.from('booking_settings').select('*').eq('id', 1).single(),
       supabase.from('directions').select('*').order('id'),
       supabase.from('leads').select('desired_date, squad').not('desired_date', 'is', null),
@@ -100,11 +101,13 @@ export default function BookingPage() {
       supabase.from('enrollments').select('direction_id, date, status').gte('date', todayIso).lte('date', horizonIso),
       // Только то, что нужно для подсчёта мест — без имён и контактов
       supabase.from('clients').select('id, status, direction_ids, weekly_schedule'),
+      supabase.from('teachers').select('id, name, status, direction_ids'),
     ])
     setGroups(g || [])
     setEnrollments(enr || [])
     setRoster(cl || [])
     setLeadsByDir(leads || [])
+    setTeachers((th || []).filter(t => t.status !== 'Уволен'))
     setSettings(s)
     if (s && d) {
       const ids = s.directions || []
@@ -351,11 +354,15 @@ export default function BookingPage() {
                         📅 {days.map(dow => ['вс','пн','вт','ср','чт','пт','сб'][dow]).join(', ')}
                       </div>
                     )}
-                    {settings.show_teacher && d.teacher_name && (
-                      <div style={{ fontSize:12, color:'#6b7280', marginTop:2, marginLeft:22 }}>
-                        👩‍🏫 {d.teacher_name}
-                      </div>
-                    )}
+                    {settings.show_teacher && (() => {
+                      const dirTeachers = teachers.filter(t => (t.direction_ids || []).includes(d.id))
+                      if (!dirTeachers.length) return null
+                      return (
+                        <div style={{ fontSize:12, color:'#6b7280', marginTop:2, marginLeft:22 }}>
+                          👩‍🏫 {dirTeachers.map(t => t.name).join(', ')}
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })
