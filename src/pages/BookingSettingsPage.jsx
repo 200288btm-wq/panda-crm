@@ -36,6 +36,7 @@ export default function BookingSettingsPage({ directions }) {
         show_teacher: data.show_teacher ?? false,
         required_fields: data.required_fields || ['name','phone'],
         max_per_slot: data.max_per_slot ?? 10,
+        capacity_mode: data.capacity_mode || 'schedule',
       })
     }
   }
@@ -68,6 +69,7 @@ export default function BookingSettingsPage({ directions }) {
       show_teacher: settings.show_teacher,
       required_fields: settings.required_fields,
       max_per_slot: settings.max_per_slot,
+      capacity_mode: settings.capacity_mode,
     })
     setSaving(false)
     setSaved(true)
@@ -240,15 +242,35 @@ export default function BookingSettingsPage({ directions }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <div className="form-group">
-            <label style={labelStyle}>Макс. записей на один день/слот</label>
-            <input className="form-input" style={inp} type="number" min="1" max="50"
-              value={settings.max_per_slot} onChange={e => set('max_per_slot', +e.target.value)} />
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-              При достижении лимита день блокируется
-            </div>
+        <div className="form-group">
+          <label style={labelStyle}>Когда день считается занятым</label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            {[['schedule', '📅 Сверять с расписанием'], ['manual', '🔢 Свой лимит на день']].map(([val, label]) => (
+              <div key={val} onClick={() => set('capacity_mode', val)} style={{
+                flex: '1 1 200px', padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                fontWeight: 600, fontSize: 13,
+                border: `2px solid ${settings.capacity_mode === val ? T.green : T.border}`,
+                background: settings.capacity_mode === val ? T.greenBg : T.cream,
+                color: settings.capacity_mode === val ? T.greenDark : T.ink,
+              }}>{label}</div>
+            ))}
           </div>
+          {settings.capacity_mode === 'manual' ? (
+            <div>
+              <input className="form-input" style={{ ...inp, maxWidth: 200 }} type="number" min="1" max="50"
+                value={settings.max_per_slot} onChange={e => set('max_per_slot', +e.target.value)} />
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 4, lineHeight: 1.5 }}>
+                Столько заявок принимается на один день суммарно, по всем направлениям вместе. При достижении лимита день блокируется.
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+              Система считает, сколько человек уже занимает места на занятии выбранного направления, и сравнивает с полем «Макс. учеников на занятии» из карточки направления. Если мест нет — день в форме гаснет. Когда лимит в направлении не задан, день остаётся открытым.
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div className="form-group" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div onClick={() => set('show_teacher', !settings.show_teacher)}
               style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '10px 0' }}>

@@ -38,21 +38,45 @@ const DOW_NAMES = ['вс','пн','вт','ср','чт','пт','сб']
 const MONTH_NAMES = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь']
 const MONTH_GEN = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря']
 
-function getScheduleDays(direction) {
-  // Возвращает массив дней недели (0-6) когда есть занятия
-  const s = direction.schedule || {}
-  const days = []
-  const map = { mon:1,tue:2,wed:3,thu:4,fri:5,sat:6,sun:0 }
-  for (const [k, v] of Object.entries(map)) {
-    if (s[k] && s[k] !== '' && s[k] !== null) days.push(v)
+const DAY_TO_DOW = { 'Пн':1, 'Вт':2, 'Ср':3, 'Чт':4, 'Пт':5, 'Сб':6, 'Вс':0 }
+const DOW_TO_DAY = { 0:'Вс', 1:'Пн', 2:'Вт', 3:'Ср', 4:'Чт', 5:'Пт', 6:'Сб' }
+
+// Расписание хранится строкой вида «Пн/Ср 17:30, Сб 13:00»
+function parseScheduleDows(schedule) {
+  if (!schedule) return []
+  // Старый формат — объект { mon: '10:00', ... }
+  if (typeof schedule === 'object') {
+    const map = { mon:1, tue:2, wed:3, thu:4, fri:5, sat:6, sun:0 }
+    return Object.entries(map).filter(([k]) => schedule[k]).map(([, v]) => v)
   }
-  return days
+  const dows = []
+  String(schedule).split(',').forEach(part => {
+    const m = part.trim().match(/^([А-Яа-я/]+)\s+\d{1,2}:\d{2}/)
+    if (m) m[1].split('/').forEach(d => {
+      const dow = DAY_TO_DOW[d.trim()]
+      if (dow !== undefined && !dows.includes(dow)) dows.push(dow)
+    })
+  })
+  return dows
+}
+
+// Дни недели направления: из подгрупп, если они есть, иначе из самого направления
+function getScheduleDays(direction, groups = []) {
+  const subs = groups.filter(g => g.direction_id === direction.id)
+  const sources = subs.length ? subs.map(g => g.schedule || direction.schedule) : [direction.schedule]
+  const all = []
+  sources.forEach(src => parseScheduleDows(src).forEach(d => { if (!all.includes(d)) all.push(d) }))
+  return all.sort()
 }
 
 export default function BookingPage() {
   const [settings, setSettings] = useState(null)
   const [directions, setDirections] = useState([])
   const [bookedDates, setBookedDates] = useState({}) // date → count
+  const [groups, setGroups] = useState([])           // подгруппы со своим расписанием
+  const [enrollments, setEnrollments] = useState([]) // записи на конкретные даты
+  const [roster, setRoster] = useState([])           // состав направлений, без персональных данных
+  const [leadsByDir, setLeadsByDir] = useState([])   // заявки, которые тоже занимают места
   const [step, setStep] = useState(1) // 1: выбор программы, 2: выбор даты, 3: форма, 4: успех
   const [selectedDir, setSelectedDir] = useState(null)
   const [selectedDates, setSelectedDates] = useState([]) // массив выбранных дат
@@ -64,11 +88,23 @@ export default function BookingPage() {
   useEffect(() => { loadAll() }, [])
 
   const loadAll = async () => {
-    const [{ data: s }, { data: d }, { data: leads }] = await Promise.all([
+    const todayIso = new Date().toISOString().slice(0, 10)
+    const horizon = new Date(); horizon.setDate(horizon.getDate() + 120)
+    const horizonIso = horizon.toISOString().slice(0, 10)
+
+    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: enr }, { data: cl }] = await Promise.all([
       supabase.from('booking_settings').select('*').eq('id', 1).single(),
       supabase.from('directions').select('*').order('id'),
-      supabase.from('leads').select('desired_date').not('desired_date', 'is', null),
+      supabase.from('leads').select('desired_date, squad').not('desired_date', 'is', null),
+      supabase.from('direction_groups').select('id, direction_id, schedule'),
+      supabase.from('enrollments').select('direction_id, date, status').gte('date', todayIso).lte('date', horizonIso),
+      // Только то, что нужно для подсчёта мест — без имён и контактов
+      supabase.from('clients').select('id, status, direction_ids, weekly_schedule'),
     ])
+    setGroups(g || [])
+    setEnrollments(enr || [])
+    setRoster(cl || [])
+    setLeadsByDir(leads || [])
     setSettings(s)
     if (s && d) {
       const ids = s.directions || []
@@ -169,7 +205,7 @@ export default function BookingPage() {
   minDate.setHours(0,0,0,0); maxDate.setHours(23,59,59,999)
 
   // Дни недели для выбранной программы
-  const scheduleDays = selectedDir ? getScheduleDays(selectedDir) : []
+  const scheduleDays = selectedDir ? getScheduleDays(selectedDir, groups) : []
 
   // Строим календарь
   const year = calMonth.getFullYear(), month = calMonth.getMonth()
@@ -178,14 +214,46 @@ export default function BookingPage() {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const cells = Array(offset).fill(null).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1))
 
+  // Сколько мест уже занято на этом занятии
+  const dayOccupancy = (dir, ds, dow) => {
+    const type = dir.enrollment_type || 'group'
+    let count = 0
+    if (type === 'calendar') {
+      count = enrollments.filter(e =>
+        e.direction_id === dir.id && e.date === ds && e.status !== 'cancelled').length
+    } else if (type === 'client_days') {
+      const key = DOW_TO_DAY[dow]
+      count = roster.filter(c => {
+        if (c.status !== 'Активен') return false
+        if (!(c.direction_ids || []).includes(dir.id)) return false
+        const ws = (c.weekly_schedule || {})[dir.id] || (c.weekly_schedule || {})[String(dir.id)]
+        return ws && Array.isArray(ws.days) && ws.days.includes(key)
+      }).length
+    } else {
+      count = roster.filter(c =>
+        c.status === 'Активен' && (c.direction_ids || []).includes(dir.id)).length
+    }
+    // Заявки, которые ещё не стали клиентами, тоже занимают места
+    count += leadsByDir.filter(l => l.desired_date === ds && l.squad === dir.name).length
+    return count
+  }
+
   const isDayAvailable = (day) => {
     const d = new Date(year, month, day); d.setHours(12,0,0,0)
     if (d < minDate || d > maxDate) return false
     const dow = d.getDay()
     if (scheduleDays.length > 0 && !scheduleDays.includes(dow)) return false
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`
-    if ((bookedDates[ds] || 0) >= (settings.max_per_slot || 10)) return false
-    return true
+
+    // Режим «свой лимит на день» — как было раньше, по числу заявок
+    if ((settings.capacity_mode || 'schedule') === 'manual') {
+      return (bookedDates[ds] || 0) < (settings.max_per_slot || 10)
+    }
+    // Режим «сверять с расписанием»
+    if (!selectedDir) return true
+    const limit = selectedDir.max_per_slot || 0
+    if (limit <= 0) return true // лимит в направлении не задан — не ограничиваем
+    return dayOccupancy(selectedDir, ds, dow) < limit
   }
 
   const formatDate = (ds) => {
@@ -267,7 +335,7 @@ export default function BookingPage() {
               ? <div style={{ color:'#9ca3af', fontSize:14, textAlign:'center', padding:'24px 0' }}>Программы временно недоступны</div>
               : directions.map(d => {
                 const color = d.color || G
-                const days = getScheduleDays(d)
+                const days = getScheduleDays(d, groups)
                 return (
                   <div key={d.id} onClick={() => { setSelectedDir(d); setSelectedDates([]); setStep(2) }}
                     style={{ border:`2px solid ${color}22`, borderRadius:14, padding:'14px 16px', marginBottom:10,
@@ -353,6 +421,11 @@ export default function BookingPage() {
               {scheduleDays.length > 0 && (
                 <div style={{ fontSize:12, color:'#9ca3af', marginTop:12, textAlign:'center' }}>
                   Доступные дни: {scheduleDays.map(d => ['вс','пн','вт','ср','чт','пт','сб'][d]).join(', ')}
+                </div>
+              )}
+              {(settings.capacity_mode || 'schedule') === 'schedule' && selectedDir?.max_per_slot > 0 && (
+                <div style={{ fontSize:12, color:'#9ca3af', marginTop:6, textAlign:'center' }}>
+                  Дни, где мест уже нет, недоступны для выбора
                 </div>
               )}
             </div>
