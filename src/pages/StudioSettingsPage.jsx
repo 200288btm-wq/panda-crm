@@ -8,15 +8,14 @@ import * as XLSX from 'xlsx'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
-  { id: 'addresses',  label: 'Адреса',     feature: 'addresses' },
-  { id: 'staff',      label: 'Сотрудники' },
+  { id: 'features',   label: 'Функции' },
   { id: 'finance',    label: 'Справочники' },
-  { id: 'statuses',   label: 'Статусы клиентов' },
-  { id: 'features',   label: '⚙️ Функции' },
+  { id: 'addresses',  label: 'Адреса', feature: 'addresses' },
+  { id: 'staff',      label: 'Сотрудники' },
   { id: 'data',       label: 'Данные' },
-  { id: 'plan',       label: '⭐ Тариф' },
-  { id: 'bot',        label: 'Telegram' },
+  { id: 'bot',        label: 'Боты/формы' },
   { id: 'booking',    label: 'Онлайн-запись' },
+  { id: 'plan',       label: 'Тариф' },
 ]
 
 const Section = ({ title, icon, children }) => (
@@ -33,7 +32,11 @@ const Msg = ({ msg }) => msg ? (
 ) : null
 
 export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
-  const [tab, setTab] = useState(() => localStorage.getItem('settingsTab') || 'main')
+  const [tab, setTab] = useState(() => {
+    // Вкладка могла быть удалена или переименована — тогда открываем первую
+    const saved = localStorage.getItem('settingsTab')
+    return TABS.some(t => t.id === saved) ? saved : 'main'
+  })
 
   const switchTab = (id) => {
     setTab(id)
@@ -417,6 +420,16 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           <Msg msg={durMsg} />
         </Section>
 
+        <StatusesTab
+          statuses={statuses}
+          newStatus={newStatus}
+          setNewStatus={setNewStatus}
+          statusMsg={statusMsg}
+          addStatus={addStatus}
+          deleteStatus={deleteStatus}
+          T={T}
+        />
+
         <Section title="Категории абонементов" icon="🏷️">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Позволяют разделить абонементы по типам направлений: «Основная», «Лагерь», «Льготная».
@@ -531,17 +544,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         </Section>
         </div>
       </>}
-
-      {/* ── Статусы клиентов ── */}
-      {tab === 'statuses' && <StatusesTab
-        statuses={statuses}
-        newStatus={newStatus}
-        setNewStatus={setNewStatus}
-        statusMsg={statusMsg}
-        addStatus={addStatus}
-        deleteStatus={deleteStatus}
-        T={T}
-      />}
 
       {/* ── Данные ── */}
       {tab === 'data' && <DataTab
@@ -806,9 +808,9 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
     { value: 'badge-purple', label: 'Фиолетовый', color: '#a855f7' },
   ]
   return (
-    <div style={{ maxWidth: 500 }}>
-      <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', border: `1px solid ${T.border}` }}>
-        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>🏷️ Статусы клиентов</div>
+    <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', marginBottom: 16, border: `1px solid ${T.border}` }}>
+      <div>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>👤 Статусы клиентов</div>
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
           Статусы используются для сегментации клиентов. Вы можете добавить свои или удалить ненужные.
         </div>
