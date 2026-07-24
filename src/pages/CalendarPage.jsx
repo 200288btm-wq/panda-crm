@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, hashColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
@@ -236,6 +236,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
   const [lastWork, setLastWork] = useState({})   // состав с прошлого занятия — для подстановки
   const [savingWork, setSavingWork] = useState(null)
+  const dirtyRef = useRef(false)  // накопитель: были ли изменения, требующие reload при закрытии
 
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
@@ -365,13 +366,15 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     const { data: allAtt } = await supabase.from('attendance').select('*').eq('client_id', clientId).eq('present', true)
     if (allAtt) {
       await supabase.from('clients').update({ visited_lessons: allAtt.length }).eq('id', clientId)
-      onAttendanceChange && onAttendanceChange()
+      dirtyRef.current = true  // обновим списки при закрытии, а не сейчас — иначе модалка закроется
     }
   }
 
+  const handleClose = () => { onClose(dirtyRef.current) }
+
   return (
-    <Modal title={`📅 ${date.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}`} onClose={onClose} large
-      footer={<button className="btn btn-ghost" onClick={onClose}>Закрыть</button>}>
+    <Modal title={`📅 ${date.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}`} onClose={handleClose} large
+      footer={<button className="btn btn-ghost" onClick={handleClose}>Закрыть</button>}>
       {!isPast && <div style={{ background:'#fff4e6', color:'#c47a00', borderRadius:10, padding:'10px 14px', marginBottom:16, fontSize:13, fontWeight:600 }}>⏳ Отмечать можно только прошедшие даты и сегодня</div>}
       {events.length === 0 && <div className="empty"><div className="empty-icon">🗓️</div><div className="empty-text">Занятий нет</div></div>}
       {events.map((ev, i) => {
@@ -1063,8 +1066,10 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           teachers={teachers}
           clients={clients}
           studioId={studioId}
-          onClose={() => {
+          onClose={(changed) => {
             setSelectedDay(null)
+            // Если внутри что-то отмечали — обновляем списки клиентов (баланс, посещения)
+            if (changed) reload && reload()
             // Перезагружаем enrollments чтобы обновить счётчик в календаре
             const from = dateStr(addDays(new Date(), -60))
             const to = dateStr(addDays(new Date(), 60))
@@ -1072,11 +1077,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
               .then(({ data }) => { if (data) setEnrollments(data) })
           }}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
-          onAttendanceChange={() => { reload && reload(); setEnrollments([]); setTimeout(() => {
-            const from = dateStr(addDays(new Date(), -60))
-            const to = dateStr(addDays(new Date(), 60))
-            supabase.from('enrollments').select('*').gte('date', from).lte('date', to).then(({ data }) => { if (data) setEnrollments(data) })
-          }, 100) }}
+          onAttendanceChange={() => {}}
         />
       )}
     </div>

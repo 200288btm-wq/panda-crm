@@ -448,7 +448,7 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 }
 
 // ── Карточка педагога (раскрывающаяся) ──────────────────────
-function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout }) {
+function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary }) {
   const [open, setOpen] = useState(false)
   const [payouts, setPayouts] = useState([])
   const [attStats, setAttStats] = useState(null)
@@ -491,6 +491,30 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const lessonsCount = earn ? earn.lessons : (attStats?.filter(a => a.teacher_id === teacher.id).length || 0)
   const debt = totalEarned !== null ? totalEarned - totalPaid : null
 
+  // История проведённых занятий: журнал (кто работал + часы) + занятия по отметкам без журнала
+  const lessonHistory = (() => {
+    if (!attStats) return []
+    const rows = []
+    const covered = new Set()
+    workLog.forEach(w => {
+      covered.add(`${w.date}_${w.direction_id}`)
+      const dir = directions.find(d => d.id === w.direction_id)
+      rows.push({
+        date: w.date, dirName: dir?.name || 'Направление удалено',
+        color: dir?.color, hours: isHourly(dir) ? +w.hours : null, fromLog: true,
+      })
+    })
+    attStats.forEach(a => {
+      if (a.teacher_id !== teacher.id) return
+      const k = `${a.date}_${a.direction_id}`
+      if (covered.has(k)) return
+      covered.add(k)
+      const dir = directions.find(d => d.id === a.direction_id)
+      rows.push({ date: a.date, dirName: dir?.name || 'Направление удалено', color: dir?.color, hours: null, fromLog: false })
+    })
+    return rows.sort((a, b) => b.date.localeCompare(a.date))
+  })()
+
   // Ставка одной строкой — вид зависит от формата оплаты направления
   const rateLabel = (r) => {
     const dir = directions.find(d => d.id === r.direction_id)
@@ -516,12 +540,17 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {debt !== null && debt > 0 && (
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 11, color: T.muted }}>Задолженность</div>
-                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, color: '#e05a5a' }}>{fmt(debt)}</div>
-              </div>
-            )}
+            {(() => {
+              // До разворота берём сводку из родителя, после — уже загруженное
+              const shownDebt = debt !== null ? debt : (summary ? summary.debt : null)
+              if (shownDebt === null || shownDebt <= 0) return null
+              return (
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 11, color: T.muted }}>К выплате</div>
+                  <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, color: '#e05a5a' }}>{fmt(shownDebt)}</div>
+                </div>
+              )
+            })()}
             <div style={{ fontSize: 18, color: T.muted, transform: open ? 'rotate(180deg)' : 'none', transition: '0.2s' }}>▾</div>
           </div>
         </div>
@@ -546,7 +575,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                 </div>
                 {debt !== null && (
                   <div style={{ background: debt > 0 ? '#fde8e8' : T.cream, borderRadius: 10, padding: '10px 14px' }}>
-                    <div style={{ fontSize: 11, color: T.muted }}>Задолженность</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>К выплате</div>
                     <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 20, color: debt > 0 ? '#e05a5a' : T.greenDark }}>{fmt(debt)}</div>
                   </div>
                 )}
@@ -585,6 +614,32 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   </div>
                 </div>
               )}
+
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  История занятий {lessonHistory.length > 0 && `(${lessonHistory.length})`}
+                </div>
+                {lessonHistory.length === 0 ? (
+                  <div style={{ fontSize: 13, color: T.muted }}>Проведённых занятий пока нет</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
+                    {lessonHistory.map((l, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'white', borderRadius: 8, borderLeft: `3px solid ${l.color || '#ddd'}` }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
+                          {new Date(l.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })}
+                        </div>
+                        <div style={{ flex: 1, fontSize: 13, color: T.ink }}>{l.dirName}</div>
+                        {l.hours !== null && (
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#c47a00', background: '#fff4e6', borderRadius: 6, padding: '1px 8px' }}>{l.hours} ч.</span>
+                        )}
+                        {!l.fromLog && (
+                          <span style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>по отметкам</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>История выплат</div>
@@ -632,6 +687,43 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showPayout, setShowPayout] = useState(null)
+  const [summary, setSummary] = useState({}) // teacher_id → { debt, lessons, hours }
+
+  // Одним махом считаем «к выплате» по всем педагогам — чтобы видеть сразу, не разворачивая карточки
+  useEffect(() => {
+    if (!studioId || !teachers.length) return
+    let cancelled = false
+    const loadSummary = async () => {
+      const [{ data: work }, { data: att }, { data: rates }, { data: payouts }] = await Promise.all([
+        supabase.from('teacher_work_log').select('*').eq('studio_id', studioId),
+        supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
+        supabase.from('teacher_rates').select('*').eq('studio_id', studioId),
+        supabase.from('teacher_payouts').select('teacher_id, amount').eq('studio_id', studioId),
+      ])
+      if (cancelled) return
+      const paidByTeacher = {}
+      ;(payouts || []).forEach(p => { paidByTeacher[p.teacher_id] = (paidByTeacher[p.teacher_id] || 0) + p.amount })
+      const map = {}
+      teachers.forEach(t => {
+        const paid = paidByTeacher[t.id] || 0
+        if (t.salary_type === 'salary') {
+          map[t.id] = { debt: (t.salary_amount || 0) - paid, lessons: 0, hours: 0, salary: true }
+          return
+        }
+        const earn = calcEarnings({
+          work: (work || []).filter(w => w.teacher_id === t.id),
+          attendance: att || [],
+          rates: (rates || []).filter(r => r.teacher_id === t.id),
+          directions,
+          teacherId: t.id,
+        })
+        map[t.id] = { debt: earn.total - paid, lessons: earn.lessons, hours: earn.hours }
+      })
+      setSummary(map)
+    }
+    loadSummary()
+    return () => { cancelled = true }
+  }, [teachers, studioId, directions])
 
   const save = async (f, rates) => {
     const cleaned = {
@@ -729,6 +821,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           onEdit={setShowEdit}
           onDelete={del}
           onPayout={setShowPayout}
+          summary={summary[t.id]}
         />
       ))}
 
