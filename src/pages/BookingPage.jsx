@@ -74,9 +74,8 @@ export default function BookingPage() {
   const [directions, setDirections] = useState([])
   const [bookedDates, setBookedDates] = useState({}) // date → count
   const [groups, setGroups] = useState([])           // подгруппы со своим расписанием
-  const [enrollments, setEnrollments] = useState([]) // записи на конкретные даты
-  const [roster, setRoster] = useState([])           // состав направлений, без персональных данных
   const [leadsByDir, setLeadsByDir] = useState([])   // заявки, которые тоже занимают места
+  const [occupancy, setOccupancy] = useState(null)   // дата → занято мест, считает база
   const [teachers, setTeachers] = useState([])       // педагоги — источник правды их карточки
   const [step, setStep] = useState(1) // 1: выбор программы, 2: выбор даты, 3: форма, 4: успех
   const [selectedDir, setSelectedDir] = useState(null)
@@ -88,24 +87,36 @@ export default function BookingPage() {
 
   useEffect(() => { loadAll() }, [])
 
+  // Занятость считает база — так на публичную страницу не попадают данные клиентов
+  useEffect(() => {
+    if (!selectedDir || !settings) { setOccupancy(null); return }
+    if ((settings.capacity_mode || 'schedule') !== 'schedule') { setOccupancy(null); return }
+    const iso = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const from = new Date(); from.setDate(from.getDate() + (settings.booking_offset_days || 0))
+    const to = new Date(); to.setDate(to.getDate() + (settings.booking_window_days || 30))
+    supabase.rpc('booking_occupancy', {
+      p_direction_id: selectedDir.id, p_from: iso(from), p_to: iso(to),
+    }).then(({ data, error }) => {
+      if (error) { console.warn('booking_occupancy:', error.message); setOccupancy(null); return }
+      const map = {}
+      ;(data || []).forEach(r => { map[r.day] = r.taken })
+      setOccupancy(map)
+    })
+  }, [selectedDir?.id, settings])
+
   const loadAll = async () => {
     const todayIso = new Date().toISOString().slice(0, 10)
     const horizon = new Date(); horizon.setDate(horizon.getDate() + 120)
     const horizonIso = horizon.toISOString().slice(0, 10)
 
-    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: enr }, { data: cl }, { data: th }] = await Promise.all([
+    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: th }] = await Promise.all([
       supabase.from('booking_settings').select('*').eq('id', 1).single(),
       supabase.from('directions').select('*').order('id'),
       supabase.from('leads').select('desired_date, squad').not('desired_date', 'is', null),
       supabase.from('direction_groups').select('id, direction_id, schedule'),
-      supabase.from('enrollments').select('direction_id, date, status').gte('date', todayIso).lte('date', horizonIso),
-      // Только то, что нужно для подсчёта мест — без имён и контактов
-      supabase.from('clients').select('id, status, direction_ids, weekly_schedule'),
       supabase.from('teachers').select('id, name, status, direction_ids'),
     ])
     setGroups(g || [])
-    setEnrollments(enr || [])
-    setRoster(cl || [])
     setLeadsByDir(leads || [])
     setTeachers((th || []).filter(t => t.status !== 'Уволен'))
     setSettings(s)
@@ -217,30 +228,6 @@ export default function BookingPage() {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const cells = Array(offset).fill(null).concat(Array.from({ length: daysInMonth }, (_, i) => i + 1))
 
-  // Сколько мест уже занято на этом занятии
-  const dayOccupancy = (dir, ds, dow) => {
-    const type = dir.enrollment_type || 'group'
-    let count = 0
-    if (type === 'calendar') {
-      count = enrollments.filter(e =>
-        e.direction_id === dir.id && e.date === ds && e.status !== 'cancelled').length
-    } else if (type === 'client_days') {
-      const key = DOW_TO_DAY[dow]
-      count = roster.filter(c => {
-        if (c.status !== 'Активен') return false
-        if (!(c.direction_ids || []).includes(dir.id)) return false
-        const ws = (c.weekly_schedule || {})[dir.id] || (c.weekly_schedule || {})[String(dir.id)]
-        return ws && Array.isArray(ws.days) && ws.days.includes(key)
-      }).length
-    } else {
-      count = roster.filter(c =>
-        c.status === 'Активен' && (c.direction_ids || []).includes(dir.id)).length
-    }
-    // Заявки, которые ещё не стали клиентами, тоже занимают места
-    count += leadsByDir.filter(l => l.desired_date === ds && l.squad === dir.name).length
-    return count
-  }
-
   const isDayAvailable = (day) => {
     const d = new Date(year, month, day); d.setHours(12,0,0,0)
     if (d < minDate || d > maxDate) return false
@@ -255,8 +242,9 @@ export default function BookingPage() {
     // Режим «сверять с расписанием»
     if (!selectedDir) return true
     const limit = selectedDir.max_per_slot || 0
-    if (limit <= 0) return true // лимит в направлении не задан — не ограничиваем
-    return dayOccupancy(selectedDir, ds, dow) < limit
+    if (limit <= 0) return true   // лимит в направлении не задан — не ограничиваем
+    if (!occupancy) return true   // занятость ещё не пришла — не мешаем записаться
+    return (occupancy[ds] || 0) < limit
   }
 
   const formatDate = (ds) => {
