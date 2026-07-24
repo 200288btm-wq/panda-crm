@@ -34,6 +34,12 @@ const slotsToStr = (slots) => {
   }).join(', ')
 }
 
+// Сколько занятий в неделю проводится: у каждой подгруппы своё расписание
+const weeklyLessons = (schedules) => schedules.reduce((sum, sch) => {
+  const days = [...new Set(parseSlots(sch || '').map(s => s.day))]
+  return sum + days.length
+}, 0)
+
 const calcAutoPrice = (direction, subscriptions) => {
   if (!direction) return { singlePrice: null, avgPrice: null, count: 0 }
   const catIds = direction.category_ids || []
@@ -239,6 +245,12 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
 
   const set = (k,v) => setF(p => ({...p, [k]:v}))
 
+  // Вместимость считается сама: занятий в неделю × мест на занятии
+  const capacityForm = (() => {
+    const lessons = weeklyLessons(groups.map(g => g.schedule))
+    return { lessons, total: lessons * (+f.max_per_slot || 0) }
+  })()
+
   const autoPrice = useMemo(() => {
     // Считаем по выбранным категориям в форме, а не только по сохранённым в БД
     const directionLike = { id: direction?.id, category_ids: f.category_ids || [] }
@@ -268,7 +280,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         launched: f.launched,
         duration: f.duration,
         color: f.color,
-        max_capacity: +f.max_capacity || 0,
+        // Считается автоматически, руками не задаётся
+        max_capacity: f.enrollment_type === 'client_days' ? capacityForm.total : 0,
         category_ids: f.category_ids || [],
         enrollment_type: f.enrollment_type || 'group',
         max_per_slot: +f.max_per_slot || 0,
@@ -352,14 +365,12 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5, marginBottom: 10 }}>
               У каждого клиента отмечаются дни, по которым он ходит (из расписания направления). В расписании клиент появляется только в свои дни. Разовую запись в другой день можно добавить вручную прямо в календаре.
             </div>
-            <div className="form-group" style={{ marginBottom: 0, maxWidth: 260 }}>
-              <label className="form-label">Всего в направлении</label>
-              <input className="form-input" type="number" min="0" value={f.max_capacity}
-                onChange={e => set('max_capacity', e.target.value)} placeholder="0 = без ограничений" />
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
-                Сколько человек ходит на направление вообще. Отличается от лимита на занятии, потому что каждый приходит только в свои дни.
+            {capacityForm.total > 0 && (
+              <div style={{ background: T.greenBg, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: T.greenDark, lineHeight: 1.5 }}>
+                <strong>Вместимость направления — до {capacityForm.total} чел.</strong><br />
+                {capacityForm.lessons} занятий в неделю × {f.max_per_slot} мест. Это потолок при условии, что каждый ходит один день в неделю — если по два, поместится вдвое меньше.
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -689,14 +700,19 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
           const color = d.color||DIRECTION_COLORS[0]
           const auto = calcAutoPrice(d, subscriptions)
-          // Групповое — лимит занятия, «по дням клиента» — общий состав,
+          const subgroups = groupsByDirection[d.id] || []
+          // Вместимость «по дням клиента» считается: занятий в неделю × мест на занятии
+          const lessonsPerWeek = weeklyLessons(
+            subgroups.length ? subgroups.map(g => g.schedule || d.schedule) : [d.schedule]
+          )
+          const clientDaysCap = lessonsPerWeek * (d.max_per_slot || 0)
+          // Групповое — лимит занятия, «по дням клиента» — расчётная вместимость,
           // «по записи на даты» — постоянного состава нет, сравнивать не с чем
           const cap = d.enrollment_type === 'calendar' ? 0
-            : d.enrollment_type === 'client_days' ? (d.max_capacity || 0)
+            : d.enrollment_type === 'client_days' ? clientDaysCap
             : (d.max_per_slot || 0)
           const isFull = cap>0 && cnt>=cap
           const isNear = cap>0 && cnt>=cap*0.8
-          const subgroups = groupsByDirection[d.id] || []
           const showLegacy = subgroups.length === 0
 
           return (
@@ -745,6 +761,11 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                   <span style={{ marginLeft: 8, background: '#fff4e6', color: '#c47a00', borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>
                     ⏱ Почасовая оплата
                   </span>
+                )}
+                {d.enrollment_type === 'client_days' && clientDaysCap > 0 && (
+                  <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                    Вместимость до {clientDaysCap} чел. — {lessonsPerWeek} занятий × {d.max_per_slot} мест, если каждый ходит один день
+                  </div>
                 )}
               </div>
 
