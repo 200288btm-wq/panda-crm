@@ -483,7 +483,8 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 }
 
 // ── Карточка педагога (раскрывающаяся) ──────────────────────
-function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary }) {
+function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne }) {
+  const [justPaid, setJustPaid] = useState(new Set())  // занятия, оплаченные прямо сейчас — до перезагрузки
   const [open, setOpen] = useState(false)
   const [payouts, setPayouts] = useState([])
   const [attStats, setAttStats] = useState(null)
@@ -652,11 +653,14 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   <div style={{ fontSize: 13, color: T.muted }}>Проведённых занятий пока нет</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
-                    {lessonHistory.map((l, i) => (
+                    {lessonHistory.map((l, i) => {
+                      const lkey = l.workLogId ? `wl_${l.workLogId}` : `lg_${l.date}_${l.directionId}`
+                      const paid = l.paid || justPaid.has(lkey)
+                      return (
                       <div key={i} style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8,
                         borderLeft: `3px solid ${l.color || '#ddd'}`,
-                        background: l.paid ? '#e8f5ec' : '#fdeef0',
+                        background: paid ? '#e8f5ec' : '#fdeef0',
                       }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
                           {new Date(l.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })}
@@ -665,14 +669,21 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         {l.hours !== null && (
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#c47a00', background: '#fff4e6', borderRadius: 6, padding: '1px 8px' }}>{l.hours} ч.</span>
                         )}
-                        <span style={{ fontSize: 12, fontWeight: 700, color: l.paid ? T.greenDark : '#c0392b' }}>
-                          {l.paid ? '✓ оплачено' : fmt(l.amount)}
+                        <span style={{ fontSize: 12, fontWeight: 700, color: paid ? T.greenDark : '#c0392b', minWidth: 68, textAlign: 'right' }}>
+                          {paid ? '✓ оплачено' : fmt(l.amount)}
                         </span>
                         {!l.fromLog && (
                           <span style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>по отметкам</span>
                         )}
+                        {!paid && l.amount > 0 && onPayOne && (
+                          <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 10px' }}
+                            onClick={async () => {
+                              const ok = await onPayOne(teacher, l)
+                              if (ok) setJustPaid(prev => new Set(prev).add(lkey))
+                            }}>Оплатить</button>
+                        )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>
@@ -815,6 +826,37 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     reload()
   }
 
+  // Разовая оплата одного занятия из истории — без выбора периода
+  const payOneLesson = async (teacher, lesson) => {
+    if (!confirm(`Оплатить занятие ${new Date(lesson.date + 'T00:00:00').toLocaleDateString('ru-RU')} — ${lesson.dirName} на сумму ${fmt(lesson.amount)}?`)) return false
+    const { data: payout, error } = await supabase.from('teacher_payouts').insert({
+      teacher_id: teacher.id, studio_id: studioId,
+      amount: lesson.amount, period_from: lesson.date, period_to: lesson.date,
+      lessons_count: lesson.hours === null ? 1 : 0, note: 'Разовая оплата занятия',
+    }).select().single()
+    if (error) { alert('Ошибка: ' + error.message); return false }
+
+    const { error: linkErr } = await supabase.from('lesson_payments').insert({
+      studio_id: studioId, teacher_id: teacher.id, payout_id: payout.id,
+      work_log_id: lesson.workLogId || null, date: lesson.date,
+      direction_id: lesson.directionId, amount: lesson.amount,
+    })
+    if (linkErr) {
+      // Откатываем выплату, если привязка не легла (например, занятие уже оплачено)
+      await supabase.from('teacher_payouts').delete().eq('id', payout.id)
+      alert('Не удалось отметить занятие оплаченным: ' + linkErr.message)
+      return false
+    }
+
+    await supabase.from('expenses').insert({
+      studio_id: studioId, expense_date: new Date().toISOString().slice(0, 10),
+      expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
+      comment: `${teacher.name}: разовая оплата занятия ${lesson.date}`,
+    })
+    reload()
+    return true
+  }
+
   const savePayout = async ({ amount, periodFrom, periodTo, note, lessonsCount, items }) => {
     const { data: payout, error } = await supabase.from('teacher_payouts').insert({
       teacher_id: showPayout.id,
@@ -874,6 +916,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           onDelete={del}
           onPayout={setShowPayout}
           summary={summary[t.id]}
+          onPayOne={payOneLesson}
         />
       ))}
 
