@@ -12,7 +12,7 @@ const isHourly = (dir) => dir?.payment_type === 'per_hour'
 // Расчёт заработка по журналу работы.
 // Журнал — источник правды: он говорит, кто работал и сколько часов.
 // Для занятий до его появления есть запасной путь — отметки посещаемости.
-function calcEarnings({ work = [], attendance = [], rates = [], directions = [], teacherId }) {
+function calcEarnings({ work = [], attendance = [], rates = [], directions = [], teacherId, paidWorkLogIds = new Set(), paidLegacyKeys = new Set() }) {
   // Сколько учеников было на занятии — нужно для ставки «по кол-ву учеников»
   const students = {}
   attendance.forEach(a => {
@@ -21,6 +21,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
   })
 
   const byDir = {}
+  const items = []  // отдельные занятия/доли — для окраски и пометки оплаты
   const add = (dirId, patch) => {
     if (!byDir[dirId]) byDir[dirId] = { lessons: 0, hours: 0, amount: 0 }
     byDir[dirId].lessons += patch.lessons || 0
@@ -41,12 +42,17 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
   work.forEach(w => {
     const dir = directions.find(d => d.id === w.direction_id)
     const rate = rates.find(r => r.direction_id === w.direction_id)
-    if (dir?.payment_type === 'per_hour') {
-      const h = +w.hours || 0
-      add(w.direction_id, { hours: h, amount: h * (rate?.rate_hour || 0) })
-    } else {
-      add(w.direction_id, { lessons: 1, amount: lessonRate(rate, `${w.date}_${w.direction_id}`) })
-    }
+    const hourly = dir?.payment_type === 'per_hour'
+    const amount = hourly
+      ? (+w.hours || 0) * (rate?.rate_hour || 0)
+      : lessonRate(rate, `${w.date}_${w.direction_id}`)
+    add(w.direction_id, hourly ? { hours: +w.hours || 0, amount } : { lessons: 1, amount })
+    items.push({
+      workLogId: w.id, date: w.date, directionId: w.direction_id,
+      hours: hourly ? (+w.hours || 0) : null, amount,
+      paid: paidWorkLogIds.has(w.id),
+      fromLog: true,
+    })
   })
 
   // Запасной путь: занятия, которых нет в журнале
@@ -57,13 +63,24 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const k = `${a.date}_${a.direction_id}`
     if (covered.has(k) || seen.has(k)) return
     seen.add(k)
-    add(a.direction_id, { lessons: 1, amount: lessonRate(rates.find(r => r.direction_id === a.direction_id), k) })
+    const amount = lessonRate(rates.find(r => r.direction_id === a.direction_id), k)
+    add(a.direction_id, { lessons: 1, amount })
+    items.push({
+      workLogId: null, date: a.date, directionId: a.direction_id,
+      hours: null, amount,
+      paid: paidLegacyKeys.has(`${a.date}_${a.direction_id}`),
+      fromLog: false,
+    })
   })
+
+  items.sort((a, b) => b.date.localeCompare(a.date))
+  const unpaid = items.filter(i => !i.paid)
 
   const vals = Object.values(byDir)
   return {
-    byDir,
+    byDir, items, unpaid,
     total: vals.reduce((s, x) => s + x.amount, 0),
+    unpaidTotal: unpaid.reduce((s, x) => s + x.amount, 0),
     lessons: vals.reduce((s, x) => s + x.lessons, 0),
     hours: vals.reduce((s, x) => s + x.hours, 0),
     fromLog: work.length,
@@ -336,7 +353,7 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 
   const calculate = async () => {
     setLoading(true)
-    const [{ data: work }, { data: att }, { data: rates }, { data: payouts }] = await Promise.all([
+    const [{ data: work }, { data: att }, { data: rates }, { data: lp }] = await Promise.all([
       supabase.from('teacher_work_log').select('*')
         .eq('teacher_id', teacher.id).eq('studio_id', studioId)
         .gte('date', periodFrom).lte('date', periodTo),
@@ -345,16 +362,21 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
         .eq('present', true).gte('date', periodFrom).lte('date', periodTo)
         .eq('studio_id', studioId),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
-      supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id)
-        .gte('period_from', periodFrom).lte('period_to', periodTo),
+      // Уже оплаченные занятия — чтобы не заплатить дважды
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id')
+        .eq('teacher_id', teacher.id),
     ])
-    const alreadyPaid = (payouts || []).reduce((s, p) => s + p.amount, 0)
+    const paidWorkLogIds = new Set((lp || []).filter(x => x.work_log_id).map(x => x.work_log_id))
+    const paidLegacyKeys = new Set((lp || []).filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
 
     let total = 0
     const details = []
     let totalLessons = 0
+    let items = []      // неоплаченные позиции — их и пометим при создании
+    let salaryMode = false
 
     if (teacher.salary_type === 'salary') {
+      salaryMode = true
       const dFrom = new Date(periodFrom)
       const dTo = new Date(periodTo)
       const days = Math.ceil((dTo - dFrom) / (1000 * 60 * 60 * 24)) + 1
@@ -363,28 +385,41 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
       details.push({ label: `Оклад за ${days} дн. из ${daysInMonth}`, amount: total })
     } else {
       const earn = calcEarnings({
-        work: work || [],
-        attendance: att || [],
-        rates: rates || [],
-        directions,
-        teacherId: teacher.id,
+        work: work || [], attendance: att || [], rates: rates || [],
+        directions, teacherId: teacher.id, paidWorkLogIds, paidLegacyKeys,
       })
-      total = earn.total
-      totalLessons = earn.lessons
-      Object.entries(earn.byDir).forEach(([dirId, info]) => {
+      // Платим только за ещё не оплаченные занятия периода
+      total = earn.unpaidTotal
+      items = earn.unpaid
+      totalLessons = earn.unpaid.filter(i => i.hours === null).length
+      const alreadyInPeriod = earn.items.length - earn.unpaid.length
+
+      // Разбивка по направлениям — только по неоплаченным
+      const byDir = {}
+      earn.unpaid.forEach(i => {
+        if (!byDir[i.directionId]) byDir[i.directionId] = { lessons: 0, hours: 0, amount: 0 }
+        if (i.hours !== null) byDir[i.directionId].hours += i.hours
+        else byDir[i.directionId].lessons += 1
+        byDir[i.directionId].amount += i.amount
+      })
+      Object.entries(byDir).forEach(([dirId, info]) => {
         const dir = directions.find(d => d.id === +dirId)
         const label = isHourly(dir)
           ? `${dir?.name || '—'}: ${info.hours} ч.`
           : `${dir?.name || '—'}: ${info.lessons} зан.`
         details.push({ label, amount: info.amount })
       })
-      if (earn.fromAttendance > 0) {
-        details.push({ label: `из них ${earn.fromAttendance} зан. по отметкам (без журнала)`, amount: null })
+      if (alreadyInPeriod > 0) {
+        details.push({ label: `${alreadyInPeriod} занятий уже оплачено ранее — пропущены`, amount: null })
+      }
+      if (earn.unpaid.some(i => !i.fromLog)) {
+        const n = earn.unpaid.filter(i => !i.fromLog).length
+        details.push({ label: `из них ${n} зан. по отметкам (без журнала)`, amount: null })
       }
     }
 
-    setCalculated({ total, alreadyPaid, toPay: total - alreadyPaid, details, totalLessons })
-    setAmount(Math.max(0, total - alreadyPaid))
+    setCalculated({ total, toPay: total, details, totalLessons, items, salaryMode })
+    setAmount(Math.max(0, total))
     setLoading(false)
   }
 
@@ -392,7 +427,7 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
     <Modal title={`💰 Выплата — ${teacher.name}`} onClose={onClose}
       footer={<>
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
-        <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, note, lessonsCount: calculated?.totalLessons || 0 })}
+        <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, note, lessonsCount: calculated?.totalLessons || 0, items: calculated?.items || [] })}
           disabled={!calculated}>Создать выплату</button>
       </>}>
       <div className="form-row">
@@ -456,20 +491,23 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [rates, setRates] = useState([])
 
   const [workLog, setWorkLog] = useState([])
+  const [paidLinks, setPaidLinks] = useState([])
 
   const loadDetails = async () => {
     if (attStats) return
     setLoadingStats(true)
-    const [{ data: work }, { data: att }, { data: py }, { data: rt }] = await Promise.all([
+    const [{ data: work }, { data: att }, { data: py }, { data: rt }, { data: lp }] = await Promise.all([
       supabase.from('teacher_work_log').select('*').eq('teacher_id', teacher.id).eq('studio_id', studioId),
       supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
       supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id').eq('teacher_id', teacher.id),
     ])
     setWorkLog(work || [])
     setAttStats(att || [])
     setPayouts(py || [])
     setRates(rt || [])
+    setPaidLinks(lp || [])
     setLoadingStats(false)
   }
 
@@ -481,9 +519,13 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const totalPaid = payouts.reduce((s, p) => s + p.amount, 0)
   const dirNames = (teacher.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean)
 
+  const paidWorkLogIds = new Set(paidLinks.filter(x => x.work_log_id).map(x => x.work_log_id))
+  const paidLegacyKeys = new Set(paidLinks.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+
   // Всё заработанное за всё время — по журналу, с запасным путём на посещаемость
   const earn = attStats ? calcEarnings({
     work: workLog, attendance: attStats, rates, directions, teacherId: teacher.id,
+    paidWorkLogIds, paidLegacyKeys,
   }) : null
   const totalEarned = attStats
     ? (teacher.salary_type === 'salary' ? (teacher.salary_amount || 0) : earn.total)
@@ -491,29 +533,16 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const lessonsCount = earn ? earn.lessons : (attStats?.filter(a => a.teacher_id === teacher.id).length || 0)
   const debt = totalEarned !== null ? totalEarned - totalPaid : null
 
-  // История проведённых занятий: журнал (кто работал + часы) + занятия по отметкам без журнала
-  const lessonHistory = (() => {
-    if (!attStats) return []
-    const rows = []
-    const covered = new Set()
-    workLog.forEach(w => {
-      covered.add(`${w.date}_${w.direction_id}`)
-      const dir = directions.find(d => d.id === w.direction_id)
-      rows.push({
-        date: w.date, dirName: dir?.name || 'Направление удалено',
-        color: dir?.color, hours: isHourly(dir) ? +w.hours : null, fromLog: true,
-      })
-    })
-    attStats.forEach(a => {
-      if (a.teacher_id !== teacher.id) return
-      const k = `${a.date}_${a.direction_id}`
-      if (covered.has(k)) return
-      covered.add(k)
-      const dir = directions.find(d => d.id === a.direction_id)
-      rows.push({ date: a.date, dirName: dir?.name || 'Направление удалено', color: dir?.color, hours: null, fromLog: false })
-    })
-    return rows.sort((a, b) => b.date.localeCompare(a.date))
-  })()
+  // История занятий с признаком оплаты — прямо из движка расчёта
+  const lessonHistory = earn ? earn.items.map(i => {
+    const dir = directions.find(d => d.id === i.directionId)
+    return {
+      workLogId: i.workLogId, date: i.date,
+      dirName: dir?.name || 'Направление удалено', color: dir?.color,
+      hours: i.hours, amount: i.amount, paid: i.paid, fromLog: i.fromLog,
+      directionId: i.directionId,
+    }
+  }) : []
 
   // Ставка одной строкой — вид зависит от формата оплаты направления
   const rateLabel = (r) => {
@@ -624,7 +653,11 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                     {lessonHistory.map((l, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', background: 'white', borderRadius: 8, borderLeft: `3px solid ${l.color || '#ddd'}` }}>
+                      <div key={i} style={{
+                        display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8,
+                        borderLeft: `3px solid ${l.color || '#ddd'}`,
+                        background: l.paid ? '#e8f5ec' : '#fdeef0',
+                      }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
                           {new Date(l.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })}
                         </div>
@@ -632,6 +665,9 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         {l.hours !== null && (
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#c47a00', background: '#fff4e6', borderRadius: 6, padding: '1px 8px' }}>{l.hours} ч.</span>
                         )}
+                        <span style={{ fontSize: 12, fontWeight: 700, color: l.paid ? T.greenDark : '#c0392b' }}>
+                          {l.paid ? '✓ оплачено' : fmt(l.amount)}
+                        </span>
                         {!l.fromLog && (
                           <span style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>по отметкам</span>
                         )}
@@ -779,14 +815,30 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     reload()
   }
 
-  const savePayout = async ({ amount, periodFrom, periodTo, note, lessonsCount }) => {
-    const { error } = await supabase.from('teacher_payouts').insert({
+  const savePayout = async ({ amount, periodFrom, periodTo, note, lessonsCount, items }) => {
+    const { data: payout, error } = await supabase.from('teacher_payouts').insert({
       teacher_id: showPayout.id,
       studio_id: studioId,
       amount, period_from: periodFrom, period_to: periodTo,
       lessons_count: lessonsCount, note,
-    })
+    }).select().single()
     if (error) { alert('Ошибка: ' + error.message); return }
+
+    // Помечаем занятия оплаченными этой выплатой
+    if (items && items.length > 0) {
+      const links = items.map(i => ({
+        studio_id: studioId,
+        teacher_id: showPayout.id,
+        payout_id: payout.id,
+        work_log_id: i.workLogId || null,
+        date: i.date,
+        direction_id: i.directionId,
+        amount: i.amount,
+      }))
+      const { error: linkErr } = await supabase.from('lesson_payments').insert(links)
+      if (linkErr) console.warn('lesson_payments:', linkErr.message)
+    }
+
     await supabase.from('expenses').insert({
       studio_id: studioId,
       expense_date: new Date().toISOString().slice(0, 10),
