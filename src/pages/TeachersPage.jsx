@@ -485,6 +485,8 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 // ── Карточка педагога (раскрывающаяся) ──────────────────────
 function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne }) {
   const [justPaid, setJustPaid] = useState(new Set())  // занятия, оплаченные прямо сейчас — до перезагрузки
+  const [confirmPay, setConfirmPay] = useState(null)   // занятие, ждущее подтверждения оплаты
+  const [payingOne, setPayingOne] = useState(false)
   const [open, setOpen] = useState(false)
   const [payouts, setPayouts] = useState([])
   const [attStats, setAttStats] = useState(null)
@@ -677,10 +679,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         )}
                         {!paid && l.amount > 0 && onPayOne && (
                           <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 10px' }}
-                            onClick={async () => {
-                              const ok = await onPayOne(teacher, l)
-                              if (ok) setJustPaid(prev => new Set(prev).add(lkey))
-                            }}>Оплатить</button>
+                            onClick={() => setConfirmPay({ ...l, _lkey: lkey })}>Оплатить</button>
                         )}
                       </div>
                     )})}
@@ -724,6 +723,47 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
             </>
           )}
         </div>
+      )}
+
+      {confirmPay && (
+        <Modal title="Оплата занятия" onClose={() => setConfirmPay(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setConfirmPay(null)} disabled={payingOne}>Отмена</button>
+            <button className="btn btn-primary" disabled={payingOne}
+              onClick={async () => {
+                setPayingOne(true)
+                const ok = await onPayOne(teacher, confirmPay)
+                setPayingOne(false)
+                if (ok) {
+                  setJustPaid(prev => new Set(prev).add(confirmPay._lkey))
+                  setConfirmPay(null)
+                }
+              }}>{payingOne ? 'Оплачиваем…' : '✓ Оплатить'}</button>
+          </>}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+            Оплатить занятие педагогу <strong>{teacher.name}</strong>?
+          </div>
+          <div style={{ background: T.cream, borderRadius: 12, padding: '14px 16px', marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: T.muted }}>Дата</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{new Date(confirmPay.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' })}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: T.muted }}>Направление</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{confirmPay.dirName}</span>
+            </div>
+            {confirmPay.hours !== null && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 13, color: T.muted }}>Часов</span>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>{confirmPay.hours} ч.</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: `1px solid ${T.border}` }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>К оплате</span>
+              <span style={{ fontFamily: 'Nunito,sans-serif', fontSize: 18, fontWeight: 800, color: T.greenDark }}>{fmt(confirmPay.amount)}</span>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )
@@ -828,7 +868,6 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
   // Разовая оплата одного занятия из истории — без выбора периода
   const payOneLesson = async (teacher, lesson) => {
-    if (!confirm(`Оплатить занятие ${new Date(lesson.date + 'T00:00:00').toLocaleDateString('ru-RU')} — ${lesson.dirName} на сумму ${fmt(lesson.amount)}?`)) return false
     const { data: payout, error } = await supabase.from('teacher_payouts').insert({
       teacher_id: teacher.id, studio_id: studioId,
       amount: lesson.amount, period_from: lesson.date, period_to: lesson.date,
