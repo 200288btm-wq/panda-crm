@@ -428,7 +428,7 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
       footer={<>
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
         <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, note, lessonsCount: calculated?.totalLessons || 0, items: calculated?.items || [] })}
-          disabled={!calculated}>Создать выплату</button>
+          disabled={!calculated || amount <= 0}>Создать выплату</button>
       </>}>
       <div className="form-row">
         <div className="form-group">
@@ -471,10 +471,6 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
         </div>
       )}
       <div className="form-group">
-        <label className="form-label">Сумма выплаты, ₽</label>
-        <input className="form-input" type="number" value={amount} onChange={e => setAmount(+e.target.value)} />
-      </div>
-      <div className="form-group">
         <label className="form-label">Комментарий</label>
         <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Зарплата за июнь" />
       </div>
@@ -489,6 +485,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [payingOne, setPayingOne] = useState(false)
   const [cancelPayout, setCancelPayout] = useState(null)  // выплата, ждущая подтверждения отмены
   const [cancelling, setCancelling] = useState(false)
+  const [selectedPayout, setSelectedPayout] = useState(null)  // подсвечиваем занятия этой выплаты
 
   const doCancelPayout = async (payout) => {
     setCancelling(true)
@@ -517,7 +514,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
       supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
       supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
-      supabase.from('lesson_payments').select('work_log_id, date, direction_id').eq('teacher_id', teacher.id),
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id, payout_id').eq('teacher_id', teacher.id),
     ])
     setWorkLog(work || [])
     setAttStats(att || [])
@@ -537,6 +534,13 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
 
   const paidWorkLogIds = new Set(paidLinks.filter(x => x.work_log_id).map(x => x.work_log_id))
   const paidLegacyKeys = new Set(paidLinks.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+  // Какой выплатой закрыто каждое занятие — для подсветки по клику на выплату
+  const payoutByWorkLog = {}
+  const payoutByLegacy = {}
+  paidLinks.forEach(x => {
+    if (x.work_log_id) payoutByWorkLog[x.work_log_id] = x.payout_id
+    else payoutByLegacy[`${x.date}_${x.direction_id}`] = x.payout_id
+  })
 
   // Всё заработанное за всё время — по журналу, с запасным путём на посещаемость
   const earn = attStats ? calcEarnings({
@@ -552,11 +556,12 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   // История занятий с признаком оплаты — прямо из движка расчёта
   const lessonHistory = earn ? earn.items.map(i => {
     const dir = directions.find(d => d.id === i.directionId)
+    const payoutId = i.workLogId ? payoutByWorkLog[i.workLogId] : payoutByLegacy[`${i.date}_${i.directionId}`]
     return {
       workLogId: i.workLogId, date: i.date,
       dirName: dir?.name || 'Направление удалено', color: dir?.color,
       hours: i.hours, amount: i.amount, paid: i.paid, fromLog: i.fromLog,
-      directionId: i.directionId,
+      directionId: i.directionId, payoutId: payoutId || null,
     }
   }) : []
 
@@ -671,11 +676,14 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                     {lessonHistory.map((l, i) => {
                       const lkey = l.workLogId ? `wl_${l.workLogId}` : `lg_${l.date}_${l.directionId}`
                       const paid = l.paid || justPaid.has(lkey)
+                      const inSelected = selectedPayout && l.payoutId === selectedPayout
                       return (
                       <div key={i} style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8,
                         borderLeft: `3px solid ${l.color || '#ddd'}`,
-                        background: paid ? '#e8f5ec' : '#fdeef0',
+                        background: inSelected ? '#b7e4c4' : paid ? '#e8f5ec' : '#fdeef0',
+                        outline: inSelected ? '2px solid #34a853' : 'none',
+                        transition: 'background 0.15s, outline 0.15s',
                       }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
                           {new Date(l.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })}
@@ -685,7 +693,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#c47a00', background: '#fff4e6', borderRadius: 6, padding: '1px 8px' }}>{l.hours} ч.</span>
                         )}
                         <span style={{ fontSize: 12, fontWeight: 700, color: paid ? T.greenDark : '#c0392b', minWidth: 68, textAlign: 'right' }}>
-                          {paid ? '✓ оплачено' : fmt(l.amount)}
+                          {fmt(l.amount)}{paid ? ' ✓' : ''}
                         </span>
                         {!l.fromLog && (
                           <span style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>по отметкам</span>
@@ -706,20 +714,26 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   <div style={{ fontSize: 13, color: T.muted }}>Выплат пока нет</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {payouts.slice(0, 5).map(p => (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: T.cream, borderRadius: 8 }}>
+                    {payouts.slice(0, 5).map(p => {
+                      const active = selectedPayout === p.id
+                      return (
+                      <div key={p.id} onClick={() => setSelectedPayout(active ? null : p.id)}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px',
+                          background: active ? '#e8f5ec' : T.cream, borderRadius: 8, cursor: 'pointer',
+                          outline: active ? '2px solid #34a853' : 'none', transition: 'all 0.15s' }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{fmt(p.amount)}</div>
                           <div style={{ fontSize: 11, color: T.muted }}>{p.period_from} — {p.period_to} · {p.lessons_count} зан.</div>
                           {p.note && <div style={{ fontSize: 11, color: T.muted }}>{p.note}</div>}
+                          {active && <div style={{ fontSize: 11, color: T.greenDark, fontWeight: 600, marginTop: 2 }}>↑ занятия этой выплаты подсвечены выше</div>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ fontSize: 11, color: T.muted }}>{p.created_at?.slice(0, 10)}</div>
                           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#e05a5a', padding: '2px 8px' }}
-                            onClick={() => setCancelPayout(p)}>Отменить</button>
+                            onClick={(e) => { e.stopPropagation(); setCancelPayout(p) }}>Отменить</button>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 )}
               </div>

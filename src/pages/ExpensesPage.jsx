@@ -78,6 +78,8 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
   const [showEdit, setShowEdit] = useState(null)
   const [expenseTypes, setExpenseTypes] = useState([])
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+  const [confirmDel, setConfirmDel] = useState(null)  // { mode, row } — что удаляем
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 768)
@@ -104,17 +106,23 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
 
   const del = async (id) => {
     const row = expenses.find(e => e.id === id)
-    // Расход, созданный выплатой педагогу: удаляем саму выплату,
-    // а расход и привязки занятий уйдут каскадом
-    if (row?.payout_id) {
-      if (!confirm('Это выплата педагогу. Отменить её? Занятия снова станут неоплаченными, запись из расходов удалится.')) return
+    // Расход-выплата — отменяем через отдельное окно с предупреждением
+    if (row?.payout_id) { setConfirmDel({ mode: 'payout', row }); return }
+    setConfirmDel({ mode: 'expense', row })
+  }
+
+  const doDelete = async () => {
+    const { mode, row } = confirmDel
+    setDeleting(true)
+    if (mode === 'payout') {
       const { error } = await supabase.from('teacher_payouts').delete().eq('id', row.payout_id)
+      setDeleting(false)
       if (error) { alert('Ошибка отмены выплаты: ' + error.message); return }
-      reload()
-      return
+    } else {
+      await supabase.from('expenses').delete().eq('id', row.id)
+      setDeleting(false)
     }
-    if (!confirm('Удалить запись о расходе?')) return
-    await supabase.from('expenses').delete().eq('id', id)
+    setConfirmDel(null)
     reload()
   }
 
@@ -192,6 +200,30 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
       </div>
       {showAdd && <ExpenseModal directions={directions} expenseTypes={expenseTypes} onClose={() => setShowAdd(false)} onSave={save} />}
       {showEdit && <ExpenseModal expense={showEdit} directions={directions} expenseTypes={expenseTypes} onClose={() => setShowEdit(null)} onSave={save} />}
+
+      {confirmDel && (
+        <Modal title={confirmDel.mode === 'payout' ? 'Отмена выплаты' : 'Удаление расхода'} onClose={() => setConfirmDel(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setConfirmDel(null)} disabled={deleting}>Отмена</button>
+            <button className="btn btn-primary" style={{ background: '#e05a5a' }} disabled={deleting}
+              onClick={doDelete}>{deleting ? 'Удаляем…' : (confirmDel.mode === 'payout' ? 'Отменить выплату' : 'Удалить')}</button>
+          </>}>
+          {confirmDel.mode === 'payout' ? (
+            <>
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+                Это выплата педагогу на <strong>{fmt(confirmDel.row.amount)}</strong>. Отменить её?
+              </div>
+              <div style={{ background: '#fff4e6', borderRadius: 12, padding: '12px 16px', marginTop: 14, fontSize: 13, color: '#c47a00', lineHeight: 1.5 }}>
+                Занятия, закрытые этой выплатой, снова станут неоплаченными, а эта запись из расходов удалится. Отменить действие нельзя.
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+              Удалить запись о расходе <strong>{fmt(confirmDel.row.amount)}</strong>{confirmDel.row.expense_type ? ` — ${confirmDel.row.expense_type}` : ''}?
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   )
 }
