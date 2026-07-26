@@ -483,10 +483,23 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 }
 
 // ── Карточка педагога (раскрывающаяся) ──────────────────────
-function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne }) {
+function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne, reload }) {
   const [justPaid, setJustPaid] = useState(new Set())  // занятия, оплаченные прямо сейчас — до перезагрузки
   const [confirmPay, setConfirmPay] = useState(null)   // занятие, ждущее подтверждения оплаты
   const [payingOne, setPayingOne] = useState(false)
+  const [cancelPayout, setCancelPayout] = useState(null)  // выплата, ждущая подтверждения отмены
+  const [cancelling, setCancelling] = useState(false)
+
+  const doCancelPayout = async (payout) => {
+    setCancelling(true)
+    // Каскад в БД сам снимет привязки занятий (lesson_payments) и расход (expenses)
+    const { error } = await supabase.from('teacher_payouts').delete().eq('id', payout.id)
+    setCancelling(false)
+    if (error) { alert('Ошибка отмены: ' + error.message); return }
+    setCancelPayout(null)
+    setAttStats(null)  // перечитать историю при следующем открытии
+    reload()
+  }
   const [open, setOpen] = useState(false)
   const [payouts, setPayouts] = useState([])
   const [attStats, setAttStats] = useState(null)
@@ -700,7 +713,11 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                           <div style={{ fontSize: 11, color: T.muted }}>{p.period_from} — {p.period_to} · {p.lessons_count} зан.</div>
                           {p.note && <div style={{ fontSize: 11, color: T.muted }}>{p.note}</div>}
                         </div>
-                        <div style={{ fontSize: 11, color: T.muted }}>{p.created_at?.slice(0, 10)}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ fontSize: 11, color: T.muted }}>{p.created_at?.slice(0, 10)}</div>
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#e05a5a', padding: '2px 8px' }}
+                            onClick={() => setCancelPayout(p)}>Отменить</button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -765,11 +782,26 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
           </div>
         </Modal>
       )}
+      {cancelPayout && (
+        <Modal title="Отмена выплаты" onClose={() => setCancelPayout(null)}
+          footer={<>
+            <button className="btn btn-ghost" onClick={() => setCancelPayout(null)} disabled={cancelling}>Не отменять</button>
+            <button className="btn btn-primary" style={{ background: '#e05a5a' }} disabled={cancelling}
+              onClick={() => doCancelPayout(cancelPayout)}>{cancelling ? 'Отменяем…' : 'Отменить выплату'}</button>
+          </>}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+            Отменить выплату <strong>{fmt(cancelPayout.amount)}</strong> педагогу <strong>{teacher.name}</strong>?
+          </div>
+          <div style={{ background: '#fff4e6', borderRadius: 12, padding: '12px 16px', marginTop: 14, fontSize: 13, color: '#c47a00', lineHeight: 1.5 }}>
+            Занятия, закрытые этой выплатой, снова станут неоплаченными, а запись из расходов удалится. Отменить это действие нельзя.
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
 
-// ── Главная страница ─────────────────────────────────────────
+// ── Главная страница ──
 export default function TeachersPage({ teachers, directions, reload, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
@@ -891,6 +923,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       studio_id: studioId, expense_date: new Date().toISOString().slice(0, 10),
       expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
       comment: `${teacher.name}: разовая оплата занятия ${lesson.date}`,
+      payout_id: payout.id,
     })
     reload()
     return true
@@ -927,6 +960,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       category: 'Разовый',
       amount,
       comment: `${showPayout.name}: ${note || 'выплата'}`,
+      payout_id: payout.id,
     })
     setShowPayout(null)
     reload()
@@ -956,6 +990,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           onPayout={setShowPayout}
           summary={summary[t.id]}
           onPayOne={payOneLesson}
+          reload={reload}
         />
       ))}
 

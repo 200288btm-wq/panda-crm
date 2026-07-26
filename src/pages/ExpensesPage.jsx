@@ -103,6 +103,16 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
   }
 
   const del = async (id) => {
+    const row = expenses.find(e => e.id === id)
+    // Расход, созданный выплатой педагогу: удаляем саму выплату,
+    // а расход и привязки занятий уйдут каскадом
+    if (row?.payout_id) {
+      if (!confirm('Это выплата педагогу. Отменить её? Занятия снова станут неоплаченными, запись из расходов удалится.')) return
+      const { error } = await supabase.from('teacher_payouts').delete().eq('id', row.payout_id)
+      if (error) { alert('Ошибка отмены выплаты: ' + error.message); return }
+      reload()
+      return
+    }
     if (!confirm('Удалить запись о расходе?')) return
     await supabase.from('expenses').delete().eq('id', id)
     reload()
