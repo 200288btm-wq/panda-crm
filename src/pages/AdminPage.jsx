@@ -1,46 +1,26 @@
-import { useState, useEffect } from 'react'
+// Целевой путь: panda-crm/src/pages/AdminPage.jsx
+//
+// Отличие от старой версии: пароль и TOTP больше НЕ проверяются на клиенте
+// и admin_config здесь не читается. Всё идёт через edge-функцию admin-panel,
+// которая проверяет всё на сервере service-role ключом. Внешний вид не менялся.
+
+import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles.jsx'
-
-// Простая реализация TOTP без внешних библиотек
-function base32Decode(base32) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = 0, value = 0
-  const output = []
-  for (let i = 0; i < base32.length; i++) {
-    const idx = chars.indexOf(base32[i].toUpperCase())
-    if (idx === -1) continue
-    value = (value << 5) | idx
-    bits += 5
-    if (bits >= 8) {
-      output.push((value >>> (bits - 8)) & 255)
-      bits -= 8
-    }
-  }
-  return new Uint8Array(output)
-}
-
-async function generateTOTP(secret) {
-  const key = base32Decode(secret)
-  const time = Math.floor(Date.now() / 1000 / 30)
-  const timeBuffer = new ArrayBuffer(8)
-  const view = new DataView(timeBuffer)
-  view.setUint32(4, time, false)
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-1' }, false, ['sign'])
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, timeBuffer)
-  const arr = new Uint8Array(sig)
-  const offset = arr[19] & 0xf
-  const code = ((arr[offset] & 0x7f) << 24 | arr[offset+1] << 16 | arr[offset+2] << 8 | arr[offset+3]) % 1000000
-  return String(code).padStart(6, '0')
-}
-
-async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
+import { T } from '../styles.jsx'
 
 const PLAN_LABELS = { free: 'Free', start: 'Start', pro: 'Pro' }
 const PLAN_COLORS = { free: '#9ca3af', start: '#3b82f6', pro: '#a855f7' }
+
+const ERRORS = {
+  bad_password: 'Неверный пароль',
+  bad_totp: 'Неверный код. Проверьте время на устройстве.',
+  unauthorized: 'Сессия истекла — войдите заново',
+  bad_input: 'Проверьте введённые данные',
+  config: 'Ошибка конфигурации на сервере',
+  server_misconfigured: 'Админка не настроена на сервере (нет ADMIN_TOKEN_SECRET)',
+  network: 'Сеть недоступна, попробуйте ещё раз',
+  empty: 'Пустой ответ сервера',
+}
 
 export default function AdminPage({ onClose }) {
   const [step, setStep] = useState('password') // 'password' | 'totp' | 'dashboard'
@@ -48,71 +28,68 @@ export default function AdminPage({ onClose }) {
   const [totp, setTotp] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [adminConfig, setAdminConfig] = useState(null)
 
-  // Dashboard state
+  const [token, setToken] = useState(null)
   const [studios, setStudios] = useState([])
   const [subscriptions, setSubscriptions] = useState([])
-  const [editPlan, setEditPlan] = useState(null) // { studio_id, plan, expires_at }
+  const [editPlan, setEditPlan] = useState(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
 
-  const checkPassword = async () => {
-    if (!password.trim()) { setError('Введите пароль'); return }
-    setLoading(true); setError('')
-    const { data } = await supabase.from('admin_config').select('*').single()
-    if (!data) { setError('Ошибка конфигурации'); setLoading(false); return }
-    const hash = await sha256(password)
-    if (hash !== data.admin_password_hash) { setError('Неверный пароль'); setLoading(false); return }
-    setAdminConfig(data)
-    setStep('totp')
-    setLoading(false)
+  // Единственная точка правды — edge-функция admin-panel (service-role на сервере).
+  const call = async (body) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-panel', { body })
+      if (error) return { error: 'network' }
+      return data || { error: 'empty' }
+    } catch {
+      return { error: 'network' }
+    }
   }
 
-  const checkTOTP = async () => {
+  // Шаг 1 (пароль) теперь ничего не проверяет на клиенте — просто переходим к 2FA.
+  // Правильность пароля выяснится на сервере вместе с кодом (без «оракула» на пароль).
+  const goToTotp = () => {
+    if (!password.trim()) { setError('Введите пароль'); return }
+    setError(''); setStep('totp')
+  }
+
+  const login = async () => {
     if (!totp.trim()) { setError('Введите код'); return }
     setLoading(true); setError('')
-    const expected = await generateTOTP(adminConfig.totp_secret)
-    // Проверяем текущий и соседние периоды (±30 сек)
-    const prev = await generateTOTP(adminConfig.totp_secret)
-    if (totp !== expected && totp !== prev) {
-      setError('Неверный код. Проверьте время на устройстве.'); setLoading(false); return
+    const res = await call({ action: 'login', password, totp })
+    if (res.error) {
+      setError(ERRORS[res.error] || 'Ошибка входа')
+      if (res.error === 'bad_password') { setStep('password'); setTotp('') }
+      setLoading(false); return
     }
+    setToken(res.token)
+    setStudios(res.studios || [])
+    setSubscriptions(res.subscriptions || [])
     setStep('dashboard')
-    loadDashboard()
     setLoading(false)
-  }
-
-  const loadDashboard = async () => {
-    const [{ data: st }, { data: sub }] = await Promise.all([
-      supabase.from('studios').select('*').order('id'),
-      supabase.from('studio_subscriptions').select('*'),
-    ])
-    setStudios(st || [])
-    setSubscriptions(sub || [])
   }
 
   const getPlan = (studioId) => subscriptions.find(s => s.studio_id === studioId) || { plan: 'free', expires_at: null }
 
   const savePlan = async () => {
     if (!editPlan) return
-    setSaving(true)
-    const existing = subscriptions.find(s => s.studio_id === editPlan.studio_id)
-    if (existing) {
-      await supabase.from('studio_subscriptions').update({
-        plan: editPlan.plan,
-        expires_at: editPlan.expires_at || null,
-      }).eq('studio_id', editPlan.studio_id)
-    } else {
-      await supabase.from('studio_subscriptions').insert({
-        studio_id: editPlan.studio_id,
-        plan: editPlan.plan,
-        expires_at: editPlan.expires_at || null,
-      })
+    setSaving(true); setError('')
+    const res = await call({
+      action: 'set_plan',
+      token,
+      studio_id: editPlan.studio_id,
+      plan: editPlan.plan,
+      expires_at: editPlan.expires_at || null,
+    })
+    if (res.error) {
+      setError(ERRORS[res.error] || 'Не удалось сохранить')
+      if (res.error === 'unauthorized') { setStep('password'); setToken(null) }
+      setSaving(false); return
     }
+    setSubscriptions(res.subscriptions || [])
     setMsg('✅ Сохранено')
     setEditPlan(null)
-    loadDashboard()
     setSaving(false)
     setTimeout(() => setMsg(null), 2000)
   }
@@ -142,12 +119,12 @@ export default function AdminPage({ onClose }) {
               <label className="form-label">Пароль</label>
               <input className="form-input" type="password" value={password}
                 onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && checkPassword()}
+                onKeyDown={e => e.key === 'Enter' && goToTotp()}
                 placeholder="Введите пароль" autoFocus />
             </div>
             {error && <div style={{ color: '#e05a5a', fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
-            <button className="btn btn-primary" onClick={checkPassword} disabled={loading} style={{ width: '100%' }}>
-              {loading ? 'Проверяем...' : 'Далее →'}
+            <button className="btn btn-primary" onClick={goToTotp} style={{ width: '100%' }}>
+              Далее →
             </button>
           </div>
         )}
@@ -162,12 +139,12 @@ export default function AdminPage({ onClose }) {
               <label className="form-label">Код из приложения</label>
               <input className="form-input" type="text" value={totp} maxLength={6}
                 onChange={e => setTotp(e.target.value.replace(/\D/g, ''))}
-                onKeyDown={e => e.key === 'Enter' && checkTOTP()}
+                onKeyDown={e => e.key === 'Enter' && login()}
                 placeholder="000000" autoFocus
                 style={{ letterSpacing: 8, fontSize: 22, textAlign: 'center', fontFamily: 'Nunito,sans-serif', fontWeight: 800 }} />
             </div>
             {error && <div style={{ color: '#e05a5a', fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
-            <button className="btn btn-primary" onClick={checkTOTP} disabled={loading || totp.length !== 6} style={{ width: '100%' }}>
+            <button className="btn btn-primary" onClick={login} disabled={loading || totp.length !== 6} style={{ width: '100%' }}>
               {loading ? 'Проверяем...' : '🔓 Войти'}
             </button>
             <button className="btn btn-ghost" onClick={() => { setStep('password'); setTotp(''); setError('') }} style={{ width: '100%', marginTop: 8 }}>
@@ -180,6 +157,7 @@ export default function AdminPage({ onClose }) {
         {step === 'dashboard' && (
           <div>
             {msg && <div style={{ background: T.greenBg, color: T.greenDark, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontWeight: 600, fontSize: 13 }}>{msg}</div>}
+            {error && <div style={{ color: '#e05a5a', fontSize: 13, marginBottom: 12 }}>⚠️ {error}</div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {studios.map(s => {
