@@ -1,38 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 
-const TG_TOKEN = import.meta.env.VITE_TG_TOKEN
-const TG_CHAT_IDS = (import.meta.env.VITE_TG_CHAT_IDS || '').split(',').filter(Boolean)
-const VK_TOKEN = import.meta.env.VITE_VK_TOKEN
-const VK_PEER_IDS = (import.meta.env.VITE_VK_PEER_ID || '').split(',').filter(Boolean)
-
-const sendTelegram = async (text) => {
-  if (!TG_TOKEN || !TG_CHAT_IDS.length) return
-  for (const chatId of TG_CHAT_IDS) {
-    try {
-      await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId.trim(), text, parse_mode: 'HTML' }),
-      })
-    } catch (e) { console.error('TG error', e) }
-  }
-}
-
-const sendVK = async (text) => {
-  if (!VK_TOKEN || !VK_PEER_IDS.length) return
-  for (let i = 0; i < VK_PEER_IDS.length; i++) {
-    try {
-      const params = new URLSearchParams({
-        peer_id: VK_PEER_IDS[i].trim(),
-        message: text,
-        random_id: Date.now() + i,
-        access_token: VK_TOKEN,
-        v: '5.131',
-      })
-      await fetch(`https://api.vk.com/method/messages.send?${params}`)
-    } catch (e) { console.error('VK error', e) }
-  }
-}
+// Уведомления и приём заявки — на сервере (edge-функция booking). Токены в бандл не попадают.
 
 const DOW_NAMES = ['вс','пн','вт','ср','чт','пт','сб']
 const MONTH_NAMES = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь']
@@ -69,7 +38,7 @@ function getScheduleDays(direction, groups = []) {
   return all.sort()
 }
 
-export default function BookingPage() {
+export default function BookingPage({ slug = null }) {
   const [settings, setSettings] = useState(null)
   const [directions, setDirections] = useState([])
   const [bookedDates, setBookedDates] = useState({}) // date → count
@@ -105,31 +74,19 @@ export default function BookingPage() {
   }, [selectedDir?.id, settings])
 
   const loadAll = async () => {
-    const todayIso = new Date().toISOString().slice(0, 10)
-    const horizon = new Date(); horizon.setDate(horizon.getDate() + 120)
-    const horizonIso = horizon.toISOString().slice(0, 10)
-
-    const [{ data: s }, { data: d }, { data: leads }, { data: g }, { data: th }] = await Promise.all([
-      supabase.from('booking_settings').select('*').eq('id', 1).single(),
-      supabase.from('directions').select('*').order('id'),
-      supabase.from('leads').select('desired_date, squad').not('desired_date', 'is', null),
-      supabase.from('direction_groups').select('id, direction_id, schedule'),
-      supabase.from('teachers').select('id, name, status, direction_ids'),
-    ])
-    setGroups(g || [])
-    setLeadsByDir(leads || [])
-    setTeachers((th || []).filter(t => t.status !== 'Уволен'))
-    setSettings(s)
-    if (s && d) {
-      const ids = s.directions || []
-      setDirections(d.filter(x => ids.includes(x.id)))
+    const { data, error } = await supabase.functions.invoke('booking', {
+      body: { action: 'config', slug },
+    })
+    if (error || !data || data.error) {
+      console.warn('booking config error:', error || data?.error)
+      setSettings({ is_active: false }) // покажем заглушку «запись недоступна»
+      return
     }
-    // Считаем сколько записей на каждую дату
-    const counts = {}
-    for (const l of (leads || [])) {
-      if (l.desired_date) counts[l.desired_date] = (counts[l.desired_date] || 0) + 1
-    }
-    setBookedDates(counts)
+    setSettings(data.settings || null)
+    setDirections(data.directions || [])  // функция уже отдаёт только нужные направления студии
+    setGroups(data.groups || [])
+    setTeachers(data.teachers || [])
+    setBookedDates(data.bookedDates || {})
   }
 
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -139,56 +96,28 @@ export default function BookingPage() {
     if (!form.phone.trim()) { setError('Укажите телефон'); return }
     setSubmitting(true); setError(null)
 
-    const payload = {
-      child_name: form.name.trim(),
-      parent_name: form.parent_name.trim() || null,
-      parent_phone: form.phone.trim(),
-      child_age: form.age.trim() || null,
-      notes: [
-        form.contact_way ? `Связь: ${form.contact_way}` : '',
-        form.comment || '',
-      ].filter(Boolean).join(' | ') || null,
-      source: 'studio',
-      status: 'new',
-      squad: selectedDir?.name || null,
-      desired_date: selectedDates[0] || null,
-      dates: selectedDates.length > 1 ? selectedDates.map(formatDate).join(', ') : null,
+    const datesDisplay = selectedDates.length > 1 ? selectedDates.map(formatDate).join(', ') : null
+    const { data, error: fnErr } = await supabase.functions.invoke('booking', {
+      body: {
+        action: 'submit',
+        slug,
+        child_name: form.name.trim(),
+        parent_name: form.parent_name.trim() || null,
+        parent_phone: form.phone.trim(),
+        child_age: form.age.trim() || null,
+        contact_way: form.contact_way || null,
+        comment: form.comment || null,
+        program: selectedDir?.name || null,
+        desired_date: selectedDates[0] || null,
+        dates: datesDisplay,
+        date_display: selectedDates.length ? formatDate(selectedDates[0]) : null,
+        dates_display: datesDisplay,
+      },
+    })
+    if (fnErr || !data || data.error) {
+      setError('Не удалось отправить заявку. Попробуйте ещё раз.')
+      setSubmitting(false); return
     }
-
-    const { error: dbErr } = await supabase.from('leads').insert(payload)
-    if (dbErr) { setError('Ошибка: ' + dbErr.message); setSubmitting(false); return }
-
-    // Telegram уведомление
-    const dateStr = selectedDates.length > 0 ? formatDate(selectedDates[0]) : 'не выбрана'
-    await sendTelegram([
-      `📅 <b>НОВАЯ ОНЛАЙН-ЗАПИСЬ</b>`,
-      ``,
-      `👧 <b>${form.name.trim()}</b>${form.age ? `, ${form.age}` : ''}`,
-      form.parent_name ? `👩 Родитель: ${form.parent_name}` : '',
-      `📞 ${form.phone}`,
-      selectedDir ? `🎯 Программа: ${selectedDir.name}` : '',
-      selectedDates.length > 1 ? `📆 Желаемые даты: ${selectedDates.map(formatDate).join(', ')}` : `📆 Желаемая дата: ${dateStr}`,
-      form.contact_way ? `💬 Способ связи: ${form.contact_way}` : '',
-      form.comment ? `💭 Комментарий: ${form.comment}` : '',
-      ``,
-      `→ Открыть CRM: https://panda-crm.vercel.app`,
-    ].filter(Boolean).join('\n'))
-
-    // ВКонтакте — тот же текст без HTML-тегов
-    await sendVK([
-      `📅 НОВАЯ ОНЛАЙН-ЗАПИСЬ`,
-      ``,
-      `👧 ${form.name.trim()}${form.age ? `, ${form.age}` : ''}`,
-      form.parent_name ? `👩 Родитель: ${form.parent_name}` : '',
-      `📞 ${form.phone}`,
-      selectedDir ? `🎯 Программа: ${selectedDir.name}` : '',
-      selectedDates.length > 1 ? `📆 Желаемые даты: ${selectedDates.map(formatDate).join(', ')}` : `📆 Желаемая дата: ${dateStr}`,
-      form.contact_way ? `💬 Способ связи: ${form.contact_way}` : '',
-      form.comment ? `💭 Комментарий: ${form.comment}` : '',
-      ``,
-      `→ CRM: https://panda-crm.vercel.app`,
-    ].filter(Boolean).join('\n'))
-
     setSubmitting(false)
     setStep(4)
   }

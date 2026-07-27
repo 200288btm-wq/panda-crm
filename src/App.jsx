@@ -172,9 +172,23 @@ export default function App() {
 
   if (loading) return <Loader />
 
-  if (window.location.pathname === '/zapis') return (
-    <><GlobalStyles /><BookingPage /></>
-  )
+  // Публичная страница записи: только со слагом — /zapis/<slug>
+  {
+    const m = window.location.pathname.match(/^\/zapis\/([^/]+)\/?$/)
+    if (m) return (<><GlobalStyles /><BookingPage slug={decodeURIComponent(m[1])} /></>)
+    // Без слага (старый /zapis или /zapis/) — показываем заглушку, а не студию №1
+    if (window.location.pathname.replace(/\/+$/, '') === '/zapis') return (
+      <><GlobalStyles />
+        <div style={{ minHeight:'100vh', background:'#F0EDD8', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+          <div style={{ textAlign:'center', maxWidth:380 }}>
+            <img src="/logo-icon.svg" alt="" style={{ width:56, marginBottom:12 }} />
+            <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:900, fontSize:20, marginBottom:8 }}>Ссылка неполная</div>
+            <div style={{ color:'#6b7280', fontSize:14 }}>Проверьте адрес страницы записи — он должен содержать имя студии, например <b>/zapis/akademiya-pandy</b>.</div>
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
