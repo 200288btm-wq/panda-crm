@@ -45,6 +45,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState(null)
+  const [slugMsg, setSlugMsg] = useState(null)
   const [logoUploading, setLogoUploading] = useState(false)
   const [stampUploading, setStampUploading] = useState(false)
   const logoRef = useRef()
@@ -147,6 +148,49 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (!error) { loadAll(); reload && reload() }
     setSaving(false)
     setTimeout(() => setMsg(null), 2000)
+  }
+
+  // Базовый адрес страницы записи (без слага)
+  const BOOKING_BASE = 'panda-crm.vercel.app/zapis'
+
+  const normalizeSlug = (s) =>
+    (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  // Сохранение слага с проверкой занятости (через suggest_slug — видит все студии даже под RLS)
+  const saveSlug = async () => {
+    const candidate = normalizeSlug(settings.slug)
+    if (!candidate) { setSlugMsg({ type: 'error', text: 'Введите имя латиницей' }); return }
+    setSaving(true); setSlugMsg(null)
+
+    const { data: free, error: rpcErr } = await supabase.rpc('suggest_slug', { p_base: candidate, p_exclude_studio: studioId })
+    if (rpcErr) { setSlugMsg({ type: 'error', text: 'Ошибка проверки: ' + rpcErr.message }); setSaving(false); return }
+    if (free && free !== candidate) {
+      setSlugMsg({ type: 'error', text: `«${candidate}» уже занято. Свободно, например: ${free}` })
+      setSaving(false); return
+    }
+
+    const { id, created_at, ...data } = settings
+    const payload = { ...data, slug: candidate, updated_at: new Date().toISOString() }
+    const { error } = id
+      ? await supabase.from('studio_settings').update(payload).eq('id', id)
+      : await supabase.from('studio_settings').insert({ ...payload, studio_id: studioId })
+
+    if (error) {
+      setSlugMsg({ type: 'error', text: /unique|duplicate/i.test(error.message) ? 'Это имя уже занято' : error.message })
+    } else {
+      set('slug', candidate)
+      setSlugMsg({ type: 'success', text: 'Ссылка сохранена' })
+      loadAll()
+    }
+    setSaving(false)
+    setTimeout(() => setSlugMsg(null), 3000)
+  }
+
+  const copyBookingLink = () => {
+    const link = `https://${BOOKING_BASE}/${normalizeSlug(settings.slug)}`
+    navigator.clipboard?.writeText(link)
+    setSlugMsg({ type: 'success', text: 'Ссылка скопирована' })
+    setTimeout(() => setSlugMsg(null), 2000)
   }
 
   const uploadFile = async (file, field, setUploading) => {
@@ -592,6 +636,54 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           </button>
           <Msg msg={msg} />
           {settings.bot_token && <WebhookButton token={settings.bot_token} T={T} />}
+        </Section>
+
+        {/* ── Ссылка на онлайн-запись (слаг студии) ── */}
+        <Section title="Ссылка на онлайн-запись" icon="🔗">
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+            Публичный адрес страницы записи вашей студии. Это же имя используется для формы приёма заявок с сайта.
+          </div>
+          <div className="form-group">
+            <label className="form-label">Имя в ссылке (латиницей)</label>
+            <input className="form-input" value={settings.slug || ''}
+              onChange={e => set('slug', e.target.value.toLowerCase())}
+              placeholder="akademiya-pandy" />
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+              Только латинские буквы, цифры и дефис. Должно быть уникальным.
+            </div>
+          </div>
+          {settings.slug && (
+            <div style={{ background: T.greenBg, borderRadius: 12, padding: '10px 14px', fontSize: 13, color: T.greenDark, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ wordBreak: 'break-all' }}>🔗 {BOOKING_BASE}/{normalizeSlug(settings.slug)}</span>
+              <button className="btn btn-outline btn-sm" onClick={copyBookingLink}>Копировать</button>
+            </div>
+          )}
+          <button className="btn btn-primary" onClick={saveSlug} disabled={saving}>
+            {saving ? 'Сохранение...' : '✅ Сохранить ссылку'}
+          </button>
+          <Msg msg={slugMsg} />
+        </Section>
+
+        {/* ── Уведомления о заявках (платформенный бот) ── */}
+        <Section title="Уведомления о заявках" icon="📥">
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+            Куда присылать новые заявки с сайта и страницы записи. Уведомления шлёт платформенный бот
+            {' '}<a href="https://t.me/uchteno_zayavki_bot" target="_blank" rel="noreferrer" style={{ color: T.green, fontWeight: 700 }}>@uchteno_zayavki_bot</a>.
+            <br />Это <b>не</b> клиентский бот выше — здесь только ваши личные уведомления о новых заявках.
+          </div>
+          <div className="form-group">
+            <label className="form-label">Ваш Telegram chat_id</label>
+            <input className="form-input" value={settings.intake_tg_chat_id || ''}
+              onChange={e => set('intake_tg_chat_id', e.target.value.trim())}
+              placeholder="123456789" />
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+              Напишите боту команду <b>/start</b> — он пришлёт ваш chat_id. Вставьте его сюда.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={saveSettings} disabled={saving}>
+            {saving ? 'Сохранение...' : '✅ Сохранить'}
+          </button>
+          <Msg msg={msg} />
         </Section>
         </div>
       </>}
