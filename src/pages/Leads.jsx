@@ -238,12 +238,14 @@ export default function Leads({ directions = [], studioId, reload }) {
     fetchLeads()
     const interval = setInterval(fetchLeads, 30000)
     return () => clearInterval(interval)
-  }, [])
+  }, [studioId])
 
   async function fetchLeads() {
+    if (!studioId) { setLeads([]); setLoading(false); return }
     const { data } = await supabase
       .from('leads')
       .select('*')
+      .eq('studio_id', studioId)
       .order('created_at', { ascending: false })
     if (data) setLeads(data)
     setLoading(false)
