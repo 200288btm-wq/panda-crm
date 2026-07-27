@@ -2,6 +2,60 @@ import { useState } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 
+// Создать студию: студия -> членство -> staff -> settings со слагом.
+// Вынесено, чтобы использовать и при онбординге, и из личного кабинета.
+export async function createStudioFlow(session, studioName) {
+  const name = studioName.trim()
+
+  // 1) Студия
+  const { data: studio, error: studioErr } = await supabase
+    .from('studios')
+    .insert({ name, owner_id: session.user.id })
+    .select()
+    .single()
+  if (studioErr) throw studioErr
+
+  // 2) Членство (Директор)
+  const { error: memberErr } = await supabase
+    .from('studio_members')
+    .insert({ studio_id: studio.id, user_id: session.user.id, role: 'Директор' })
+  if (memberErr) throw memberErr
+
+  // 3) staff
+  const { error: staffErr } = await supabase
+    .from('staff')
+    .insert({
+      user_id: session.user.id,
+      studio_id: studio.id,
+      name: session.user.user_metadata?.full_name || session.user.email,
+      email: session.user.email,
+      role: 'Директор',
+      is_active: true,
+    })
+  if (staffErr) throw staffErr
+
+  // 4) Слаг + запись настроек студии
+  let slug = null
+  try {
+    const { data } = await supabase.rpc('suggest_slug', { p_base: name })
+    slug = data || null
+  } catch { /* если функция недоступна — не блокируем создание */ }
+
+  const { data: existingSettings } = await supabase
+    .from('studio_settings').select('id').eq('studio_id', studio.id).maybeSingle()
+
+  if (existingSettings) {
+    await supabase.from('studio_settings')
+      .update({ studio_name: name, ...(slug ? { slug } : {}) })
+      .eq('studio_id', studio.id)
+  } else {
+    await supabase.from('studio_settings')
+      .insert({ studio_id: studio.id, studio_name: name, slug })
+  }
+
+  return studio
+}
+
 export default function OnboardingPage({ session, onDone }) {
   const [mode, setMode] = useState(null) // null | 'create' | 'code'
   const [studioName, setStudioName] = useState('')
@@ -14,36 +68,7 @@ export default function OnboardingPage({ session, onDone }) {
     if (!studioName.trim()) { setError('Введите название студии'); return }
     setLoading(true); setError('')
     try {
-      // Создаём студию
-      const { data: studio, error: studioErr } = await supabase
-        .from('studios')
-        .insert({ name: studioName.trim(), owner_id: session.user.id })
-        .select()
-        .single()
-
-      if (studioErr) throw studioErr
-
-      // Добавляем себя как Директора в studio_members
-      const { error: memberErr } = await supabase
-        .from('studio_members')
-        .insert({ studio_id: studio.id, user_id: session.user.id, role: 'Директор' })
-
-      if (memberErr) throw memberErr
-
-      // Создаём запись в staff
-      const { error: staffErr } = await supabase
-        .from('staff')
-        .insert({
-          user_id: session.user.id,
-          studio_id: studio.id,
-          name: session.user.user_metadata?.full_name || session.user.email,
-          email: session.user.email,
-          role: 'Директор',
-          is_active: true,
-        })
-
-      if (staffErr) throw staffErr
-
+      await createStudioFlow(session, studioName)
       onDone()
     } catch (e) {
       setError('Ошибка: ' + e.message)

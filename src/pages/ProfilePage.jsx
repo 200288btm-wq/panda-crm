@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
+import { createStudioFlow } from './OnboardingPage'
 
 function generateCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -20,6 +21,12 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
   const [code, setCode] = useState('')
   const [codeLoading, setCodeLoading] = useState(false)
   const [codeMsg, setCodeMsg] = useState(null)
+
+  // Создание студии из ЛК
+  const [showCreate, setShowCreate] = useState(false)
+  const [newStudioName, setNewStudioName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createMsg, setCreateMsg] = useState(null)
 
   const saveName = async () => {
     if (!name.trim()) return
@@ -46,6 +53,25 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
     }
     setPwdSaving(false)
     setTimeout(() => setPwdMsg(null), 2000)
+  }
+
+  const createStudio = async () => {
+    if (!newStudioName.trim()) { setCreateMsg({ type: 'error', text: 'Введите название' }); return }
+    setCreating(true); setCreateMsg(null)
+    try {
+      await createStudioFlow(session, newStudioName)
+      setCreateMsg({ type: 'success', text: `Студия «${newStudioName.trim()}» создана` })
+      setNewStudioName('')
+      // Обновляем список студий. Членство грузится на уровне приложения,
+      // поэтому надёжнее всего перезагрузить, чтобы новая студия появилась в переключателе.
+      setTimeout(() => {
+        if (onAddStudio) onAddStudio()
+        window.location.reload()
+      }, 1200)
+    } catch (e) {
+      setCreateMsg({ type: 'error', text: 'Ошибка: ' + e.message })
+    }
+    setCreating(false)
   }
 
   const joinByCode = async () => {
@@ -181,6 +207,34 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
             }
           </div>
         ))}
+
+        {/* Создать новую студию */}
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+          {!showCreate ? (
+            <button className="btn btn-outline" style={{ width: '100%', justifyContent: 'center' }}
+              onClick={() => { setShowCreate(true); setCreateMsg(null) }}>
+              ➕ Создать новую студию
+            </button>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 8 }}>Новая студия</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="form-input" value={newStudioName}
+                  onChange={e => setNewStudioName(e.target.value)}
+                  placeholder="Название студии" style={{ flex: 1 }} autoFocus
+                  onKeyDown={e => { if (e.key === 'Enter') createStudio() }} />
+                <button className="btn btn-primary" onClick={createStudio} disabled={creating || !newStudioName.trim()}>
+                  {creating ? '...' : 'Создать'}
+                </button>
+              </div>
+              <button onClick={() => { setShowCreate(false); setNewStudioName(''); setCreateMsg(null) }}
+                style={{ marginTop: 8, background: 'none', border: 'none', color: T.muted, fontSize: 12, cursor: 'pointer' }}>
+                Отмена
+              </button>
+              <Msg msg={createMsg} />
+            </>
+          )}
+        </div>
 
         {/* Добавить по коду */}
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
