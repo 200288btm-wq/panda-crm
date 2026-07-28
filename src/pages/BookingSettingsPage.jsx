@@ -3,7 +3,6 @@ import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 
 const DAYS_RU = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
-const BOOKING_URL = 'https://panda-crm.vercel.app/zapis'
 
 const DEFAULT_FIELDS = [
   { key: 'name',        label: 'Имя ребёнка',          required: true,  locked: true },
@@ -14,16 +13,26 @@ const DEFAULT_FIELDS = [
   { key: 'comment',     label: 'Комментарий',           required: false, locked: false },
 ]
 
-export default function BookingSettingsPage({ directions }) {
+export default function BookingSettingsPage({ directions, studioId }) {
   const [settings, setSettings] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [slug, setSlug] = useState('')
+  const [rowId, setRowId] = useState(null)
 
-  useEffect(() => { load() }, [])
+  // Ссылка на запись строится из слага студии (тот же, что на вкладке «Боты/формы»)
+  const bookingUrl = slug ? `https://panda-crm.vercel.app/zapis/${slug}` : null
+
+  useEffect(() => { if (studioId) load() }, [studioId])
 
   const load = async () => {
-    const { data } = await supabase.from('booking_settings').select('*').eq('id', 1).single()
+    const [{ data }, { data: ss }] = await Promise.all([
+      supabase.from('booking_settings').select('*').eq('studio_id', studioId).maybeSingle(),
+      supabase.from('studio_settings').select('slug').eq('studio_id', studioId).maybeSingle(),
+    ])
+    setSlug(ss?.slug || '')
+    setRowId(data?.id ?? null)
     if (data) {
       setSettings({
         is_active: data.is_active ?? true,
@@ -57,8 +66,8 @@ export default function BookingSettingsPage({ directions }) {
 
   const save = async () => {
     setSaving(true)
-    await supabase.from('booking_settings').upsert({
-      id: 1,
+    const payload = {
+      studio_id: studioId,
       is_active: settings.is_active,
       title: settings.title,
       description: settings.description,
@@ -70,14 +79,20 @@ export default function BookingSettingsPage({ directions }) {
       required_fields: settings.required_fields,
       max_per_slot: settings.max_per_slot,
       capacity_mode: settings.capacity_mode,
-    })
+    }
+    if (rowId) {
+      await supabase.from('booking_settings').update(payload).eq('id', rowId)
+    } else {
+      const { data } = await supabase.from('booking_settings').insert(payload).select('id').maybeSingle()
+      if (data) setRowId(data.id)
+    }
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
   }
 
   const copyLink = () => {
-    navigator.clipboard.writeText(BOOKING_URL)
+    if (bookingUrl) navigator.clipboard.writeText(bookingUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -98,11 +113,13 @@ export default function BookingSettingsPage({ directions }) {
           <div style={{ fontSize: 13, color: T.muted, marginTop: 2 }}>Настройте публичную страницу записи клиентов</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <a href={BOOKING_URL} target="_blank" rel="noreferrer"
-            style={{ fontSize: 13, color: T.green, fontWeight: 600, textDecoration: 'none' }}>
-            🔗 Открыть страницу
-          </a>
-          <button onClick={copyLink} className="btn btn-secondary" style={{ fontSize: 13 }}>
+          {bookingUrl && (
+            <a href={bookingUrl} target="_blank" rel="noreferrer"
+              style={{ fontSize: 13, color: T.green, fontWeight: 600, textDecoration: 'none' }}>
+              🔗 Открыть страницу
+            </a>
+          )}
+          <button onClick={copyLink} disabled={!bookingUrl} className="btn btn-secondary" style={{ fontSize: 13 }}>
             {copied ? '✅ Скопировано' : '📋 Копировать ссылку'}
           </button>
           <button onClick={save} disabled={saving} className="btn btn-primary" style={{ fontSize: 13, minWidth: 120 }}>
@@ -130,12 +147,18 @@ export default function BookingSettingsPage({ directions }) {
       {/* Ссылка */}
       <div style={{ ...cardStyle, background: T.cream, border: `1.5px dashed ${T.green}` }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.green, marginBottom: 6, textTransform: 'uppercase' }}>Ссылка на страницу записи</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <code style={{ fontSize: 14, fontWeight: 700, color: T.greenDark, wordBreak: 'break-all' }}>{BOOKING_URL}</code>
-          <button onClick={copyLink} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, background: T.green, color: 'white', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, flexShrink: 0 }}>
-            {copied ? '✅' : '📋 Копировать'}
-          </button>
-        </div>
+        {bookingUrl ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <code style={{ fontSize: 14, fontWeight: 700, color: T.greenDark, wordBreak: 'break-all' }}>{bookingUrl}</code>
+            <button onClick={copyLink} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 8, background: T.green, color: 'white', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, flexShrink: 0 }}>
+              {copied ? '✅' : '📋 Копировать'}
+            </button>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: '#c0392b' }}>
+            Сначала задайте имя в ссылке на вкладке «Боты/формы» — тогда здесь появится адрес страницы записи.
+          </div>
+        )}
         <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>Разместите эту ссылку на сайте, в соцсетях, в шапке профиля ВКонтакте</div>
       </div>
 

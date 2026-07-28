@@ -689,7 +689,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       </>}
 
       {/* ── Онлайн-запись ── */}
-      {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} /></div>}
+      {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} studioId={studioId} /></div>}
 
     </div>
   )
