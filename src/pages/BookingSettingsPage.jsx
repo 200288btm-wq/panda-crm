@@ -33,21 +33,21 @@ export default function BookingSettingsPage({ directions, studioId }) {
     ])
     setSlug(ss?.slug || '')
     setRowId(data?.id ?? null)
-    if (data) {
-      setSettings({
-        is_active: data.is_active ?? true,
-        title: data.title || 'Запись в Академию Панды',
-        description: data.description || '',
-        cover_url: data.cover_url || '',
-        direction_ids: data.directions || [],
-        booking_offset_days: data.booking_offset_days ?? 0,
-        booking_window_days: data.booking_window_days ?? 30,
-        show_teacher: data.show_teacher ?? false,
-        required_fields: data.required_fields || ['name','phone'],
-        max_per_slot: data.max_per_slot ?? 10,
-        capacity_mode: data.capacity_mode || 'schedule',
-      })
-    }
+    // Если у студии ещё нет настроек записи — показываем дефолты (создадутся при первом «Сохранить»)
+    const d = data || {}
+    setSettings({
+      is_active: d.is_active ?? true,
+      title: d.title || 'Запись на занятия',
+      description: d.description || '',
+      cover_url: d.cover_url || '',
+      direction_ids: d.directions || [],
+      booking_offset_days: d.booking_offset_days ?? 0,
+      booking_window_days: d.booking_window_days ?? 30,
+      show_teacher: d.show_teacher ?? false,
+      required_fields: d.required_fields || ['name','phone'],
+      max_per_slot: d.max_per_slot ?? 10,
+      capacity_mode: d.capacity_mode || 'schedule',
+    })
   }
 
   const set = (k, v) => setSettings(p => ({ ...p, [k]: v }))
@@ -97,7 +97,7 @@ export default function BookingSettingsPage({ directions, studioId }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  if (!settings) return <div style={{ padding: 40, color: T.muted, textAlign: 'center' }}>Загрузка...</div>
+  if (!settings) return <div style={{ minHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.muted }}>Загрузка...</div>
 
   const cardStyle = { background: 'white', borderRadius: 16, border: `1px solid ${T.border}`, padding: '20px 24px', marginBottom: 16 }
   const labelStyle = { fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block' }
