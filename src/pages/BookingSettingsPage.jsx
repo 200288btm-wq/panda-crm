@@ -36,7 +36,7 @@ export default function BookingSettingsPage({ directions, studioId }) {
     // Если у студии ещё нет настроек записи — показываем дефолты (создадутся при первом «Сохранить»)
     const d = data || {}
     setSettings({
-      is_active: d.is_active ?? true,
+      is_active: d.is_active ?? false,
       title: d.title || 'Запись на занятия',
       description: d.description || '',
       cover_url: d.cover_url || '',
