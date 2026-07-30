@@ -14,7 +14,6 @@ const calcBalance = (paid, visited) => {
   return { left, status: 'ok', label: `Осталось ${left} зан.`, color: '#5a9070', bg: '#e8f4ed' }
 }
 
-//ntcn
 
 const calcAge = (birthday) => {
   if (!birthday) return null
