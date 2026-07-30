@@ -261,8 +261,9 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         .eq('present', true)
         .order('date', { ascending: false })
       setAttDetails(att || [])
-      const visitedFromAtt = (att||[]).length
-      const totalVisited = (client.visited_lessons || 0) + visitedFromAtt
+      // visited_lessons уже равен числу отметок в attendance (обновляется в расписании),
+      // поэтому НЕ прибавляем attendance повторно — иначе посещения задваиваются в карточке.
+      const totalVisited = (client.visited_lessons || 0)
       const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
       setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
       const { data: frz } = await supabase
