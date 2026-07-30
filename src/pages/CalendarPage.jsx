@@ -354,6 +354,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       : ((ev.teachersList || []).length === 1 ? ev.teachersList[0] : null)
     await supabase.from('attendance').upsert(
       {
+        studio_id: studioId,
         date: ds,
         client_id: clientId,
         direction_id: dirId,
