@@ -98,7 +98,7 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
       await supabase.from('expenses').update(f).eq('id', showEdit.id)
       setShowEdit(null)
     } else {
-      await supabase.from('expenses').insert(f)
+      await supabase.from('expenses').insert({ ...f, studio_id: studioId })
       setShowAdd(false)
     }
     reload()
