@@ -66,11 +66,18 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
       if (customMode) {
         periodLabel = buildPeriodLabel(customUnit, customValue)
         if (saveCustom) {
-          // Пробуем добавить в каталог (если уже есть с таким label — БД сама ругнётся, мы это проглатываем)
+          // Переводим выбранную единицу в модель периода (fixed + длительность).
+          // Недели считаем в днях (в расчёте срока недель нет).
+          let durationUnit, durationValue
+          if (customUnit === 'month')      { durationUnit = 'months'; durationValue = +customValue }
+          else if (customUnit === 'week')  { durationUnit = 'days';   durationValue = +customValue * 7 }
+          else                             { durationUnit = 'days';   durationValue = +customValue }
+          // Пробуем добавить в каталог (если уже есть с таким label — БД ругнётся 23505, гасим)
           const { error } = await supabase.from('subscription_periods').insert({
             label: periodLabel,
-            unit: customUnit,
-            value: customValue,
+            period_type: 'fixed',
+            duration_value: durationValue,
+            duration_unit: durationUnit,
             is_custom: true,
             studio_id: studioId,
             sort_order: 100,
