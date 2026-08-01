@@ -33,7 +33,7 @@ const pricePerLesson = (price, lessons) => {
   return Math.round(price / lessons)
 }
 
-function SubModal({ sub, directions, periods, priceCategories = [], onClose, onSave }) {
+function SubModal({ sub, directions, periods, priceCategories = [], onClose, onSave, studioId }) {
   const [f, setF] = useState(sub ? {
     name: sub.name || '',
     category_id: sub.category_id || null,
@@ -72,6 +72,7 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
             unit: customUnit,
             value: customValue,
             is_custom: true,
+            studio_id: studioId,
             sort_order: 100,
           })
           // Игнорируем ошибки уникальности (23505) и отсутствия таблицы — главное, абонемент сохранится
@@ -167,7 +168,7 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={saveCustom} onChange={e => setSaveCustom(e.target.checked)}
                 style={{ accentColor: T.green, width: 16, height: 16 }} />
-              <span style={{ fontSize: 13 }}>Сохранить этот период в списке для будущих абонементов</span>
+              <span style={{ fontSize: 13 }}>Добавить в справочник периодов</span>
             </label>
           </div>
         )}
@@ -489,8 +490,8 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
         )}
       </div>
 
-      {showAdd && <SubModal directions={directions} periods={periods} priceCategories={priceCategories} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} priceCategories={priceCategories} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <SubModal directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
