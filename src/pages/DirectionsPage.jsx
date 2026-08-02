@@ -226,7 +226,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     max_per_slot: direction.max_per_slot || 0,
     payment_type: direction.payment_type || 'per_lesson',
     duration_hours: direction.duration_hours ?? 1,
-  } : { name:'', launched: todayStr, duration:'1 час', duration_hours: 1, color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0, payment_type: 'per_lesson' })
+  } : { name:'', launched: todayStr, duration: durations[0]?.name || '1 час', duration_hours: durations[0] ? +durations[0].hours : 1, color:DIRECTION_COLORS[0], max_capacity:0, category_ids: [], enrollment_type: 'group', max_per_slot: 0, payment_type: 'per_lesson' })
 
   // Локальное состояние подгрупп
   const [groups, setGroups] = useState(() => {
