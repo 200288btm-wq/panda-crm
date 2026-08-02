@@ -8,6 +8,21 @@ function generateCode() {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// Вынесены на уровень модуля: если объявлять внутри ProfilePage, React пересоздаёт
+// их на каждый ре-рендер и поля ввода теряют фокус (печать «по одному символу»).
+const Section = ({ title, children }) => (
+  <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', marginBottom: 16, border: `1px solid ${T.border}` }}>
+    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 16 }}>{title}</div>
+    {children}
+  </div>
+)
+
+const Msg = ({ msg }) => msg ? (
+  <div style={{ fontSize: 12, marginTop: 8, color: msg.type === 'error' ? '#e05a5a' : T.greenDark, fontWeight: 600 }}>
+    {msg.type === 'error' ? '⚠️' : '✅'} {msg.text}
+  </div>
+) : null
+
 export default function ProfilePage({ session, staff, studio, studios, onSwitchStudio, onAddStudio, onDone }) {
   const [name, setName] = useState(staff?.name || session?.user?.user_metadata?.full_name || '')
   const [nameSaving, setNameSaving] = useState(false)
@@ -131,19 +146,6 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
   }
 
   const logout = () => supabase.auth.signOut()
-
-  const Section = ({ title, children }) => (
-    <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', marginBottom: 16, border: `1px solid ${T.border}` }}>
-      <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 16 }}>{title}</div>
-      {children}
-    </div>
-  )
-
-  const Msg = ({ msg }) => msg ? (
-    <div style={{ fontSize: 12, marginTop: 8, color: msg.type === 'error' ? '#e05a5a' : T.greenDark, fontWeight: 600 }}>
-      {msg.type === 'error' ? '⚠️' : '✅'} {msg.text}
-    </div>
-  ) : null
 
   return (
     <div style={{ maxWidth: 520, margin: '0 auto' }}>
