@@ -5,55 +5,12 @@ import { T } from '../styles.jsx'
 // Создать студию: студия -> членство -> staff -> settings со слагом.
 // Вынесено, чтобы использовать и при онбординге, и из личного кабинета.
 export async function createStudioFlow(session, studioName) {
-  const name = studioName.trim()
-
-  // 1) Студия
-  const { data: studio, error: studioErr } = await supabase
-    .from('studios')
-    .insert({ name, owner_id: session.user.id })
-    .select()
-    .single()
-  if (studioErr) throw studioErr
-
-  // 2) Членство (Директор)
-  const { error: memberErr } = await supabase
-    .from('studio_members')
-    .insert({ studio_id: studio.id, user_id: session.user.id, role: 'Директор' })
-  if (memberErr) throw memberErr
-
-  // 3) staff
-  const { error: staffErr } = await supabase
-    .from('staff')
-    .insert({
-      user_id: session.user.id,
-      studio_id: studio.id,
-      name: session.user.user_metadata?.full_name || session.user.email,
-      email: session.user.email,
-      role: 'Директор',
-      is_active: true,
-    })
-  if (staffErr) throw staffErr
-
-  // 4) Слаг + запись настроек студии
-  let slug = null
-  try {
-    const { data } = await supabase.rpc('suggest_slug', { p_base: name })
-    slug = data || null
-  } catch { /* если функция недоступна — не блокируем создание */ }
-
-  const { data: existingSettings } = await supabase
-    .from('studio_settings').select('id').eq('studio_id', studio.id).maybeSingle()
-
-  if (existingSettings) {
-    await supabase.from('studio_settings')
-      .update({ studio_name: name, ...(slug ? { slug } : {}) })
-      .eq('studio_id', studio.id)
-  } else {
-    await supabase.from('studio_settings')
-      .insert({ studio_id: studio.id, studio_name: name, slug })
-  }
-
-  return studio
+  // Создание студии выполняется на сервере (SECURITY DEFINER), чтобы вписать
+  // владельца в studio_members привилегированно — прямая вставка с клиента закрыта.
+  const { data, error } = await supabase.rpc('create_studio', { p_name: studioName.trim() })
+  if (error) throw error
+  if (data?.error) throw new Error(data.error)
+  return data
 }
 
 export default function OnboardingPage({ session, onDone }) {
@@ -81,54 +38,17 @@ export default function OnboardingPage({ session, onDone }) {
     if (!code.trim()) { setError('Введите код приглашения'); return }
     setLoading(true); setError('')
     try {
-      // Ищем приглашение по коду
-      const { data: inv, error: invErr } = await supabase
-        .from('invitations')
-        .select('*, studios(id, name)')
-        .eq('code', code.trim().toUpperCase())
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle()
-
-      if (invErr) throw invErr
-      if (!inv) {
-        setError('Код не найден или истёк срок действия')
+      const { data, error } = await supabase.rpc('redeem_invitation', { p_code: code.trim().toUpperCase() })
+      if (error) throw error
+      if (data?.error) {
+        setError(
+          data.error === 'invalid_code' ? 'Код не найден или истёк срок действия'
+          : data.error === 'already_member' ? 'Вы уже состоите в этой студии'
+          : 'Ошибка: ' + data.error
+        )
         setLoading(false)
         return
       }
-
-      // Добавляем в studio_members
-      const { error: memberErr } = await supabase
-        .from('studio_members')
-        .insert({ studio_id: inv.studio_id, user_id: session.user.id, role: inv.role })
-
-      if (memberErr && !memberErr.message.includes('duplicate')) throw memberErr
-
-      // Создаём запись в staff если нет
-      const { data: existingStaff } = await supabase
-        .from('staff')
-        .select('id')
-        .eq('user_id', session.user.id)
-        .eq('studio_id', inv.studio_id)
-        .maybeSingle()
-
-      if (!existingStaff) {
-        await supabase.from('staff').insert({
-          user_id: session.user.id,
-          studio_id: inv.studio_id,
-          name: session.user.user_metadata?.full_name || session.user.email,
-          email: session.user.email,
-          role: inv.role,
-          is_active: true,
-        })
-      }
-
-      // Отмечаем приглашение использованным
-      await supabase
-        .from('invitations')
-        .update({ used_at: new Date().toISOString(), used_by: session.user.id })
-        .eq('id', inv.id)
-
       onDone()
     } catch (e) {
       setError('Ошибка: ' + e.message)

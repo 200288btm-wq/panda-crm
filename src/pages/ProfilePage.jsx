@@ -93,52 +93,24 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
     if (!code.trim()) { setCodeMsg({ type: 'error', text: 'Введите код' }); return }
     setCodeLoading(true); setCodeMsg(null)
     try {
-      const { data: inv } = await supabase
-        .from('invitations')
-        .select('*, studios(id, name)')
-        .eq('code', code.trim().toUpperCase())
-        .is('used_at', null)
-        .gt('expires_at', new Date().toISOString())
-        .maybeSingle()
-
-      if (!inv) {
-        setCodeMsg({ type: 'error', text: 'Код не найден или истёк' })
+      const { data, error } = await supabase.rpc('redeem_invitation', { p_code: code.trim().toUpperCase() })
+      if (error) throw error
+      if (data?.error) {
+        setCodeMsg({ type: 'error', text:
+          data.error === 'invalid_code' ? 'Код не найден или истёк'
+          : data.error === 'already_member' ? 'Вы уже состоите в этой студии'
+          : 'Ошибка: ' + data.error
+        })
         setCodeLoading(false)
         return
       }
-
-      // Проверяем не состоит ли уже в этой студии
-      const { data: existing } = await supabase
-        .from('studio_members')
-        .select('id')
-        .eq('studio_id', inv.studio_id)
-        .eq('user_id', session.user.id)
-        .maybeSingle()
-
-      if (existing) {
-        setCodeMsg({ type: 'error', text: 'Вы уже состоите в этой студии' })
-        setCodeLoading(false)
-        return
-      }
-
-      await supabase.from('studio_members').insert({
-        studio_id: inv.studio_id, user_id: session.user.id, role: inv.role
-      })
-
-      // Обновляем запись staff если есть
-      await supabase.from('staff')
-        .update({ user_id: session.user.id })
-        .eq('studio_id', inv.studio_id)
-        .ilike('email', session.user.email)
-        .is('user_id', null)
-
-      await supabase.from('invitations')
-        .update({ used_at: new Date().toISOString(), used_by: session.user.id })
-        .eq('id', inv.id)
-
-      setCodeMsg({ type: 'success', text: `Вы добавлены в студию «${inv.studios.name}»` })
+      setCodeMsg({ type: 'success', text: 'Вы добавлены в студию' })
       setCode('')
-      setTimeout(() => { setCodeMsg(null); onAddStudio && onAddStudio() }, 1500)
+      // Список студий грузится на уровне приложения — перезагрузка покажет новую
+      setTimeout(() => {
+        if (onAddStudio) onAddStudio()
+        window.location.reload()
+      }, 1200)
     } catch (e) {
       setCodeMsg({ type: 'error', text: 'Ошибка: ' + e.message })
     }
