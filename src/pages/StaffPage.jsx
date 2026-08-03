@@ -24,14 +24,13 @@ function InviteModal({ onClose, onDone, studioId, currentUserId }) {
     setLoading(true); setError('')
 
     try {
-      // Проверяем — есть ли такой email в staff (любой студии)
-      const { data: existingStaff } = await supabase
-        .from('staff')
-        .select('id, email')
-        .ilike('email', email.trim())
-        .maybeSingle()
+      // Зарегистрирован ли уже такой email (проверка по auth.users на сервере).
+      // Раньше проверяли по staff, но под RLS видна только своя студия — и человек
+      // из другой студии ошибочно считался новым.
+      const { data: alreadyRegistered } = await supabase
+        .rpc('email_is_registered', { p_email: email.trim() })
 
-      if (existingStaff) {
+      if (alreadyRegistered) {
         // Пользователь уже зарегистрирован — генерируем код
         const code = generateCode()
         const { error: invErr } = await supabase
