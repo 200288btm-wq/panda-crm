@@ -66,6 +66,71 @@ const Loader = () => (
   </>
 )
 
+// Страница вступления по коду из письма-приглашения (/join?code=XXXX)
+function JoinPage({ session }) {
+  const [code, setCode] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    const c = new URLSearchParams(window.location.search).get('code')
+    if (c) setCode(c.toUpperCase())
+  }, [])
+
+  const join = async () => {
+    if (!code.trim()) { setError('Введите код'); return }
+    setLoading(true); setError('')
+    try {
+      const { data, error } = await supabase.rpc('redeem_invitation', { p_code: code.trim().toUpperCase() })
+      if (error) throw error
+      if (data?.error) {
+        setError(
+          data.error === 'invalid_code' ? 'Код не найден или истёк'
+          : data.error === 'already_member' ? 'Вы уже состоите в этой студии'
+          : 'Ошибка: ' + data.error
+        )
+        setLoading(false); return
+      }
+      setDone(true)
+      setTimeout(() => { window.location.href = '/' }, 1200)
+    } catch (e) {
+      setError('Ошибка: ' + e.message)
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#F0EDD8', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: 'white', borderRadius: 16, padding: '28px 32px', maxWidth: 400, width: '100%', textAlign: 'center' }}>
+        <img src="/logo-icon.svg" alt="" style={{ width: 52, marginBottom: 12 }} />
+        {done ? (
+          <>
+            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 20, marginBottom: 8, color: T.ink }}>Готово! 🎉</div>
+            <div style={{ color: T.muted, fontSize: 14 }}>Вы вступили в студию. Открываем…</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 20, marginBottom: 6, color: T.ink }}>Вступление в студию</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Вы вошли как <b>{session.user.email}</b>. Подтвердите код приглашения.</div>
+            {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>⚠️ {error}</div>}
+            <input className="form-input" value={code} onChange={e => setCode(e.target.value.toUpperCase())}
+              placeholder="XXXXXXXX" style={{ letterSpacing: 3, fontSize: 18, textAlign: 'center', fontFamily: 'monospace', marginBottom: 12 }} />
+            <button className="btn btn-primary" onClick={join} disabled={loading || !code}
+              style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
+              {loading ? 'Вступаем…' : '✅ Вступить в студию'}
+            </button>
+            <button onClick={() => { window.location.href = '/' }}
+              style={{ width: '100%', marginTop: 10, background: 'none', border: 'none', color: T.muted, fontSize: 13, cursor: 'pointer' }}>
+              Позже
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [session, setSession] = useState(null)
   const [staff, setStaff] = useState(null)
@@ -197,6 +262,8 @@ export default function App() {
         ? <SetPasswordPage onDone={() => setNeedPassword(false)} />
         : !session
           ? <LoginPage />
+          : window.location.pathname.replace(/\/+$/, '') === '/join'
+            ? <JoinPage session={session} />
           : studios.length === 0
             ? <OnboardingPage session={session} onDone={handleOnboardingDone} />
             : <CRM

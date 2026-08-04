@@ -31,32 +31,31 @@ function InviteModal({ onClose, onDone, studioId, currentUserId }) {
         .rpc('email_is_registered', { p_email: email.trim() })
 
       if (alreadyRegistered) {
-        // Пользователь уже зарегистрирован — генерируем код
-        const code = generateCode()
-        const { error: invErr } = await supabase
-          .from('invitations')
-          .insert({
-            studio_id: studioId,
-            email: email.trim().toLowerCase(),
-            code,
-            role,
-            invited_by: currentUserId,
-            expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          })
-
-        if (invErr) throw invErr
-
-        // Создаём запись в staff заранее (без user_id — привяжется при входе)
-        await supabase.from('staff').insert({
-          studio_id: studioId,
-          name: name.trim(),
-          role,
-          phone: phone.trim(),
-          email: email.trim().toLowerCase(),
-          is_active: true,
-        })
-
-        setGeneratedCode(code)
+        // Уже зарегистрирован — приглашаем через функцию: она создаёт код,
+        // предсоздаёт staff и отправляет письмо со ссылкой /join?code=... и кодом.
+        const { data: { session } } = await supabase.auth.getSession()
+        const res = await fetch(
+          `https://dmvqiuminxrtcaylfcwg.supabase.co/functions/v1/invite-existing`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session?.access_token}`,
+            },
+            body: JSON.stringify({ email, name, role, phone, studio_id: studioId }),
+          }
+        )
+        const result = await res.json()
+        if (!res.ok || result.error) {
+          setError('Ошибка: ' + (
+            result.error === 'already_member' ? 'Этот человек уже в вашей студии'
+            : result.error === 'not_registered' ? 'Пользователь не зарегистрирован'
+            : (result.error || 'Неизвестная ошибка')
+          ))
+          setLoading(false)
+          return
+        }
+        setGeneratedCode(result.code)
         setStep('result_code')
       } else {
         // Новый пользователь — отправляем email через Edge Function
