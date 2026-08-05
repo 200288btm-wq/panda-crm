@@ -1,6 +1,76 @@
+import { useState } from 'react'
 import { T, fmt } from '../styles.jsx'
 
-export default function Dashboard({ clients, payments, expenses, directions, isDirector, navigate }) {
+// Чек-лист «Начало работы» — помогает настроить новую студию.
+// Галочки загораются автоматически, когда в студии появляются данные.
+// Скрывается кнопкой (запоминается в localStorage по студии).
+function SetupChecklist({ directions = [], teachers = [], clientStatuses = [], clients = [], studioSettings, studioId, navigate }) {
+  const [hidden, setHidden] = useState(() => localStorage.getItem(`setupHidden_${studioId}`) === '1')
+
+  const items = [
+    { key: 'studio',     label: 'Студия создана',                              done: true,                          page: null },
+    { key: 'directions', label: 'Добавьте направления (программы студии)',      done: directions.length > 0,         page: 'directions' },
+    { key: 'teachers',   label: 'Добавьте педагогов',                          done: teachers.length > 0,           page: 'teachers' },
+    { key: 'refs',       label: 'Настройте справочники (статусы, длительности, цены)', done: clientStatuses.length > 0, page: 'studio_settings' },
+    { key: 'logo',       label: 'Загрузите логотип студии',                    done: !!studioSettings?.logo_url,    page: 'studio_settings' },
+    { key: 'client',     label: 'Добавьте первого клиента',                    done: clients.length > 0,            page: 'clients' },
+  ]
+  const doneCount = items.filter(i => i.done).length
+  const allDone = doneCount === items.length
+
+  if (hidden) return null
+
+  const hide = () => { localStorage.setItem(`setupHidden_${studioId}`, '1'); setHidden(true) }
+
+  return (
+    <div style={{ background: 'white', border: `1px solid ${T.green}44`, borderRadius: 16, padding: '18px 22px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 16, color: T.ink }}>
+          {allDone ? '🎉 Студия настроена!' : '🚀 Начало работы'}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 12, color: T.muted, fontWeight: 700 }}>{doneCount} из {items.length}</span>
+          <button onClick={hide}
+            style={{ background: 'none', border: 'none', color: T.muted, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+            Скрыть
+          </button>
+        </div>
+      </div>
+
+      {/* прогресс-полоса */}
+      <div style={{ height: 6, background: T.cream, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ height: '100%', width: `${(doneCount / items.length) * 100}%`, background: T.green, transition: 'width .3s' }} />
+      </div>
+
+      {allDone ? (
+        <div style={{ fontSize: 13, color: T.greenDark, fontWeight: 600 }}>
+          Все основные шаги выполнены. Можно скрыть этот блок — он больше не понадобится.
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {items.map(it => (
+            <div key={it.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                <span style={{ fontSize: 16, flexShrink: 0 }}>{it.done ? '✅' : '⬜'}</span>
+                <span style={{ fontSize: 13, color: it.done ? T.muted : T.ink, textDecoration: it.done ? 'line-through' : 'none' }}>
+                  {it.label}
+                </span>
+              </div>
+              {!it.done && it.page && (
+                <button onClick={() => navigate && navigate(it.page)}
+                  style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: T.greenDark, background: `${T.green}18`, border: 'none', borderRadius: 8, padding: '5px 12px', cursor: 'pointer' }}>
+                  Настроить →
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function Dashboard({ clients, payments, expenses, directions, teachers = [], clientStatuses = [], studioSettings, studioId, isDirector, navigate }) {
   const active = clients.filter(c => c.status === 'Активен').length
   const income = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
@@ -29,6 +99,10 @@ export default function Dashboard({ clients, payments, expenses, directions, isD
 
   return (
     <div>
+      {isDirector && (
+        <SetupChecklist directions={directions} teachers={teachers} clientStatuses={clientStatuses}
+          clients={clients} studioSettings={studioSettings} studioId={studioId} navigate={navigate} />
+      )}
       <div className="stats-grid">
         {[
           { label: 'Активных клиентов', val: active, sub: `из ${clients.length} всего`, cls: 'stat-green' },

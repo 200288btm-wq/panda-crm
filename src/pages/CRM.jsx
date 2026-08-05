@@ -191,8 +191,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features }
-
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features, studioSettings }
   const SidebarContent = () => (
     <>
       <div className="sidebar-logo">
