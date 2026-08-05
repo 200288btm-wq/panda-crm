@@ -137,29 +137,37 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     const sid = studio?.id
     if (!sid) return
     setDataLoading(true)
-    const [c, p, e, d, t, s, sub, l, addr, ss, cs] = await Promise.all([
+    // Грузим в 2 волны, чтобы не открывать 11 запросов разом: на free-тарифе
+    // залп из 11 насыщал пул REST-запросов, и один из них отваливался по
+    // таймауту (522), растягивая загрузку до ~20 сек. Две волны по ~6 — без затыка.
+    // Волна 1: критичное для дашборда и меню.
+    const [c, p, e, d, ss, l] = await Promise.all([
       supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
       supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').eq('studio_id', sid).order('expense_date', { ascending: false }),
       supabase.from('directions').select('*, groups:direction_groups(*)').eq('studio_id', sid).order('id'),
-      supabase.from('teachers').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('staff').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
-      supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
       supabase.from('studio_settings').select('*').eq('studio_id', sid).maybeSingle(),
-      supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
+      supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
     if (e.data) setExpenses(e.data)
     if (d.data) setDirections(d.data)
+    if (ss.data) setStudioSettings(ss.data)
+    if (l.data) setLeadsCount(l.data.length)
+
+    // Волна 2: остальное (нужно на конкретных страницах).
+    const [t, s, sub, addr, cs] = await Promise.all([
+      supabase.from('teachers').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('staff').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
+    ])
     if (t.data) setTeachers(t.data)
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
-    if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
-    if (ss.data) setStudioSettings(ss.data)
     if (cs.data) setClientStatuses(cs.data)
     setDataLoading(false)
   }, [studio])
