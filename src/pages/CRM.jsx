@@ -342,10 +342,10 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
             </div>
           )}
           {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', flexDirection: 'column', gap: 4 }}>
-              <img src="/logo-icon.svg" alt="" style={{ width: 60, marginBottom: 8 }} />
+            <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#F0EDD8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+              <img src="/logo-icon.svg" alt="" style={{ width: 60, marginBottom: 12 }} />
               <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 18 }}>Учтено</div>
-              <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 4 }}>Загрузка...</div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Загрузка...</div>
             </div>
           )}
           {!dataLoading && page === 'dashboard'     && <Dashboard {...props} />}
