@@ -69,6 +69,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const [newCount, setNewCount] = useState(0)
   const [leadsCount, setLeadsCount] = useState(0)
   const [dataLoading, setDataLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)  // фоновое обновление внутри студии (не гасим контент)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -133,46 +134,39 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
   const isDirector = role === 'Директор'
   const isAdmin = role === 'Директор' || role === 'Администратор'
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (background = false) => {
     const sid = studio?.id
     if (!sid) return
-    setDataLoading(true)
-    // Грузим в 2 волны, чтобы не открывать 11 запросов разом: на free-тарифе
-    // залп из 11 насыщал пул REST-запросов, и один из них отваливался по
-    // таймауту (522), растягивая загрузку до ~20 сек. Две волны по ~6 — без затыка.
-    // Волна 1: критичное для дашборда и меню.
-    const [c, p, e, d, ss, l] = await Promise.all([
+    if (background) setRefreshing(true); else setDataLoading(true)
+    const [c, p, e, d, t, s, sub, l, addr, ss, cs] = await Promise.all([
       supabase.from('clients').select('*').eq('studio_id', sid).order('created_at', { ascending: false }),
       supabase.from('payments').select('*').eq('studio_id', sid).order('payment_date', { ascending: false }),
       supabase.from('expenses').select('*').eq('studio_id', sid).order('expense_date', { ascending: false }),
       supabase.from('directions').select('*, groups:direction_groups(*)').eq('studio_id', sid).order('id'),
-      supabase.from('studio_settings').select('*').eq('studio_id', sid).maybeSingle(),
+      supabase.from('teachers').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('staff').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
       supabase.from('leads').select('id, status').eq('studio_id', sid).eq('status', 'new'),
+      supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
+      supabase.from('studio_settings').select('*').eq('studio_id', sid).maybeSingle(),
+      supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
     ])
     if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
     if (p.data) setPayments(p.data)
     if (e.data) setExpenses(e.data)
     if (d.data) setDirections(d.data)
-    if (ss.data) setStudioSettings(ss.data)
-    if (l.data) setLeadsCount(l.data.length)
-
-    // Волна 2: остальное (нужно на конкретных страницах).
-    const [t, s, sub, addr, cs] = await Promise.all([
-      supabase.from('teachers').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('staff').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('subscriptions').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('addresses').select('*').eq('studio_id', sid).order('id'),
-      supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
-    ])
     if (t.data) setTeachers(t.data)
     if (s.data) setStaffList(s.data)
     if (sub.data) setSubscriptions(sub.data)
+    if (l.data) setLeadsCount(l.data.length)
     if (addr.data) setAddresses(addr.data)
+    if (ss.data) setStudioSettings(ss.data)
     if (cs.data) setClientStatuses(cs.data)
-    setDataLoading(false)
+    if (background) setRefreshing(false); else setDataLoading(false)
   }, [studio])
 
-  useEffect(() => { load() }, [load])
+  const reloadBg = useCallback(() => load(true), [load])
+  useEffect(() => { load(false) }, [load])
 
   const logout = () => supabase.auth.signOut()
 
@@ -199,7 +193,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     ]},
   ]
 
-  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: load, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features, studioSettings }
+  const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: reloadBg, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features, studioSettings }
   const SidebarContent = () => (
     <>
       <div className="sidebar-logo">
@@ -340,15 +334,23 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
         </div>
 
         <div className="content">
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          {refreshing && !dataLoading && (
+            <div style={{ position: 'sticky', top: 0, zIndex: 5, display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', marginBottom: 10, width: 'fit-content', background: 'rgba(255,255,255,0.9)', border: `1px solid ${T.border}`, borderRadius: 20, fontSize: 12, color: T.muted, fontWeight: 600 }}>
+              <span style={{ display: 'inline-block', width: 12, height: 12, border: `2px solid ${T.border}`, borderTopColor: T.green, borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+              Обновляем…
+            </div>
+          )}
           {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', flexDirection: 'column', gap: 12 }}>
-              <img src="/logo-icon.svg" alt="" style={{ width: 48, opacity: 0.5 }} />
-              <div style={{ fontSize: 13, color: '#9ca3af' }}>Загрузка данных...</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', flexDirection: 'column', gap: 4 }}>
+              <img src="/logo-icon.svg" alt="" style={{ width: 60, marginBottom: 8 }} />
+              <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 18 }}>Учтено</div>
+              <div style={{ fontSize: 13, color: '#9ca3af', marginTop: 4 }}>Загрузка...</div>
             </div>
           )}
           {!dataLoading && page === 'dashboard'     && <Dashboard {...props} />}
           {!dataLoading && page === 'calendar'      && <CalendarPage {...props} />}
-          {!dataLoading && page === 'leads' && isAdmin && <LeadsPage directions={directions} studioId={studio?.id} reload={load} />}
+          {!dataLoading && page === 'leads' && isAdmin && <LeadsPage directions={directions} studioId={studio?.id} reload={reloadBg} />}
           {!dataLoading && page === 'clients'       && isAdmin && <ClientsPage {...props} />}
           {!dataLoading && page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {!dataLoading && page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
@@ -358,8 +360,8 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {!dataLoading && page === 'finance'       && isDirector && <FinancePage {...props} />}
           {!dataLoading && page === 'staff'         && isDirector && <StaffPage {...props} />}
           {page === 'profile'       && <ProfilePage session={session} staff={staff} studio={studio} studios={studios} onSwitchStudio={onSwitchStudio} onAddStudio={load} />}
-          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={load} clientStatuses={clientStatuses} clients={clients} payments={payments} expenses={expenses} teachers={teachers} subscriptions={subscriptions} features={features} />}
-          {!dataLoading && page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={load} isAdmin={isAdmin} studioId={studio?.id} />}
+          {page === 'studio_settings' && isDirector && <StudioSettingsPage studio={studio} studioId={studio?.id} directions={directions} staffList={staffList} reload={reloadBg} clientStatuses={clientStatuses} clients={clients} payments={payments} expenses={expenses} teachers={teachers} subscriptions={subscriptions} features={features} />}
+          {!dataLoading && page === 'addresses'     && isAdmin && <AddressesPage addresses={addresses} reload={reloadBg} isAdmin={isAdmin} studioId={studio?.id} />}
           {!dataLoading && page === 'booking'       && isAdmin && <BookingSettingsPage directions={directions} studioId={studio?.id} />}
         </div>
 
