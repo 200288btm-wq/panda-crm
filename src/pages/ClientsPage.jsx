@@ -14,7 +14,6 @@ const calcBalance = (paid, visited) => {
   return { left, status: 'ok', label: `Осталось ${left} зан.`, color: '#5a9070', bg: '#e8f4ed' }
 }
 
-
 const calcAge = (birthday) => {
   if (!birthday) return null
   const b = new Date(birthday)
@@ -658,6 +657,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const cleaned = {
       ...f,
       paid_lessons: +f.paid_lessons || 0,
+      visited_lessons: +f.visited_lessons || 0,
       balance: +f.balance || 0,
       discount: +f.discount || 0,
       direction_ids: f.direction_ids || [],
@@ -665,13 +665,11 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       birthday: f.birthday || null,
       start_date: f.start_date || null,
     }
-    if (showEdit) delete cleaned.visited_lessons
     if (showEdit) {
       const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      cleaned.visited_lessons = 0
       cleaned.studio_id = studioId
       const { error } = await supabase.from('clients').insert(cleaned)
       if (error) { alert('Ошибка создания: ' + error.message); return }

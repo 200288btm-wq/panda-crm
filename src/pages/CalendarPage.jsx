@@ -364,11 +364,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       },
       { onConflict: 'date,client_id,direction_id' }
     )
-    const { data: allAtt } = await supabase.from('attendance').select('*').eq('client_id', clientId).eq('present', true)
-    if (allAtt) {
-      await supabase.from('clients').update({ visited_lessons: allAtt.length }).eq('id', clientId)
-      dirtyRef.current = true  // обновим списки при закрытии, а не сейчас — иначе модалка закроется
-    }
+    // Модель A: visited_lessons = стартовое число + отметки. Меняем по дельте
+    // (+1 при отметке, −1 при снятии), чтобы не терять стартовое значение,
+    // введённое вручную или пришедшее из импорта.
+    await supabase.rpc('adjust_visited', { p_client_id: clientId, p_delta: newVal ? 1 : -1 })
+    dirtyRef.current = true  // обновим списки при закрытии, а не сейчас — иначе модалка закроется
   }
 
   const handleClose = () => { onClose(dirtyRef.current) }
