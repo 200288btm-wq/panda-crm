@@ -333,7 +333,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
 
         <div className="content">
           {dataLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 140px)', flexDirection: 'column', gap: 12 }}>
               <img src="/logo-icon.svg" alt="" style={{ width: 48, opacity: 0.5 }} />
               <div style={{ fontSize: 13, color: '#9ca3af' }}>Загрузка данных...</div>
             </div>
