@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { NumberInput } from '../components/SearchSelect'
 
 const DIRECTION_COLORS = ['#7BAF8E','#F2A65A','#7c3aed','#3b82f6','#ec4899','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#06b6d4']
 const WEEK_DAYS = [
@@ -268,10 +269,24 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   }
 
   const save = () => {
-    const cleaned = groups.map(g => ({ ...g, name: (g.name || '').trim() }))
-    const empty = cleaned.findIndex(g => !g.name)
-    if (empty !== -1) {
-      alert(`Пожалуйста, укажите название подгруппы №${empty + 1}`)
+    // Когда подгруппы выключены, поле «Название подгруппы» скрыто —
+    // раньше валидация всё равно его требовала, и направление
+    // невозможно было сохранить вообще. Теперь при скрытом поле
+    // подставляем служебное имя, а требуем только если поле видно.
+    const subgroupsVisible = features.subgroups || groups.length > 1
+    const cleaned = groups.map((g, i) => ({
+      ...g,
+      name: (g.name || '').trim() || (subgroupsVisible ? '' : (i === 0 ? 'Основная' : `Группа ${i + 1}`)),
+    }))
+    if (subgroupsVisible) {
+      const empty = cleaned.findIndex(g => !g.name)
+      if (empty !== -1) {
+        alert(`Пожалуйста, укажите название подгруппы №${empty + 1}`)
+        return
+      }
+    }
+    if (!f.name || !f.name.trim()) {
+      alert('Укажите название направления')
       return
     }
     onSave({
@@ -329,7 +344,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       </div>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Макс. учеников на занятии</label>
-          <input className="form-input" type="number" min="0" value={f.max_per_slot} onChange={e=>set('max_per_slot',e.target.value)} placeholder="0 = без ограничений" />
+          <NumberInput value={f.max_per_slot} onChange={v=>set('max_per_slot',v)} min={0} placeholder="0 = без ограничений" />
         </div>
         <div className="form-group"><label className="form-label">Цвет направления</label>
           <ColorPicker value={f.color} onChange={v=>set('color',v)} />

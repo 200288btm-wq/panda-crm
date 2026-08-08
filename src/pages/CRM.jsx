@@ -6,6 +6,7 @@ import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
 import PaymentsPage from './PaymentsPage'
 import ExpensesPage from './ExpensesPage'
+import IncomePage from './IncomePage'
 import DirectionsPage from './DirectionsPage'
 import TeachersPage from './TeachersPage'
 import CalendarPage from './CalendarPage'
@@ -18,11 +19,21 @@ import LeadsPage from './Leads'
 import AddressesPage from './AddressesPage'
 import BookingSettingsPage from './BookingSettingsPage'
 
+// Какие страницы доступны какой роли — используется для защиты от
+// восстановления недоступной страницы из localStorage.
+const ROLE_PAGES = {
+  all:      ['dashboard', 'calendar', 'directions', 'profile'],
+  admin:    ['leads', 'clients', 'payments', 'teachers', 'subscriptions', 'addresses', 'booking'],
+  director: ['expenses', 'income', 'finance', 'staff', 'studio_settings'],
+}
+
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
   teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
   leads: 'Заявки', addresses: 'Адреса', booking: 'Онлайн-запись',
+  subscriptions: 'Стоимость',
+  income: 'Прочие доходы',
   profile: 'Личный кабинет',
   studio_settings: 'Настройки студии',
 }
@@ -165,6 +176,19 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (background) setRefreshing(false); else setDataLoading(false)
   }, [studio])
 
+  // Страница восстанавливается из localStorage. Если у роли к ней нет
+  // доступа (например, педагог с сохранённым crmPage=expenses), раньше
+  // показывался заголовок и пустое белое поле. Возвращаем на дашборд.
+  useEffect(() => {
+    const allowed = { ...ROLE_PAGES.all }
+    const ok =
+      ROLE_PAGES.all.includes(page) ||
+      (isAdmin && ROLE_PAGES.admin.includes(page)) ||
+      (isDirector && ROLE_PAGES.director.includes(page))
+    if (!ok) { setPage('dashboard'); localStorage.setItem('crmPage', 'dashboard') }
+    void allowed
+  }, [page, isAdmin, isDirector])
+
   const reloadBg = useCallback(() => load(true), [load])
   useEffect(() => { load(false) }, [load])
 
@@ -182,6 +206,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       { id: 'clients', icon: '👨‍👧', label: 'Клиенты', badge: newCount || null, show: isAdmin },
       { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
       { id: 'expenses', icon: '📤', label: 'Расходы', show: isDirector },
+      { id: 'income', icon: '💰', label: 'Прочие доходы', show: isDirector },
     ]},
     { section: 'Организация', items: [
       { id: 'directions', icon: '🎯', label: 'Направления', show: true },
@@ -189,6 +214,8 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
     ]},
     { section: 'Управление', items: [
+      // Раздел существовал, но пункта меню не было — открыть его было нельзя
+      { id: 'finance', icon: '📈', label: 'Финансы', show: isDirector },
       { id: 'studio_settings', icon: '⚙️', label: 'Настройки', show: isDirector },
     ]},
   ]
@@ -356,6 +383,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           {!dataLoading && page === 'clients'       && isAdmin && <ClientsPage {...props} />}
           {!dataLoading && page === 'payments'      && isAdmin && <PaymentsPage {...props} />}
           {!dataLoading && page === 'expenses'      && isDirector && <ExpensesPage {...props} />}
+          {!dataLoading && page === 'income'        && isDirector && <IncomePage studioId={studio?.id} />}
           {!dataLoading && page === 'directions'    && <DirectionsPage {...props} />}
           {!dataLoading && page === 'teachers'      && isAdmin && <TeachersPage {...props} />}
           {!dataLoading && page === 'subscriptions' && isAdmin && <SubscriptionsPage {...props} />}

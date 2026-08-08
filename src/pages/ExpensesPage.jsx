@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { NumberInput } from '../components/SearchSelect'
 
 const DEFAULT_ICONS = { 'Аренда': '🏠', 'Материалы': '🎨', 'Транспорт': '🚗', 'Подписки': '💻', 'Зарплата сотрудникам': '👥', 'Прочее': '📦' }
 
-function ExpenseModal({ expense, directions, expenseTypes, onClose, onSave }) {
+function ExpenseModal({ expense, directions, expenseTypes, typesLoaded, onClose, onSave }) {
   const firstType = expenseTypes[0]?.name || 'Прочее'
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
   const [f, setF] = useState(expense ? {
     expense_type: expense.expense_type || firstType,
     amount: expense.amount || '',
@@ -28,10 +31,22 @@ function ExpenseModal({ expense, directions, expenseTypes, onClose, onSave }) {
       footer={<>
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
         <button className={`btn ${expense ? 'btn-primary' : 'btn-danger'}`}
-          onClick={() => onSave({ ...f, amount: +f.amount, qty: +f.qty, direction_id: f.direction_id ? +f.direction_id : null })}>
-          {expense ? 'Сохранить' : 'Добавить расход'}
+          disabled={saving || !typesLoaded}
+          onClick={async () => {
+            setError(null)
+            if (!(+f.amount > 0)) { setError('Укажите сумму расхода'); return }
+            setSaving(true)
+            const err = await onSave({ ...f, amount: +f.amount, qty: +f.qty || 1, direction_id: f.direction_id ? +f.direction_id : null })
+            setSaving(false)
+            if (err) setError(err)
+          }}>
+          {saving ? 'Сохраняем…' : (expense ? 'Сохранить' : 'Добавить расход')}
         </button>
       </>}>
+      {error && <div className="alert alert-error">⚠️ {error}</div>}
+      {!typesLoaded && (
+        <div className="alert" style={{ background: T.cream, color: T.muted }}>Загружаем справочник видов расхода…</div>
+      )}
       <div className="form-row">
         <div className="form-group"><label className="form-label">Вид расхода</label>
           <select className="form-input" value={f.expense_type} onChange={e => set('expense_type', e.target.value)}>
@@ -46,10 +61,10 @@ function ExpenseModal({ expense, directions, expenseTypes, onClose, onSave }) {
       </div>
       <div className="form-row">
         <div className="form-group"><label className="form-label">Сумма, ₽</label>
-          <input className="form-input" type="number" value={f.amount} onChange={e => set('amount', e.target.value)} />
+          <NumberInput value={f.amount} onChange={v => set('amount', v)} min={0} />
         </div>
         <div className="form-group"><label className="form-label">Количество</label>
-          <input className="form-input" type="number" value={f.qty} onChange={e => set('qty', e.target.value)} />
+          <NumberInput value={f.qty} onChange={v => set('qty', v)} min={1} placeholder="1" />
         </div>
       </div>
       <div className="form-row">
@@ -77,6 +92,7 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [expenseTypes, setExpenseTypes] = useState([])
+  const [typesLoaded, setTypesLoaded] = useState(false)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
   const [confirmDel, setConfirmDel] = useState(null)  // { mode, row } — что удаляем
   const [deleting, setDeleting] = useState(false)
@@ -90,18 +106,24 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
   useEffect(() => {
     const q = supabase.from('expense_types').select('*').order('sort_order').order('id')
     if (studioId) q.eq('studio_id', studioId)
-    q.then(({ data }) => setExpenseTypes(data || []))
+    q.then(({ data }) => { setExpenseTypes(data || []); setTypesLoaded(true) })
   }, [studioId])
 
+  // Раньше окно закрывалось всегда, даже если запрос упал: пользователь
+  // видел «сохранил — и ничего не произошло». Теперь при ошибке окно
+  // остаётся открытым, введённое не теряется, причина видна на экране.
   const save = async (f) => {
     if (showEdit) {
-      await supabase.from('expenses').update(f).eq('id', showEdit.id)
+      const { error } = await supabase.from('expenses').update(f).eq('id', showEdit.id)
+      if (error) return 'Не удалось сохранить: ' + error.message
       setShowEdit(null)
     } else {
-      await supabase.from('expenses').insert({ ...f, studio_id: studioId })
+      const { error } = await supabase.from('expenses').insert({ ...f, studio_id: studioId })
+      if (error) return 'Не удалось сохранить: ' + error.message
       setShowAdd(false)
     }
     reload()
+    return null
   }
 
   const del = async (id) => {
@@ -198,8 +220,8 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
           <div className="empty-icon">📤</div><div className="empty-text">Расходов нет</div>
         </div>}
       </div>
-      {showAdd && <ExpenseModal directions={directions} expenseTypes={expenseTypes} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <ExpenseModal expense={showEdit} directions={directions} expenseTypes={expenseTypes} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <ExpenseModal directions={directions} expenseTypes={expenseTypes} typesLoaded={typesLoaded} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <ExpenseModal expense={showEdit} directions={directions} expenseTypes={expenseTypes} typesLoaded={typesLoaded} onClose={() => setShowEdit(null)} onSave={save} />}
 
       {confirmDel && (
         <Modal title={confirmDel.mode === 'payout' ? 'Отмена выплаты' : 'Удаление расхода'} onClose={() => setConfirmDel(null)}

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { SearchSelect, NumberInput } from '../components/SearchSelect'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
@@ -22,6 +23,8 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const [useCustomPrice, setUseCustomPrice] = useState(!!payment)
   const [periods, setPeriods] = useState([])
   const [expiresAt, setExpiresAt] = useState(payment?.expires_at || null)
+  const [showAllSubs, setShowAllSubs] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
   useEffect(() => {
     supabase.from('subscription_periods').select('*').then(({ data }) => setPeriods(data || []))
@@ -29,6 +32,12 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
   // Get selected client
   const client = clients.find(c => c.id === +clientId)
+
+  // Список для поиска: показываем имя ребёнка, родителя держим в hint —
+  // по нему тоже можно искать, но в строке он не мозолит глаза.
+  const clientOptions = [...clients]
+    .sort((a, b) => String(a.child_name || '').localeCompare(String(b.child_name || ''), 'ru'))
+    .map(c => ({ value: c.id, label: c.child_name || '(без имени)', hint: c.adult_name || '' }))
 
   // Auto-fill discount from client when client selected
   useEffect(() => {
@@ -52,15 +61,36 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
     setExpiresAt(exp)
   }, [subId, date, periods])
 
-  // Get available subscriptions for selected direction
-  const availableSubs = subscriptions.filter(s => {
+  // Абонементы, подходящие выбранному направлению.
+  // Модель: направление хранит category_ids, абонемент — category_id.
+  // Раньше здесь фильтровали по легаси-полю s.direction_ids: у новых
+  // абонементов оно пустое, а пустой список проходил проверку — поэтому
+  // показывались ВСЕ абонементы, включая лагерные. Теперь как в разделе
+  // «Стоимость»: сверяем категорию. Легаси-путь оставлен для направлений
+  // без категорий, чтобы старые данные не пропали.
+  const dirForSubs = directions.find(d => d.id === +dirId)
+  const matchingSubs = subscriptions.filter(s => {
     if (!s.is_active) return false
-    if (!dirId) return true
+    if (!dirId || !dirForSubs) return true
+    const catIds = dirForSubs.category_ids || []
+    if (catIds.length > 0) return !!s.category_id && catIds.includes(s.category_id)
     const dids = s.direction_ids || []
     return dids.length === 0 || dids.includes(+dirId)
   })
+  const activeSubs = subscriptions.filter(s => s.is_active)
+  const availableSubs = showAllSubs ? activeSubs : matchingSubs
+  const hiddenSubsCount = activeSubs.length - matchingSubs.length
 
   const selectedSub = subscriptions.find(s => s.id === +subId)
+
+  const subOptions = [
+    ...availableSubs.map(s => ({
+      value: s.id,
+      label: s.name,
+      hint: `${fmt(s.price)} · ${s.lessons_count} зан.`,
+    })),
+    { value: 'custom', label: 'Другая сумма (вручную)', hint: '' },
+  ]
   const dir = directions.find(d => d.id === +dirId)
 
   // Calculate final price
@@ -68,12 +98,16 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const discountAmt = Math.round(basePrice * discount / 100)
   const finalPrice = basePrice - discountAmt
 
-  const save = () => {
-    if (!clientId) { alert('Выберите клиента'); return }
+  const [saving, setSaving] = useState(false)
+
+  const save = async () => {
+    setSaveError(null)
+    if (!clientId) { setSaveError('Выберите клиента'); return }
     const autoPayType = selectedSub
       ? (selectedSub.lessons_count === 1 ? 'Разовое занятие' : 'Абонемент')
       : payType
-    onSave({
+    setSaving(true)
+    const err = await onSave({
       client_id: +clientId,
       payment_type: autoPayType,
       amount: finalPrice,
@@ -87,18 +121,25 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : +customLessons || 0),
       expires_at: expiresAt || null,
     })
+    setSaving(false)
+    if (err) setSaveError(err)
   }
 
   return (
     <Modal title={payment ? '✏️ Редактировать оплату' : '💳 Новая оплата'} onClose={onClose}
-      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={save}>Сохранить</button></>}>
+      footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Сохраняем…' : 'Сохранить'}</button></>}>
 
-      {/* Client */}
+      {saveError && <div className="alert alert-error">⚠️ {saveError}</div>}
+
+      {/* Клиент — поиск по имени ребёнка (родитель ищется, но не показывается) */}
       <div className="form-group"><label className="form-label">Клиент *</label>
-        <select className="form-input" value={clientId} onChange={e => setClientId(e.target.value)}>
-          <option value="">— выбрать клиента —</option>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.child_name} ({c.adult_name})</option>)}
-        </select>
+        <SearchSelect
+          options={clientOptions}
+          value={clientId}
+          onChange={v => setClientId(v)}
+          placeholder="Начните вводить имя ребёнка…"
+          emptyText="Клиент не найден"
+        />
       </div>
 
       {/* Show client discount if exists */}
@@ -127,21 +168,25 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
         </div>
       </div>
 
-      {/* Subscription selector */}
-      <div className="form-group"><label className="form-label">Абонемент</label>
-        <select className="form-input" value={subId} onChange={e => {
-          const val = e.target.value
-          setSubId(val)
-          setUseCustomPrice(val === 'custom' || val === '')
-        }}>
-          <option value="">— выбрать абонемент —</option>
-          {availableSubs.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.name} — {fmt(s.price)} / {s.lessons_count} зан. ({fmt(pricePerLesson(s.price, s.lessons_count))}/зан.)
-            </option>
-          ))}
-          <option value="custom">Другая сумма (вручную)</option>
-        </select>
+      {/* Абонемент — поиск вместо длинного списка */}
+      <div className="form-group">
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+          <label className="form-label">Абонемент</label>
+          {!!dirId && hiddenSubsCount > 0 && (
+            <button type="button" onClick={() => setShowAllSubs(v => !v)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.greenDark,
+                fontSize: 11, fontWeight: 700, padding: 0, marginBottom: 4 }}>
+              {showAllSubs ? 'Только для направления' : `Показать все (+${hiddenSubsCount})`}
+            </button>
+          )}
+        </div>
+        <SearchSelect
+          options={subOptions}
+          value={subId}
+          onChange={v => { setSubId(v); setUseCustomPrice(v === 'custom' || v === '') }}
+          placeholder="Начните вводить название…"
+          emptyText={dirId ? 'Для этого направления абонементов нет — нажмите «Показать все»' : 'Абонементов нет'}
+        />
       </div>
 
       {/* Selected subscription info */}
@@ -170,12 +215,10 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       {(useCustomPrice || subId === 'custom' || !subId) && (
         <div className="form-row">
           <div className="form-group"><label className="form-label">Сумма, ₽</label>
-            <input className="form-input" type="number" value={customPrice}
-              onChange={e => setCustomPrice(e.target.value)} placeholder="0" />
+            <NumberInput value={customPrice} onChange={setCustomPrice} min={0} />
           </div>
           <div className="form-group"><label className="form-label">Количество занятий</label>
-            <input className="form-input" type="number" min="0" value={customLessons}
-              onChange={e => setCustomLessons(+e.target.value)} placeholder="0" />
+            <NumberInput value={customLessons} onChange={setCustomLessons} min={0} />
             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>Укажите сколько занятий покрывает эта оплата</div>
           </div>
         </div>
@@ -184,8 +227,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
       {/* Discount */}
       <div className="form-row">
         <div className="form-group"><label className="form-label">Скидка, %</label>
-          <input className="form-input" type="number" min="0" max="100" value={discount}
-            onChange={e => setDiscount(+e.target.value)} />
+          <NumberInput value={discount} onChange={setDiscount} min={0} max={100} />
         </div>
       </div>
 
@@ -257,20 +299,29 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
   const [filterClient, setFilterClient] = useState('all')
   const [filterDir, setFilterDir] = useState('all')
 
+  // Возвращаем текст ошибки, а не молча закрываем окно:
+  // раньше при сбое запись пропадала без следа.
   const save = async (f) => {
     if (showEdit) {
-      await supabase.from('payments').update(f).eq('id', showEdit.id)
+      const { error } = await supabase.from('payments').update(f).eq('id', showEdit.id)
+      if (error) return 'Не удалось сохранить: ' + error.message
       setShowEdit(null)
     } else {
-      await supabase.from('payments').insert({ ...f, studio_id: studioId })
+      const { error } = await supabase.from('payments').insert({ ...f, studio_id: studioId })
+      if (error) return 'Не удалось сохранить: ' + error.message
       setShowAdd(false)
     }
     reload()
+    return null
   }
 
-  const del = async (id) => {
-    if (!confirm('Удалить запись об оплате?')) return
-    await supabase.from('payments').delete().eq('id', id)
+  const [confirmDel, setConfirmDel] = useState(null)
+  const [delError, setDelError] = useState(null)
+
+  const doDelete = async () => {
+    const { error } = await supabase.from('payments').delete().eq('id', confirmDel.id)
+    if (error) { setDelError(error.message); return }
+    setConfirmDel(null); setDelError(null)
     reload()
   }
 
@@ -309,10 +360,17 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
           📅 {filterMonth ? `${monthName} ✓` : 'Этот месяц'}
         </button>
 
-        <select style={selStyle} value={filterClient} onChange={e => setFilterClient(e.target.value)}>
-          <option value="all">Все клиенты</option>
-          {clients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
-        </select>
+        <div style={{ minWidth: 200, flex: '0 1 240px' }}>
+          <SearchSelect
+            options={[...clients]
+              .sort((a, b) => String(a.child_name || '').localeCompare(String(b.child_name || ''), 'ru'))
+              .map(c => ({ value: String(c.id), label: c.child_name || '(без имени)', hint: c.adult_name || '' }))}
+            value={filterClient === 'all' ? '' : filterClient}
+            onChange={v => setFilterClient(v === '' ? 'all' : String(v))}
+            placeholder="Все клиенты"
+            emptyText="Клиент не найден"
+          />
+        </div>
 
         <select style={selStyle} value={filterDir} onChange={e => setFilterDir(e.target.value)}>
           <option value="all">Все направления</option>
@@ -368,7 +426,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
                 <td>
                   <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)} style={{ padding:'4px 8px' }}>✏️</button>
-                    <button className="btn btn-ghost btn-sm" onClick={() => del(p.id)} style={{ color:T.red, padding:'4px 8px' }}>🗑️</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDel(p)} style={{ color:T.red, padding:'4px 8px' }}>🗑️</button>
                   </div>
                 </td>
               </tr>
@@ -406,7 +464,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
               {d && <div style={{ fontSize: 12, color: T.muted, marginBottom: 8 }}>{d.name}</div>}
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(p)}>✏️</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => del(p.id)} style={{ color: T.red }}>🗑️</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setConfirmDel(p)} style={{ color: T.red }}>🗑️</button>
               </div>
             </div>
           )
@@ -415,6 +473,20 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
           <div className="empty-icon">💳</div><div className="empty-text">Оплат нет</div>
         </div>}
       </div>
+
+      {confirmDel && (
+        <Modal title="Удалить оплату?" onClose={() => { setConfirmDel(null); setDelError(null) }}
+          footer={<>
+            <button className="btn btn-outline" onClick={() => { setConfirmDel(null); setDelError(null) }}>Отмена</button>
+            <button className="btn btn-danger" onClick={doDelete}>Удалить</button>
+          </>}>
+          <div style={{ fontSize: 14, color: T.ink }}>
+            Оплата на сумму <b>{fmt(confirmDel.amount)}</b> от {confirmDel.payment_date} будет удалена.
+            Баланс клиента пересчитается.
+          </div>
+          {delError && <div className="alert alert-error" style={{ marginTop: 12 }}>⚠️ {delError}</div>}
+        </Modal>
+      )}
 
       {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions}
         preselectedClientId={preselectedClientId}

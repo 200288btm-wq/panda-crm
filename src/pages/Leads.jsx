@@ -268,18 +268,33 @@ export default function Leads({ directions = [], studioId, reload }) {
     setLeads(prev => prev.filter(l => l.id !== id))
   }
 
+  // Архив, а не удаление: статус заявки сохраняется, поэтому
+  // восстановление возвращает её ровно туда, где она была.
+  async function setArchived(id, archived) {
+    const archived_at = archived ? new Date().toISOString() : null
+    const { error } = await supabase.from('leads').update({ archived_at }).eq('id', id)
+    if (error) { alert('Не удалось: ' + error.message); return }
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, archived_at } : l))
+  }
+
+  const inArchive = filterStatus === 'archived'
+
   const filtered = leads.filter(l => {
-    if (filterStatus !== 'all' && l.status !== filterStatus) return false
+    // Архивные не показываются нигде, кроме своей вкладки
+    if (inArchive ? !l.archived_at : !!l.archived_at) return false
+    if (!inArchive && filterStatus !== 'all' && l.status !== filterStatus) return false
     if (filterSource !== 'all' && l.source !== filterSource) return false
     return true
   })
 
+  const live = leads.filter(l => !l.archived_at)
   const counts = {
-    all: leads.length,
-    new: leads.filter(l => l.status === 'new').length,
-    called: leads.filter(l => l.status === 'called').length,
-    confirmed: leads.filter(l => l.status === 'confirmed').length,
-    cancelled: leads.filter(l => l.status === 'cancelled').length,
+    all: live.length,
+    new: live.filter(l => l.status === 'new').length,
+    called: live.filter(l => l.status === 'called').length,
+    confirmed: live.filter(l => l.status === 'confirmed').length,
+    cancelled: live.filter(l => l.status === 'cancelled').length,
+    archived: leads.filter(l => l.archived_at).length,
   }
 
   function formatDate(iso) {
@@ -296,6 +311,7 @@ export default function Leads({ directions = [], studioId, reload }) {
     { key: 'called',    label: 'Позвонили',     borderColor: '#F59E0B' },
     { key: 'confirmed', label: 'Подтверждены',  borderColor: T.green },
     { key: 'cancelled', label: 'Отменены',      borderColor: '#EF4444' },
+    { key: 'archived',  label: 'Архив',         borderColor: T.muted },
   ]
 
   return (
@@ -424,6 +440,17 @@ export default function Leads({ directions = [], studioId, reload }) {
                     style={{ fontSize:12, color:T.green, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
                     👤 В клиенты
                   </button>
+                  {lead.archived_at ? (
+                    <button onClick={() => setArchived(lead.id, false)}
+                      style={{ fontSize:12, color:T.greenDark, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                      ↩️ Восстановить
+                    </button>
+                  ) : (
+                    <button onClick={() => setArchived(lead.id, true)}
+                      style={{ fontSize:12, color:T.muted, background:'#f5f5f0', border:`1px solid ${T.border}`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                      📦 В архив
+                    </button>
+                  )}
                   <button onClick={() => deleteLead(lead.id)}
                     style={{ fontSize:12, color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444444', borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
                     🗑 Удалить
