@@ -269,14 +269,16 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   }
 
   const save = () => {
-    // Когда подгруппы выключены, поле «Название подгруппы» скрыто —
-    // раньше валидация всё равно его требовала, и направление
-    // невозможно было сохранить вообще. Теперь при скрытом поле
-    // подставляем служебное имя, а требуем только если поле видно.
-    const subgroupsVisible = features.subgroups || groups.length > 1
+    // Подгруппы — вещь опциональная НА УРОВНЕ НАПРАВЛЕНИЯ, даже если
+    // функция включена для всей студии. Пока подгруппа одна, это просто
+    // расписание направления: имя не спрашиваем и не требуем.
+    // Требование появляется только когда подгрупп реально больше одной.
+    const subgroupsVisible = groups.length > 1
     const cleaned = groups.map((g, i) => ({
       ...g,
-      name: (g.name || '').trim() || (subgroupsVisible ? '' : (i === 0 ? 'Основная' : `Группа ${i + 1}`)),
+      // Единственной подгруппе имя не нужно, но в БД поле не пустое —
+      // подставляем служебное. Пользователь его не видит.
+      name: (g.name || '').trim() || (subgroupsVisible ? '' : 'Основная'),
     }))
     if (subgroupsVisible) {
       const empty = cleaned.findIndex(g => !g.name)
@@ -417,51 +419,55 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       <div style={{ marginTop:18, marginBottom:14 }}>
         {/* Есть ли уже существующие подгруппы (legacy) при выключенной функции */}
         {(() => {
-          const hasLegacySubgroups = !features.subgroups && groups.length > 1
-          const showFull = features.subgroups || hasLegacySubgroups
+          // Подгруппы включаются ПО НАПРАВЛЕНИЮ, а не глобально.
+          // Одна подгруппа = обычное направление без подгрупп: показываем
+          // просто «Расписание», имя не спрашиваем.
+          // Больше одной = режим подгрупп со своими названиями.
+          const multi = groups.length > 1
+          // Подгруппы уже заведены, но функция в настройках выключена
+          const legacy = !features.subgroups && multi
+          // Кнопку «+ Добавить подгруппу» показываем, только если функция
+          // включена — или если подгруппы уже есть (чтобы можно было доработать)
+          const canAdd = features.subgroups || multi
 
           return (
             <>
-              {features.subgroups && (
-                <>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                    <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
-                      👥 Подгруппы ({groups.length})
-                    </div>
-                    <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
-                      + Добавить подгруппу
-                    </button>
-                  </div>
-                  <div style={{ fontSize:12, color:T.muted, marginBottom:10 }}>
-                    У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.
-                  </div>
-                </>
-              )}
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
+                <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
+                  {multi ? `👥 Подгруппы (${groups.length})` : `🗓 Расписание${features.teachers ? ' и педагог' : ''}`}
+                </div>
+                {canAdd && (
+                  <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
+                    + Добавить подгруппу
+                  </button>
+                )}
+              </div>
 
-              {hasLegacySubgroups && (
+              <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
+                {multi
+                  ? 'У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.'
+                  : canAdd
+                    ? 'Подгруппы не обязательны. Если у направления одно расписание — просто заполните дни и время. Нужны разные потоки с разными педагогами — нажмите «+ Добавить подгруппу».'
+                    : ''}
+              </div>
+
+              {legacy && (
                 <div style={{ background: '#fff3e0', borderRadius: 12, padding: '12px 16px', marginBottom: 12, border: '1px solid #f0a83533' }}>
                   <div style={{ fontWeight: 700, fontSize: 13, color: '#c47a00', marginBottom: 4 }}>
-                    ⚠️ У этого направления есть подгруппы ({groups.length})
+                    ⚠️ Функция подгрупп отключена в настройках студии
                   </div>
                   <div style={{ fontSize: 12, color: '#c47a00', lineHeight: 1.5 }}>
-                    Функция подгрупп отключена, но эти подгруппы были созданы раньше и продолжают работать. Вы можете удалить лишние подгруппы вручную. Чтобы снова добавлять подгруппы — включите функцию в настройках.
+                    Эти подгруппы были созданы раньше и продолжают работать. Лишние можно удалить вручную — когда останется одна, направление станет обычным.
                   </div>
                 </div>
               )}
 
-              {!features.subgroups && !hasLegacySubgroups && (
-                <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15, marginBottom:10 }}>
-                  🗓 Расписание{features.teachers ? ' и педагог' : ''}
-                </div>
-              )}
-
-              {/* Показываем подгруппы: все если функция вкл или есть legacy, иначе только первую */}
-              {(showFull ? groups : groups.slice(0, 1)).map((g, idx) => (
+              {groups.map((g, idx) => (
                 <GroupBlock key={g._key} group={g} teachers={directionTeachers} addresses={addresses} idx={idx}
                   isOnly={groups.length === 1}
                   onChange={ng => updateGroup(idx, ng)}
                   onRemove={() => removeGroup(idx)} features={features}
-                  hideSubgroupLabel={!features.subgroups && !hasLegacySubgroups} />
+                  hideSubgroupLabel={!multi} />
               ))}
             </>
           )

@@ -72,7 +72,7 @@ function IncomeModal({ income, onClose, onSave }) {
   )
 }
 
-export default function IncomePage({ studioId }) {
+export default function IncomePage({ studioId, reload }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -110,6 +110,7 @@ export default function IncomePage({ studioId }) {
       setShowAdd(false)
     }
     load()
+    if (reload) reload()   // чтобы дашборд и финансы пересчитались
     return null
   }
 
@@ -118,6 +119,7 @@ export default function IncomePage({ studioId }) {
     if (error) { setError(error.message); return }
     setConfirmDel(null)
     load()
+    if (reload) reload()
   }
 
   const total = rows.reduce((s, r) => s + (+r.amount || 0), 0)

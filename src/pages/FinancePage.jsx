@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { T, fmt } from '../styles.jsx'
 
-export default function FinancePage({ payments, expenses, directions }) {
+export default function FinancePage({ payments, expenses, directions, otherIncome = [] }) {
   const [tab, setTab] = useState('Обзор')
 
-  const income = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const subsIncome = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const extraIncome = otherIncome.reduce((s, r) => s + (+r.amount || 0), 0)
+  const income = subsIncome + extraIncome
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
   const profit = income - totalExp
   const margin = income ? Math.round(profit / income * 100) : 0
@@ -33,7 +35,7 @@ export default function FinancePage({ payments, expenses, directions }) {
             ))}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 16 }}>
             <div className="card card-pad">
               <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 14 }}>💰 Доходы по направлениям</div>
               {directions.map(d => {
@@ -49,6 +51,15 @@ export default function FinancePage({ payments, expenses, directions }) {
                   </div>
                 )
               })}
+              {extraIncome > 0 && (
+                <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                  <div className="fin-row" style={{ padding: '4px 0', border: 'none' }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.muted }}>Прочие доходы</span>
+                    <span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 13 }}>{fmt(extraIncome)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.muted }}>Не привязаны к направлению</div>
+                </div>
+              )}
             </div>
 
             <div className="card card-pad">

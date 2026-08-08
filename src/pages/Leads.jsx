@@ -315,36 +315,41 @@ export default function Leads({ directions = [], studioId, reload }) {
   ]
 
   return (
-    <div style={{ padding: '0 0 40px' }}>
+    <div style={{ padding: '0 0 40px', maxWidth: '100%', overflowX: 'hidden' }}>
 
       {/* Счётчики */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(104px,1fr))', gap: 10, marginBottom: 20 }}>
         {statBtns.map(s => (
           <div key={s.key} onClick={() => setFilterStatus(s.key)} className="card"
-            style={{ cursor:'pointer', padding:'14px 16px', borderLeft:`4px solid ${filterStatus===s.key ? s.borderColor : 'transparent'}`, transition:'border-color .15s', userSelect:'none' }}>
-            <div style={{ fontSize:24, fontWeight:900, color: filterStatus===s.key ? s.borderColor : T.dark }}>{counts[s.key]}</div>
-            <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>{s.label}</div>
+            style={{ cursor:'pointer', padding:'12px 14px', minWidth:0, borderLeft:`4px solid ${filterStatus===s.key ? s.borderColor : 'transparent'}`, transition:'border-color .15s', userSelect:'none' }}>
+            <div style={{ fontSize:22, fontWeight:900, lineHeight:1.1, color: filterStatus===s.key ? s.borderColor : T.dark }}>{counts[s.key]}</div>
+            <div style={{ fontSize:11, color:T.muted, marginTop:3, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Фильтр источника + кнопки */}
+      {/* Две группы кнопок. Раньше правая прижималась marginLeft:auto —
+          при переносе это давало рваную вёрстку на телефоне. Теперь каждая
+          группа переносится целиком и делит ширину поровну. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        {[
-          { key: 'all',    label: '📋 Все' },
-          { key: 'camp',   label: '🏕 Лагерь' },
-          { key: 'studio', label: '🐼 Студия' },
-        ].map(s => (
-          <button key={s.key}
-            className={filterSource === s.key ? 'btn btn-primary' : 'btn btn-secondary'}
-            style={{ padding:'6px 16px', fontSize:13 }}
-            onClick={() => setFilterSource(s.key)}>
-            {s.label}
-          </button>
-        ))}
-        <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
-          <button className="btn btn-secondary" style={{ padding:'6px 16px', fontSize:13 }} onClick={fetchLeads}>🔄 Обновить</button>
-          <button className="btn btn-primary" style={{ padding:'6px 16px', fontSize:13 }} onClick={() => setShowAddModal(true)}>+ Заявка</button>
+        <div style={{ display:'flex', gap:8, flex:'1 1 240px', minWidth:0 }}>
+          {[
+            { key: 'all',    label: '📋 Все' },
+            { key: 'camp',   label: '🏕 Лагерь' },
+            { key: 'studio', label: '🐼 Студия' },
+          ].map(s => (
+            <button key={s.key}
+              className={filterSource === s.key ? 'btn btn-primary' : 'btn btn-secondary'}
+              style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }}
+              onClick={() => setFilterSource(s.key)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:'flex', gap:8, flex:'1 1 200px', minWidth:0, justifyContent:'flex-end' }}>
+          <button className="btn btn-secondary" style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }} onClick={fetchLeads}>🔄 Обновить</button>
+          <button className="btn btn-primary" style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }} onClick={() => setShowAddModal(true)}>+ Заявка</button>
         </div>
       </div>
 
@@ -361,7 +366,7 @@ export default function Leads({ directions = [], studioId, reload }) {
           {filtered.map(lead => (
             <div key={lead.id} className="card"
               style={{ padding:'16px 20px', borderLeft: lead.status==='new' ? '4px solid #3B82F6' : '4px solid transparent' }}>
-              <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
+              <div style={{ display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' }}>
 
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10, alignItems:'center' }}>
@@ -427,7 +432,7 @@ export default function Leads({ directions = [], studioId, reload }) {
                 </div>
 
                 {/* Правая колонка: статус + действия */}
-                <div style={{ display:'flex', flexDirection:'column', gap:6, flexShrink:0, minWidth:130 }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:6, flex:'1 1 130px', minWidth:130, maxWidth:'100%' }}>
                   <select className="form-input" value={lead.status}
                     onChange={e => updateStatus(lead.id, e.target.value)}
                     style={{ padding:'5px 8px', fontSize:12, cursor:'pointer' }}>

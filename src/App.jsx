@@ -5,7 +5,6 @@ import CRM from './pages/CRM'
 import BookingPage from './pages/BookingPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { GlobalStyles, T } from './styles.jsx'
-import { checkBirthdays } from './birthdays.js'
 
 function SetPasswordPage({ onDone }) {
   const [password, setPassword] = useState('')
@@ -82,6 +81,12 @@ function JoinPage({ session }) {
     if (!code.trim()) { setError('Введите код'); return }
     setLoading(true); setError('')
     try {
+      // Запоминаем, в каких студиях человек состоял ДО вступления —
+      // так мы потом точно поймём, какая студия новая, независимо от
+      // того, что именно возвращает RPC.
+      const before = await supabase.from('studio_members').select('studio_id')
+      const beforeIds = new Set((before.data || []).map(r => r.studio_id))
+
       const { data, error } = await supabase.rpc('redeem_invitation', { p_code: code.trim().toUpperCase() })
       if (error) throw error
       if (data?.error) {
@@ -92,6 +97,18 @@ function JoinPage({ session }) {
         )
         setLoading(false); return
       }
+      // Открываем именно ту студию, в которую вступили, а не последнюю
+      // выбранную: человек нажал «Вступить» и ждёт увидеть её.
+      let newStudioId = data?.studio_id ?? null
+      if (!newStudioId) {
+        const after = await supabase.from('studio_members').select('studio_id')
+        newStudioId = (after.data || []).map(r => r.studio_id).find(id => !beforeIds.has(id)) ?? null
+      }
+      if (newStudioId) {
+        localStorage.setItem('activeStudioId', String(newStudioId))
+        localStorage.setItem('crmPage', 'dashboard')
+      }
+
       setDone(true)
       setTimeout(() => { window.location.href = '/' }, 1200)
     } catch (e) {
@@ -210,7 +227,6 @@ export default function App() {
       console.error('loadUserData error:', e)
     }
     setLoading(false)
-    setTimeout(() => checkBirthdays(), 3000)
   }
 
   const loadStaff = async (userId, studioId) => {

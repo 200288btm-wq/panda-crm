@@ -93,6 +93,9 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
     if (!code.trim()) { setCodeMsg({ type: 'error', text: 'Введите код' }); return }
     setCodeLoading(true); setCodeMsg(null)
     try {
+      const before = await supabase.from('studio_members').select('studio_id')
+      const beforeIds = new Set((before.data || []).map(r => r.studio_id))
+
       const { data, error } = await supabase.rpc('redeem_invitation', { p_code: code.trim().toUpperCase() })
       if (error) throw error
       if (data?.error) {
@@ -104,7 +107,18 @@ export default function ProfilePage({ session, staff, studio, studios, onSwitchS
         setCodeLoading(false)
         return
       }
-      setCodeMsg({ type: 'success', text: 'Вы добавлены в студию' })
+      // Переключаемся на новую студию, а не остаёмся в текущей
+      let newStudioId = data?.studio_id ?? null
+      if (!newStudioId) {
+        const after = await supabase.from('studio_members').select('studio_id')
+        newStudioId = (after.data || []).map(r => r.studio_id).find(id => !beforeIds.has(id)) ?? null
+      }
+      if (newStudioId) {
+        localStorage.setItem('activeStudioId', String(newStudioId))
+        localStorage.setItem('crmPage', 'dashboard')
+      }
+
+      setCodeMsg({ type: 'success', text: 'Вы добавлены в студию. Открываем её…' })
       setCode('')
       // Список студий грузится на уровне приложения — перезагрузка покажет новую
       setTimeout(() => {

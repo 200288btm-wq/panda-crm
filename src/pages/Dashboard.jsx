@@ -70,9 +70,11 @@ function SetupChecklist({ directions = [], teachers = [], clientStatuses = [], c
   )
 }
 
-export default function Dashboard({ clients, payments, expenses, directions, teachers = [], clientStatuses = [], studioSettings, studioId, isDirector, navigate }) {
+export default function Dashboard({ clients, payments, expenses, directions, teachers = [], clientStatuses = [], studioSettings, studioId, isDirector, navigate, otherIncome = [] }) {
   const active = clients.filter(c => c.status === 'Активен').length
-  const income = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const subsIncome = payments.reduce((s, p) => s + (p.amount || 0), 0)
+  const extraIncome = (otherIncome || []).reduce((s, r) => s + (+r.amount || 0), 0)
+  const income = subsIncome + extraIncome
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
   const profit = income - totalExp
   const avg = active ? Math.round(income / active) : 0
@@ -107,7 +109,7 @@ export default function Dashboard({ clients, payments, expenses, directions, tea
         {[
           { label: 'Активных клиентов', val: active, sub: `из ${clients.length} всего`, cls: 'stat-green' },
           ...(isDirector ? [
-            { label: 'Доход за период', val: fmt(income), sub: 'все оплаты', cls: 'stat-green' },
+            { label: 'Доход', val: fmt(income), sub: extraIncome > 0 ? `оплаты + прочее (${fmt(extraIncome)})` : 'все оплаты', cls: 'stat-green' },
             { label: 'Расходы', val: fmt(totalExp), sub: 'все категории', cls: 'stat-red' },
             { label: 'Прибыль', val: fmt(profit), sub: 'доход − расходы', cls: profit >= 0 ? 'stat-green' : 'stat-red' },
             { label: 'Средний чек', val: fmt(avg), sub: 'на активного клиента', cls: 'stat-orange' },
@@ -122,7 +124,7 @@ export default function Dashboard({ clients, payments, expenses, directions, tea
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
         <div className="card card-pad">
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 14 }}>📊 Заполненность групп</div>
           {directions.map(d => {
