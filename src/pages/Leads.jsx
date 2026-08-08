@@ -227,6 +227,13 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) 
 export default function Leads({ directions = [], studioId, reload }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
   const [filterStatus, setFilterStatus] = useState('all')
   const [filterSource, setFilterSource] = useState('all')
   const [editingNote, setEditingNote] = useState(null)
@@ -432,32 +439,47 @@ export default function Leads({ directions = [], studioId, reload }) {
                 </div>
 
                 {/* Правая колонка: статус + действия */}
-                <div style={{ display:'flex', flexDirection:'column', gap:6, flex:'0 1 150px', minWidth:140, maxWidth:'100%' }}>
+                {/* На телефоне действия уходят под карточку и раскладываются
+                    в один ряд: раньше три кнопки стояли узким столбиком слева
+                    и половина ширины пропадала впустую. */}
+                <div style={{
+                  display:'flex',
+                  flexDirection: isMobile ? 'row' : 'column',
+                  flexWrap: isMobile ? 'wrap' : 'nowrap',
+                  alignItems: isMobile ? 'stretch' : 'stretch',
+                  gap:6,
+                  flex: isMobile ? '1 1 100%' : '0 1 150px',
+                  minWidth: isMobile ? 0 : 140,
+                  maxWidth:'100%',
+                  marginTop: isMobile ? 12 : 0,
+                  paddingTop: isMobile ? 12 : 0,
+                  borderTop: isMobile ? `1px solid ${T.border}` : 'none',
+                }}>
                   <select className="form-input" value={lead.status}
                     onChange={e => updateStatus(lead.id, e.target.value)}
-                    style={{ padding:'5px 8px', fontSize:12, cursor:'pointer' }}>
+                    style={{ padding:'5px 8px', fontSize: isMobile ? 14 : 12, cursor:'pointer', flex: isMobile ? '1 1 100%' : '0 0 auto' }}>
                     <option value="new">Новая</option>
                     <option value="called">Позвонили</option>
                     <option value="confirmed">Подтверждена</option>
                     <option value="cancelled">Отменена</option>
                   </select>
                   <button onClick={() => setConvertLead(lead)}
-                    style={{ fontSize:12, color:T.green, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                    style={{ flex: isMobile ? '1 1 0' : '0 0 auto', minWidth: isMobile ? 92 : 0, fontSize:12, color:T.green, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'8px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center', whiteSpace:'nowrap' }}>
                     👤 В клиенты
                   </button>
                   {lead.archived_at ? (
                     <button onClick={() => setArchived(lead.id, false)}
-                      style={{ fontSize:12, color:T.greenDark, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                      style={{ flex: isMobile ? '1 1 0' : '0 0 auto', minWidth: isMobile ? 92 : 0, fontSize:12, color:T.greenDark, background:T.greenBg, border:`1px solid ${T.green}44`, borderRadius:8, cursor:'pointer', padding:'8px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center', whiteSpace:'nowrap' }}>
                       ↩️ Восстановить
                     </button>
                   ) : (
                     <button onClick={() => setArchived(lead.id, true)}
-                      style={{ fontSize:12, color:T.muted, background:'#f5f5f0', border:`1px solid ${T.border}`, borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                      style={{ flex: isMobile ? '1 1 0' : '0 0 auto', minWidth: isMobile ? 92 : 0, fontSize:12, color:T.muted, background:'#f5f5f0', border:`1px solid ${T.border}`, borderRadius:8, cursor:'pointer', padding:'8px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center', whiteSpace:'nowrap' }}>
                       📦 В архив
                     </button>
                   )}
                   <button onClick={() => deleteLead(lead.id)}
-                    style={{ fontSize:12, color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444444', borderRadius:8, cursor:'pointer', padding:'6px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center' }}>
+                    style={{ flex: isMobile ? '1 1 0' : '0 0 auto', minWidth: isMobile ? 92 : 0, fontSize:12, color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444444', borderRadius:8, cursor:'pointer', padding:'8px 8px', fontWeight:700, fontFamily:'inherit', textAlign:'center', whiteSpace:'nowrap' }}>
                     🗑 Удалить
                   </button>
                 </div>
