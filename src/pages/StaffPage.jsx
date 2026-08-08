@@ -215,17 +215,35 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
     setShowEdit(null); reload()
   }
 
-  const deactivate = async (id) => {
-    if (!confirm('Отозвать доступ у сотрудника?')) return
-    await supabase.from('staff').update({ is_active: false }).eq('id', id)
+  // Раньше обе операции трогали только таблицу staff, а доступ в студию
+  // держится на studio_members — человек продолжал заходить. Теперь обе
+  // идут через серверные функции, которые убирают членство.
+  const [confirmAction, setConfirmAction] = useState(null) // { mode, staff }
+  const [actionBusy, setActionBusy] = useState(false)
+  const [actionError, setActionError] = useState(null)
+
+  const ERRORS = {
+    not_allowed:        'Только директор студии может это сделать',
+    cannot_remove_self: 'Нельзя отозвать доступ у самого себя',
+    last_director:      'Это единственный директор студии — сначала назначьте другого',
+    staff_not_found:    'Сотрудник не найден',
+    not_authenticated:  'Сессия истекла, войдите заново',
+  }
+
+  const runAction = async () => {
+    const { mode, staff: st } = confirmAction
+    setActionBusy(true); setActionError(null)
+    const fn = mode === 'delete' ? 'delete_studio_member' : 'revoke_studio_access'
+    const { data, error } = await supabase.rpc(fn, { p_staff_id: st.id })
+    setActionBusy(false)
+    if (error) { setActionError(error.message); return }
+    if (data?.error) { setActionError(ERRORS[data.error] || data.error); return }
+    setConfirmAction(null)
     reload()
   }
 
-  const deleteStaff = async (s) => {
-    if (!confirm(`Удалить сотрудника «${s.name}»? Это действие нельзя отменить.`)) return
-    await supabase.from('staff').delete().eq('id', s.id)
-    reload()
-  }
+  const deactivate = (st) => setConfirmAction({ mode: 'revoke', staff: st })
+  const deleteStaff = (st) => setConfirmAction({ mode: 'delete', staff: st })
 
   const active = staffList.filter(s => s.is_active)
   const inactive = staffList.filter(s => !s.is_active)
@@ -289,7 +307,7 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
                 <td>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
-                    {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)} title="Отозвать доступ">🚫</button>}
+                    {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s)} title="Отозвать доступ">🚫</button>}
                     <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} style={{ color: '#e05a5a' }}>🗑️</button>
                   </div>
                 </td>
@@ -328,7 +346,7 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
               <span style={{ fontSize: 12, color: T.muted }}>{s.user_id ? '✅ Активирован' : '⏳ Не входил'}</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowEdit(s)}>✏️</button>
-                {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s.id)}>🚫</button>}
+                {s.is_active && <button className="btn btn-ghost btn-sm" onClick={() => deactivate(s)}>🚫</button>}
                 <button className="btn btn-ghost btn-sm" onClick={() => deleteStaff(s)} style={{ color: '#e05a5a' }}>🗑️</button>
               </div>
             </div>
@@ -348,6 +366,29 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
 
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} onDone={reload} studioId={studioId} currentUserId={currentUserId} />}
       {showEdit && <EditStaffModal member={showEdit} onClose={() => setShowEdit(null)} onSave={save} />}
+
+      {confirmAction && (
+        <Modal
+          title={confirmAction.mode === 'delete' ? 'Удалить сотрудника?' : 'Отозвать доступ?'}
+          onClose={() => { setConfirmAction(null); setActionError(null) }}
+          footer={<>
+            <button className="btn btn-outline" onClick={() => { setConfirmAction(null); setActionError(null) }}>Отмена</button>
+            <button className="btn btn-danger" onClick={runAction} disabled={actionBusy}>
+              {actionBusy ? 'Выполняем…' : (confirmAction.mode === 'delete' ? 'Удалить' : 'Отозвать')}
+            </button>
+          </>}>
+          <div style={{ fontSize: 14, color: T.ink, lineHeight: 1.6 }}>
+            <b>{confirmAction.staff.name}</b>{confirmAction.staff.email ? ` (${confirmAction.staff.email})` : ''}
+            {' '}потеряет доступ к студии сразу — при следующем действии его выкинет из системы.
+          </div>
+          <div style={{ marginTop: 10, fontSize: 13, color: T.muted, lineHeight: 1.6 }}>
+            {confirmAction.mode === 'delete'
+              ? 'Карточка сотрудника будет удалена полностью. Подходит для ошибочно созданных записей. Если сотрудник может вернуться — лучше «Отозвать доступ», тогда сохранится история.'
+              : 'Карточка останется в списке как неактивная — история сохранится. Пригласить этого человека заново можно в любой момент.'}
+          </div>
+          {actionError && <div className="alert alert-error" style={{ marginTop: 12 }}>⚠️ {actionError}</div>}
+        </Modal>
+      )}
     </div>
   )
 }

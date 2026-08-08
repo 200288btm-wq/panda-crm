@@ -368,7 +368,7 @@ export default function Leads({ directions = [], studioId, reload }) {
               style={{ padding:'16px 20px', borderLeft: lead.status==='new' ? '4px solid #3B82F6' : '4px solid transparent' }}>
               <div style={{ display:'flex', gap:16, alignItems:'flex-start', flexWrap:'wrap' }}>
 
-                <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ flex:'1 1 260px', minWidth:0 }}>
                   <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:10, alignItems:'center' }}>
                     {SOURCE[lead.source] && <Badge cfg={SOURCE[lead.source]} />}
                     {STATUS[lead.status] && <Badge cfg={STATUS[lead.status]} />}
@@ -420,7 +420,7 @@ export default function Leads({ directions = [], studioId, reload }) {
                     </div>
                   ) : lead.notes ? (
                     <div onClick={() => { setEditingNote(lead.id); setNoteText(lead.notes) }}
-                      style={{ marginTop:10, fontSize:13, color:T.muted, background:'#f9f9f7', borderRadius:8, padding:'6px 10px', cursor:'pointer' }}>
+                      style={{ marginTop:10, fontSize:13, color:T.muted, background:'#f9f9f7', borderRadius:8, padding:'8px 12px', cursor:'pointer', lineHeight:1.5, width:'100%' }}>
                       💬 {lead.notes}
                     </div>
                   ) : (
@@ -432,7 +432,7 @@ export default function Leads({ directions = [], studioId, reload }) {
                 </div>
 
                 {/* Правая колонка: статус + действия */}
-                <div style={{ display:'flex', flexDirection:'column', gap:6, flex:'1 1 130px', minWidth:130, maxWidth:'100%' }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:6, flex:'0 1 150px', minWidth:140, maxWidth:'100%' }}>
                   <select className="form-input" value={lead.status}
                     onChange={e => updateStatus(lead.id, e.target.value)}
                     style={{ padding:'5px 8px', fontSize:12, cursor:'pointer' }}>

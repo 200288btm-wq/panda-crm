@@ -235,13 +235,13 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       return existingGroups.map((g) => ({
         _key: `existing-${g.id}`,
         id: g.id,
-        name: g.name || '',
+        name: (g.name === 'Основная' && (direction.groups || []).length === 1) ? '' : (g.name || ''),
         teacher_id: g.teacher_id || null,
         address_id: g.address_id || null,
         schedule: g.schedule || '',
       }))
     }
-    return [{ _key: `new-${Date.now()}`, name: 'Основная', teacher_id: null, address_id: null, schedule: '' }]
+    return [{ _key: `new-${Date.now()}`, name: '', teacher_id: null, address_id: null, schedule: '' }]
   })
 
   const set = (k,v) => setF(p => ({...p, [k]:v}))
@@ -798,7 +798,12 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                     const addr = sg.address_id ? addresses.find(a => a.id === sg.address_id) : null
                     return (
                       <div key={sg.id} style={{ background: color+'10', borderLeft:`3px solid ${color}`, borderRadius:8, padding:'8px 10px' }}>
-                        <div style={{ fontWeight:800, fontSize:13, color:T.ink, marginBottom:3 }}>📍 {sg.name}</div>
+                        {/* Имя показываем только когда подгрупп несколько.
+                            Одна подгруппа = обычное расписание направления,
+                            служебное «Основная» пользователю не нужно. */}
+                        {subgroups.length > 1 && (
+                          <div style={{ fontWeight:800, fontSize:13, color:T.ink, marginBottom:3 }}>📍 {sg.name}</div>
+                        )}
                         {features.teachers && (
                           <div style={{ fontSize:12, color:T.muted, marginBottom:3 }}>
                             👩‍🏫 {dirTeachers.length ? dirTeachers.map(t => t.name).join(', ') : '— педагог не закреплён —'}

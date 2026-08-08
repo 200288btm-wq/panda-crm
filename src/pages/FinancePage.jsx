@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { T, fmt } from '../styles.jsx'
 
+// Даты выводились сырым ISO (2026-08-08)
+const ruDate = (iso) => {
+  if (!iso) return '—'
+  const [y, m, d] = String(iso).split('-')
+  return d ? `${d}.${m}.${y}` : iso
+}
+
 export default function FinancePage({ payments, expenses, directions, otherIncome = [] }) {
   const [tab, setTab] = useState('Обзор')
 
@@ -83,22 +90,63 @@ export default function FinancePage({ payments, expenses, directions, otherIncom
         </div>
       )}
 
-      {tab === 'Доходы' && (
-        <div className="table-wrap"><table>
-          <thead><tr><th>Дата</th><th>Тип</th><th>Направление</th><th>Сумма</th></tr></thead>
-          <tbody>
-            {payments.filter(p => p.amount > 0).map(p => (
-              <tr key={p.id}>
-                <td style={{ fontSize: 12, color: T.muted }}>{p.payment_date}</td>
-                <td style={{ fontWeight: 600 }}>{p.payment_type}</td>
-                <td style={{ fontSize: 12 }}>{directions.find(d => d.id === p.direction_id)?.name || '—'}</td>
-                <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: T.greenDark }}>{fmt(p.amount)}</span></td>
-              </tr>
-            ))}
-            {!payments.filter(p => p.amount > 0).length && <tr><td colSpan={4}><div className="empty"><div className="empty-icon">💰</div><div className="empty-text">Доходов пока нет</div></div></td></tr>}
-          </tbody>
-        </table></div>
-      )}
+      {tab === 'Доходы' && (() => {
+        // Один список вместо двух: оплаты по абонементам и прочие доходы
+        // сведены вместе и отсортированы по дате — видно всю выручку сразу,
+        // а тип различается меткой.
+        const rows = [
+          ...payments.filter(p => p.amount > 0).map(p => ({
+            key: `p${p.id}`,
+            date: p.payment_date,
+            kind: p.payment_type || 'Оплата',
+            isExtra: false,
+            note: directions.find(d => d.id === p.direction_id)?.name || '—',
+            amount: p.amount,
+          })),
+          ...otherIncome.map(r => ({
+            key: `o${r.id}`,
+            date: r.income_date,
+            kind: 'Прочий доход',
+            isExtra: true,
+            note: r.comment || '—',
+            amount: +r.amount || 0,
+          })),
+        ].sort((a, b) => String(b.date).localeCompare(String(a.date)))
+
+        return (
+          <>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+              <div className="card card-pad" style={{ flex: '1 1 190px' }}>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>По абонементам и занятиям</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 18, color: T.greenDark }}>{fmt(subsIncome)}</div>
+              </div>
+              <div className="card card-pad" style={{ flex: '1 1 190px' }}>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>Прочие доходы</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 18, color: T.orange }}>{fmt(extraIncome)}</div>
+              </div>
+              <div className="card card-pad" style={{ flex: '1 1 190px' }}>
+                <div style={{ fontSize: 12, color: T.muted, marginBottom: 4 }}>Всего</div>
+                <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 18, color: T.ink }}>{fmt(income)}</div>
+              </div>
+            </div>
+
+            <div className="table-wrap"><table>
+              <thead><tr><th>Дата</th><th>Тип</th><th>Направление / комментарий</th><th>Сумма</th></tr></thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.key}>
+                    <td style={{ fontSize: 12, color: T.muted, whiteSpace: 'nowrap' }}>{ruDate(r.date)}</td>
+                    <td><span className={`badge ${r.isExtra ? 'badge-orange' : 'badge-green'}`} style={{ fontSize: 11 }}>{r.kind}</span></td>
+                    <td style={{ fontSize: 12 }}>{r.note}</td>
+                    <td><span style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, color: r.isExtra ? T.orange : T.greenDark }}>{fmt(r.amount)}</span></td>
+                  </tr>
+                ))}
+                {!rows.length && <tr><td colSpan={4}><div className="empty"><div className="empty-icon">💰</div><div className="empty-text">Доходов пока нет</div></div></td></tr>}
+              </tbody>
+            </table></div>
+          </>
+        )
+      })()}
 
       {tab === 'Расходы' && (
         <div className="table-wrap"><table>
@@ -106,7 +154,7 @@ export default function FinancePage({ payments, expenses, directions, otherIncom
           <tbody>
             {expenses.map(e => (
               <tr key={e.id}>
-                <td style={{ fontSize: 12, color: T.muted }}>{e.expense_date}</td>
+                <td style={{ fontSize: 12, color: T.muted, whiteSpace: 'nowrap' }}>{ruDate(e.expense_date)}</td>
                 <td style={{ fontWeight: 600 }}>{e.expense_type}</td>
                 <td><span className={`badge ${e.category === 'Периодичный' ? 'badge-blue' : 'badge-gray'}`}>{e.category}</span></td>
                 <td style={{ fontSize: 12, color: T.muted }}>{e.comment || '—'}</td>
