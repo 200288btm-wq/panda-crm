@@ -54,6 +54,36 @@ export async function createDuration(studioId, { name, hours }) {
   return { row: data, error: null, existed: false }
 }
 
+// ── Категории стоимости ──────────────────────────────────────────────
+export async function listCategories(studioId) {
+  if (!studioId) return { rows: [], error: null }
+  const { data, error } = await supabase
+    .from('price_categories').select('*')
+    .eq('studio_id', studioId)
+    .order('sort_order').order('id')
+  return { rows: data || [], error }
+}
+
+export async function createCategory(studioId, { name }) {
+  if (!studioId) return { row: null, error: 'Студия не определена', existed: false }
+
+  const cleanName = String(name ?? '').trim()
+  if (!cleanName) return { row: null, error: 'Укажите название', existed: false }
+
+  const { rows, error: listErr } = await listCategories(studioId)
+  if (listErr) return { row: null, error: listErr.message, existed: false }
+
+  const dup = rows.find(r => norm(r.name) === norm(cleanName))
+  if (dup) return { row: dup, error: null, existed: true }
+
+  const { data, error } = await supabase.from('price_categories')
+    .insert({ studio_id: studioId, name: cleanName, sort_order: rows.length })
+    .select().single()
+
+  if (error) return { row: null, error: error.message, existed: false }
+  return { row: data, error: null, existed: false }
+}
+
 // ── Адреса ───────────────────────────────────────────────────────────
 export async function listAddresses(studioId) {
   if (!studioId) return { rows: [], error: null }

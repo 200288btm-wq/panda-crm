@@ -28,10 +28,10 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
   useEffect(() => {
     if (!studioId) return
-    // Общие периоды (studio_id пустой) плюс свои. Без фильтра сюда
-    // приезжали периоды всех студий, где состоит пользователь.
+    // Только свои. Без фильтра сюда приезжали периоды всех студий,
+    // где состоит пользователь.
     supabase.from('subscription_periods').select('*')
-      .or(`studio_id.is.null,studio_id.eq.${studioId}`)
+      .eq('studio_id', studioId)
       .then(({ data }) => setPeriods(data || []))
   }, [studioId])
 

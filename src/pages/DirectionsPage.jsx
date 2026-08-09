@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { QuickAdd } from '../components/QuickAdd'
-import { createDuration, createAddress } from '../lib/dictionaries'
+import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 import { NumberInput } from '../components/SearchSelect'
 
 const DIRECTION_COLORS = ['#7BAF8E','#F2A65A','#7c3aed','#3b82f6','#ec4899','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#06b6d4']
@@ -163,7 +163,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
         )}
         {features.teachers && (
           <div className="form-group">
-            <label className="form-label">Педагоги</label>
+            <label className="form-label">Кто ведёт</label>
             {teachers.length === 0 ? (
               <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
                 Пока никто не закреплён. Откройте раздел «👩‍🏫 Педагоги» и отметьте это направление в карточке нужного педагога.
@@ -186,7 +186,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
       </div>
       {features.addresses && (
         <div className="form-group">
-          <label className="form-label">Адрес</label>
+          <label className="form-label">Адрес занятий</label>
           <select className="form-input" value={group.address_id || ''}
             onChange={e => onChange({ ...group, address_id: e.target.value ? +e.target.value : null })}>
             <option value="">— не указан —</option>
@@ -219,7 +219,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {}, studioId, onDurationCreated, onAddressCreated }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {}, studioId, onDurationCreated, onAddressCreated, onCategoryCreated }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -461,7 +461,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             <>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
-                  {multi ? `👥 Подгруппы (${groups.length})` : `🗓 Расписание${features.teachers ? ' и педагог' : ''}`}
+                  {multi ? `👥 Подгруппы (${groups.length})` : '🗓 Где и когда проходят занятия'}
                 </div>
                 {canAdd && (
                   <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
@@ -507,7 +507,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         <label className="form-label">Категории стоимости</label>
         {priceCategories.length === 0 ? (
           <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
-            Категорий пока нет. Добавь их в разделе «🎟️ Стоимость».
+            Категорий пока нет. Можно добавить прямо здесь — она попадёт в раздел «🎟️ Стоимость».
           </div>
         ) : (
           <>
@@ -536,6 +536,16 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             </div>
           </>
         )}
+        <QuickAdd
+          label="добавить категорию"
+          fields={[{ key: 'name', placeholder: 'Название (Абонемент 8 занятий)', flex: 1, minWidth: 180 }]}
+          onCreate={vals => createCategory(studioId, vals)}
+          onCreated={async (row) => {
+            // Отмечаем созданную категорию сразу — за ней сюда и пришли
+            set('category_ids', [...(f.category_ids || []), row.id])
+            onCategoryCreated && await onCategoryCreated()
+          }}
+        />
       </div>
 
       {/* Превью цен из выбранных категорий */}
@@ -975,9 +985,9 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       )}
 
       {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features}
-        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} />}
+        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
       {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features}
-        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} />}
+        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
     </div>
   )
 }
