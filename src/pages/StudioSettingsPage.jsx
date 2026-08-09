@@ -5,6 +5,7 @@ import BookingSettingsPage from './BookingSettingsPage'
 import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
 import * as XLSX from 'xlsx'
+import { createDuration, createAddress } from '../lib/dictionaries'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -211,12 +212,12 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (!name) { setDurMsg({ type: 'error', text: 'Укажите название' }); return }
     if (!hours || hours <= 0) { setDurMsg({ type: 'error', text: 'Укажите количество часов больше нуля' }); return }
     setDurSaving(true); setDurMsg(null)
-    const { error } = await supabase.from('lesson_durations')
-      .insert({ studio_id: studioId, name, hours, sort_order: durations.length })
+    // Та же функция, что вызывает быстрое добавление из модалки направления
+    const { error, existed } = await createDuration(studioId, { name, hours })
     setDurSaving(false)
-    if (error) { setDurMsg({ type: 'error', text: error.message }); return }
+    if (error) { setDurMsg({ type: 'error', text: error }); return }
     setNewDuration({ name: '', hours: '' })
-    setDurMsg({ type: 'success', text: 'Добавлено' })
+    setDurMsg({ type: 'success', text: existed ? 'Такая длительность уже была' : 'Добавлено' })
     loadAll()
     setTimeout(() => setDurMsg(null), 2500)
   }
@@ -313,8 +314,8 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       const { error } = await supabase.from('addresses').update(addrForm).eq('id', editAddr.id)
       if (error) { setAddrMsg({ type: 'error', text: error.message }); return }
     } else {
-      const { error } = await supabase.from('addresses').insert({ ...addrForm, studio_id: studioId })
-      if (error) { setAddrMsg({ type: 'error', text: error.message }); return }
+      const { error } = await createAddress(studioId, addrForm)
+      if (error) { setAddrMsg({ type: 'error', text: error }); return }
     }
     setShowAddAddr(false); setEditAddr(null); setAddrForm({ name: '', address: '' })
     setAddrMsg({ type: 'success', text: 'Сохранено' })

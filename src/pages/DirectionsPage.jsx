@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { QuickAdd } from '../components/QuickAdd'
+import { createDuration, createAddress } from '../lib/dictionaries'
 import { NumberInput } from '../components/SearchSelect'
 
 const DIRECTION_COLORS = ['#7BAF8E','#F2A65A','#7c3aed','#3b82f6','#ec4899','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#06b6d4']
@@ -120,7 +122,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false }) {
+function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false, studioId, onAddressCreated }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
@@ -192,9 +194,21 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
         </select>
         {addresses.length === 0 && (
           <div style={{ fontSize:11, color:T.muted, marginTop:3 }}>
-            Чтобы выбрать адрес — добавьте его в разделе «📍 Адреса».
+            Ни одного адреса пока нет. Можно добавить прямо здесь — он попадёт в раздел «📍 Адреса».
           </div>
         )}
+        <QuickAdd
+          label="добавить адрес"
+          fields={[
+            { key: 'name', placeholder: 'Название (Онежская)', flex: 1, minWidth: 120 },
+            { key: 'address', placeholder: 'Адрес (ул. Онежская, 4)', flex: 2, minWidth: 150 },
+          ]}
+          onCreate={vals => createAddress(studioId, vals)}
+          onCreated={row => {
+            onAddressCreated && onAddressCreated(row)
+            onChange({ ...group, address_id: row.id })
+          }}
+        />
       </div>
       )}
       <div className="form-group" style={{ marginBottom:0 }}>
@@ -205,7 +219,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {} }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {}, studioId, onDurationCreated, onAddressCreated }) {
   // Существующие подгруппы для редактируемого направления
   const existingGroups = direction
     ? directionGroups.filter(g => g.direction_id === direction.id)
@@ -336,6 +350,19 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             {+f.duration_hours ? `${f.duration_hours} ч. — по этому значению считается оплата педагогам. ` : ''}
             Список настраивается в «⚙️ Настройки → Справочники».
           </div>
+          <QuickAdd
+            label="добавить длительность"
+            fields={[
+              { key: 'name', placeholder: 'Название (45 минут)', flex: 2, minWidth: 130 },
+              { key: 'hours', placeholder: 'Часов (0.75)', flex: 1, minWidth: 90 },
+            ]}
+            onCreate={vals => createDuration(studioId, vals)}
+            onCreated={async (row) => {
+              // Показываем то, что реально легло в базу, а не введённое
+              setF(p => ({ ...p, duration: row.name, duration_hours: +row.hours }))
+              onDurationCreated && await onDurationCreated()
+            }}
+          />
         </div>
         <div className="form-group"><label className="form-label">Дата запуска</label>
           <input className="form-input" type="date" value={f.launched} onChange={e=>set('launched',e.target.value)} />
@@ -467,7 +494,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
                   isOnly={groups.length === 1}
                   onChange={ng => updateGroup(idx, ng)}
                   onRemove={() => removeGroup(idx)} features={features}
-                  hideSubgroupLabel={!multi} />
+                  hideSubgroupLabel={!multi}
+                  studioId={studioId} onAddressCreated={onAddressCreated} />
               ))}
             </>
           )
@@ -549,6 +577,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const [priceCategories, setPriceCategories] = useState([])
   const [durations, setDurations] = useState([])
   const [localDirs, setLocalDirs] = useState(null)
+  // Адреса приходят пропом из общей загрузки CRM. Созданный из модалки
+  // адрес нужен на экране сразу, до следующего reload — держим его тут.
+  // Как только общая загрузка его подхватит, дубль отсеется по id.
+  const [freshAddresses, setFreshAddresses] = useState([])
   const [dragId, setDragId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
 
@@ -600,6 +632,16 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   }
 
   useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId, directions])
+
+  const allAddresses = (() => {
+    const known = new Set((addresses || []).map(a => a.id))
+    return [...(addresses || []), ...freshAddresses.filter(a => !known.has(a.id))]
+  })()
+
+  const handleAddressCreated = (row) => {
+    setFreshAddresses(prev => prev.some(a => a.id === row.id) ? prev : [...prev, row])
+    reload && reload()
+  }
 
   const save = async ({ direction: dirData, groups: groupList }) => {
     let directionId = showEdit?.id
@@ -932,8 +974,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         </div>
       )}
 
-      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={addresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features} />}
+      {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features}
+        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} />}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features}
+        studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} />}
     </div>
   )
 }

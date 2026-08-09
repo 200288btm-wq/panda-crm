@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { createAddress } from '../lib/dictionaries'
 
 // Палитра цветов для адресов — отличается от палитры направлений,
 // чтобы при переключении календаря на режим «по адресам» цвета читались иначе
@@ -74,8 +75,8 @@ export default function AddressesPage({ addresses = [], reload, isAdmin, studioI
       if (error) { alert('Ошибка сохранения: ' + error.message); return }
       setShowEdit(null)
     } else {
-      const { error } = await supabase.from('addresses').insert({ ...f, studio_id: studioId })
-      if (error) { alert('Ошибка создания: ' + error.message); return }
+      const { error } = await createAddress(studioId, f)
+      if (error) { alert('Ошибка создания: ' + error); return }
       setShowAdd(false)
     }
     reload()
