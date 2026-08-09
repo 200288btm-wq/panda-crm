@@ -644,8 +644,11 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
   }, [deepLink, clients])
   useEffect(() => {
-    supabase.from('addresses').select('*').then(({ data }) => setAddresses(data || []))
-  }, [])
+    if (!studioId) return
+    // Без фильтра по студии сюда попадали адреса всех студий пользователя
+    supabase.from('addresses').select('*').eq('studio_id', studioId)
+      .then(({ data }) => setAddresses(data || []))
+  }, [studioId])
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
     const match = !q || (c.child_name || '').toLowerCase().includes(q) || (c.adult_name || '').toLowerCase().includes(q)

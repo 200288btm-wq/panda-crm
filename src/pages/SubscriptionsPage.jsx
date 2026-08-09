@@ -244,9 +244,13 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   const [priceCategories, setPriceCategories] = useState([])
 
   const loadPeriods = async () => {
+    if (!studioId) { setPeriods([]); return }
+    // Каталог смешанный: строки без studio_id — общие для всех студий,
+    // остальные принадлежат конкретной. Берём общие плюс свои.
     const { data, error } = await supabase
       .from('subscription_periods')
       .select('*')
+      .or(`studio_id.is.null,studio_id.eq.${studioId}`)
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true })
     if (error) {
@@ -258,15 +262,17 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   }
 
   const loadCategories = async () => {
+    if (!studioId) { setPriceCategories([]); return }
     const { data } = await supabase
       .from('price_categories')
       .select('*')
+      .eq('studio_id', studioId)
       .order('sort_order')
       .order('id')
     setPriceCategories(data || [])
   }
 
-  useEffect(() => { loadPeriods(); loadCategories() }, [])
+  useEffect(() => { loadPeriods(); loadCategories() }, [studioId])
 
   const save = async (f) => {
     const data = { ...f }

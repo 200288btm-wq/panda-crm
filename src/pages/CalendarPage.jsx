@@ -243,10 +243,14 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const ds = dateStr(date)
 
   useEffect(() => {
-    // Загружаем enrollments для этого дня
-    supabase.from('enrollments').select('*').eq('date', ds).eq('status', 'enrolled')
+    if (!studioId) return
+    // Загружаем enrollments для этого дня.
+    // Фильтр по студии обязателен: RLS пропускает ВСЕ студии участника,
+    // поэтому у человека в двух студиях сюда подмешивались чужие записи.
+    supabase.from('enrollments').select('*')
+      .eq('studio_id', studioId).eq('date', ds).eq('status', 'enrolled')
       .then(({ data }) => { if (data) setLocalEnrollments(data) })
-  }, [ds])
+  }, [ds, studioId])
 
   // Пересчитываем events с учётом localEnrollments
   const events = initialEvents.map(ev => {
@@ -269,7 +273,8 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   })
 
   const reloadEnrollments = async () => {
-    const { data } = await supabase.from('enrollments').select('*').eq('date', ds).eq('status', 'enrolled')
+    const { data } = await supabase.from('enrollments').select('*')
+      .eq('studio_id', studioId).eq('date', ds).eq('status', 'enrolled')
     if (data) setLocalEnrollments(data)
   }
 
@@ -287,13 +292,15 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const cancelEnroll = async (clientId, dirId) => {
     await supabase.from('enrollments')
       .update({ status: 'cancelled' })
+      .eq('studio_id', studioId)
       .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
     await reloadEnrollments()
   }
 
   useEffect(() => {
     const loadWork = async () => {
-      const { data: wl } = await supabase.from('teacher_work_log').select('*').eq('date', ds)
+      const { data: wl } = await supabase.from('teacher_work_log').select('*')
+        .eq('studio_id', studioId).eq('date', ds)
       const map = {}
       ;(wl || []).forEach(r => {
         const k = `${r.direction_id}_${r.group_id || 0}`
@@ -304,7 +311,8 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       setWork(map)
       // Последний состав до этой даты — чтобы не заполнять каждый раз заново
       const { data: prev } = await supabase.from('teacher_work_log')
-        .select('*').lt('date', ds).order('date', { ascending: false }).limit(300)
+        .select('*').eq('studio_id', studioId)
+        .lt('date', ds).order('date', { ascending: false }).limit(300)
       const last = {}
       ;(prev || []).forEach(r => {
         const k = `${r.direction_id}_${r.group_id || 0}`
@@ -313,12 +321,13 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       })
       setLastWork(last)
     }
-    loadWork()
-  }, [ds])
+    if (studioId) loadWork()
+  }, [ds, studioId])
 
   const saveWork = async (wkey, dirId, groupId, map) => {
     setSavingWork(wkey)
     await supabase.from('teacher_work_log').delete()
+      .eq('studio_id', studioId)
       .eq('date', ds).eq('direction_id', dirId).eq('group_id', groupId || 0)
     const rows = Object.entries(map).map(([tid, h]) => ({
       studio_id: studioId, date: ds, direction_id: dirId,
@@ -330,14 +339,16 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   }
 
   useEffect(() => {
-    supabase.from('attendance').select('*').eq('date', ds).then(({ data }) => {
+    if (!studioId) return
+    supabase.from('attendance').select('*')
+      .eq('studio_id', studioId).eq('date', ds).then(({ data }) => {
       if (data) {
         const map = {}
         data.forEach(r => { map[`${r.client_id}_${r.direction_id}`] = r.present })
         setAttendance(map)
       }
     })
-  }, [ds])
+  }, [ds, studioId])
 
   const toggle = async (clientId, dirId, ev) => {
     if (!isPast) return
@@ -834,11 +845,11 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       const from = dateStr(addDays(new Date(), -60))
       const to = dateStr(addDays(new Date(), 60))
       const { data } = await supabase.from('enrollments')
-        .select('*').gte('date', from).lte('date', to)
+        .select('*').eq('studio_id', studioId).gte('date', from).lte('date', to)
       if (data) setEnrollments(data)
     }
-    loadEnrollments()
-  }, [])
+    if (studioId) loadEnrollments()
+  }, [studioId])
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
@@ -1074,7 +1085,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
             // Перезагружаем enrollments чтобы обновить счётчик в календаре
             const from = dateStr(addDays(new Date(), -60))
             const to = dateStr(addDays(new Date(), 60))
-            supabase.from('enrollments').select('*').gte('date', from).lte('date', to)
+            supabase.from('enrollments').select('*')
+              .eq('studio_id', studioId).gte('date', from).lte('date', to)
               .then(({ data }) => { if (data) setEnrollments(data) })
           }}
           isAdmin={isAdmin} myTeacherName={myTeacherName}

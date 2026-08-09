@@ -558,9 +558,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   }, [directions])
 
   const loadGroups = async () => {
+    // У direction_groups нет своего studio_id — изоляция идёт через
+    // направления, а они уже загружены отфильтрованными по студии.
+    const dirIds = (directions || []).map(d => d.id)
+    if (!dirIds.length) { setDirectionGroups([]); return }
     const { data, error } = await supabase
       .from('direction_groups')
       .select('*')
+      .in('direction_id', dirIds)
       .order('sort_order', { ascending: true })
       .order('id', { ascending: true })
     if (error) {
@@ -572,8 +577,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   }
 
   const loadCategories = async () => {
+    if (!studioId) { setPriceCategories([]); return }
     const { data, error } = await supabase
-      .from('price_categories').select('*').order('sort_order').order('id')
+      .from('price_categories').select('*')
+      .eq('studio_id', studioId).order('sort_order').order('id')
     if (error) {
       console.warn('price_categories not available:', error.message)
       setPriceCategories([])
@@ -592,7 +599,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     setDurations(data || [])
   }
 
-  useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId])
+  useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId, directions])
 
   const save = async ({ direction: dirData, groups: groupList }) => {
     let directionId = showEdit?.id

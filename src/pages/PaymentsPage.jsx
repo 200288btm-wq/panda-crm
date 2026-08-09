@@ -6,7 +6,7 @@ import { SearchSelect, NumberInput } from '../components/SearchSelect'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
-function PaymentModal({ payment, clients, directions, subscriptions, onClose, onSave, preselectedClientId }) {
+function PaymentModal({ payment, clients, directions, subscriptions, onClose, onSave, preselectedClientId, studioId }) {
   const [clientId, setClientId] = useState(payment?.client_id || preselectedClientId || '')
   const [subId, setSubId] = useState('')
   const [dirId, setDirId] = useState(payment?.direction_id || '')
@@ -27,8 +27,13 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
   const [saveError, setSaveError] = useState(null)
 
   useEffect(() => {
-    supabase.from('subscription_periods').select('*').then(({ data }) => setPeriods(data || []))
-  }, [])
+    if (!studioId) return
+    // Общие периоды (studio_id пустой) плюс свои. Без фильтра сюда
+    // приезжали периоды всех студий, где состоит пользователь.
+    supabase.from('subscription_periods').select('*')
+      .or(`studio_id.is.null,studio_id.eq.${studioId}`)
+      .then(({ data }) => setPeriods(data || []))
+  }, [studioId])
 
   // Get selected client
   const client = clients.find(c => c.id === +clientId)
@@ -489,9 +494,9 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       )}
 
       {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions}
-        preselectedClientId={preselectedClientId}
+        studioId={studioId} preselectedClientId={preselectedClientId}
         onClose={() => { setShowAdd(false); setPreselectedClientId(null) }} onSave={save} />}
-      {showEdit && <PaymentModal payment={showEdit} clients={clients} directions={directions} subscriptions={subscriptions} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showEdit && <PaymentModal payment={showEdit} clients={clients} directions={directions} subscriptions={subscriptions} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
