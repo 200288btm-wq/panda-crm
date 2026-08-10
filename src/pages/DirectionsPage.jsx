@@ -540,7 +540,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         </div>
       )}
 
-      {/* Категории стоимости */}
+      {/* Категории стоимости — только если функция включена в настройках */}
+      {features.categories !== false && (
       <div className="form-group">
         <label className="form-label">
           Категории стоимости
@@ -588,6 +589,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
           }}
         />
       </div>
+      )}
 
       {/* Превью цен из выбранных категорий */}
       {autoPrice && autoPrice.count > 0 && (

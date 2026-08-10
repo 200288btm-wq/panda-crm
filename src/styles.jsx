@@ -138,12 +138,15 @@ export function GlobalStyles() {
                   background: ${T.border}; color: ${T.muted}; font-size: 10px; font-weight: 800;
                   line-height: 15px; text-align: center; font-family: inherit; transition: all 0.15s; }
       .hint-btn:hover, .hint-btn[aria-expanded="true"] { background: ${T.green}; color: white; }
-      .hint-pop { position: absolute; left: 0; top: 21px; z-index: 40; width: 260px; max-width: 70vw;
+      /* Рисуется порталом в <body>: внутри модалки со своим скроллом
+         подсказку обрезало краем окна. Отсюда fixed, а не absolute. */
+      .hint-pop { position: fixed; z-index: 500;
                   background: ${T.ink}; color: white; border-radius: 10px; padding: 9px 12px;
                   font-size: 12px; font-weight: 500; line-height: 1.5; text-transform: none;
-                  letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,0.22); }
-      .hint-pop::before { content: ''; position: absolute; top: -5px; left: 4px; width: 10px; height: 10px;
-                          background: ${T.ink}; transform: rotate(45deg); border-radius: 2px; }
+                  letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+                  pointer-events: none; font-family: 'Nunito Sans', sans-serif; }
+      .hint-arrow { position: absolute; width: 10px; height: 10px;
+                    background: ${T.ink}; transform: rotate(45deg); border-radius: 2px; }
 
       /* ── Form ── */
       .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

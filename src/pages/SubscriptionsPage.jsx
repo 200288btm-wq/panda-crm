@@ -33,7 +33,7 @@ const pricePerLesson = (price, lessons) => {
   return Math.round(price / lessons)
 }
 
-function SubModal({ sub, directions, periods, priceCategories = [], onClose, onSave, studioId }) {
+function SubModal({ sub, directions, periods, priceCategories = [], onClose, onSave, studioId, categoriesOn = true }) {
   const [f, setF] = useState(sub ? {
     name: sub.name || '',
     category_id: sub.category_id || null,
@@ -237,7 +237,7 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
   )
 }
 
-export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin, studioId }) {
+export default function SubscriptionsPage({ subscriptions, directions, reload, isAdmin, studioId, features = { categories: true } }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [periods, setPeriods] = useState([])
@@ -262,7 +262,8 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   }
 
   const loadCategories = async () => {
-    if (!studioId) { setPriceCategories([]); return }
+    // Функция выключена в настройках — категорий на экране быть не должно
+    if (!studioId || features.categories === false) { setPriceCategories([]); return }
     const { data } = await supabase
       .from('price_categories')
       .select('*')
@@ -272,7 +273,7 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
     setPriceCategories(data || [])
   }
 
-  useEffect(() => { loadPeriods(); loadCategories() }, [studioId])
+  useEffect(() => { loadPeriods(); loadCategories() }, [studioId, features.categories])
 
   const save = async (f) => {
     const data = { ...f }
@@ -503,8 +504,8 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
         )}
       </div>
 
-      {showAdd && <SubModal directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} onClose={() => setShowAdd(false)} onSave={save} />}
-      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showAdd && <SubModal directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} categoriesOn={features.categories !== false} onClose={() => setShowAdd(false)} onSave={save} />}
+      {showEdit && <SubModal sub={showEdit} directions={directions} periods={periods} priceCategories={priceCategories} studioId={studioId} categoriesOn={features.categories !== false} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }
