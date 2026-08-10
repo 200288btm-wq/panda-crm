@@ -662,7 +662,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   }
 
   const loadCategories = async () => {
-    if (!studioId) { setPriceCategories([]); return }
+    if (!studioId || features.categories === false) { setPriceCategories([]); return }
     const { data, error } = await supabase
       .from('price_categories').select('*')
       .eq('studio_id', studioId).order('sort_order').order('id')
@@ -684,7 +684,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     setDurations(data || [])
   }
 
-  useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId, directions])
+  useEffect(() => { loadGroups(); loadCategories(); loadDurations() }, [studioId, directions, features.categories])
 
   const allAddresses = (() => {
     const known = new Set((addresses || []).map(a => a.id))
