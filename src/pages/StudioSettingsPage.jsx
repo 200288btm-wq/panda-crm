@@ -475,7 +475,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           T={T}
         />
 
+        {/* Настройка самой функции остаётся видимой даже при выключенном
+            тумблере — иначе включить её обратно было бы негде.
+            Но говорим прямо, что сейчас она ни на что не влияет. */}
         <Section title="Категории абонементов" icon="🏷️">
+          {features.categories === false && (
+            <div className="alert alert-warning" style={{ marginBottom: 12 }}>
+              Функция «Категории стоимости» выключена ниже — эти категории сейчас нигде не используются.
+            </div>
+          )}
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Позволяют разделить абонементы по типам направлений: «Основная», «Лагерь», «Льготная».
           </div>

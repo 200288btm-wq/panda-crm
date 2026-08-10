@@ -204,6 +204,7 @@ export function GlobalStyles() {
       .alert { border-radius: 12px; padding: 10px 14px; font-size: 13px; font-weight: 600; margin-bottom: 12px; }
       .alert-error { background: ${T.redLight}; color: ${T.red}; }
       .alert-success { background: ${T.greenBg}; color: ${T.greenDark}; }
+      .alert-warning { background: #fef3c7; color: #92400e; }
 
       .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: ${T.cream}; padding: 20px; }
       .login-card { background: white; border-radius: 20px; border: 1px solid ${T.border}; padding: 32px 28px; width: 100%; max-width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.08); }

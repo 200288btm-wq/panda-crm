@@ -181,6 +181,7 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
         )}
       </div>
 
+      {categoriesOn && (
       <div className="form-group">
         <label className="form-label">Категория абонемента</label>
         {priceCategories.length > 0 ? (
@@ -219,6 +220,7 @@ function SubModal({ sub, directions, periods, priceCategories = [], onClose, onS
           <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Без категории — доступен для всех направлений</div>
         )}
       </div>
+      )}
 
       <div className="form-group">
         <label className="form-label">Примечание (необязательно)</label>
