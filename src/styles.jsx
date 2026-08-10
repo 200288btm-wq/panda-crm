@@ -116,6 +116,35 @@ export function GlobalStyles() {
       .modal-body { padding: 16px 20px; }
       .modal-footer { padding: 12px 20px; border-top: 1px solid ${T.border}; display: flex; gap: 8px; justify-content: flex-end; }
 
+      /* На десктопе модалка была шторкой во всю ширину: поле «Название»
+         растягивалось на весь экран. Здесь она становится обычным
+         центрированным окном с читаемой шириной строки. */
+      @media (min-width: 769px) {
+        .modal-backdrop { align-items: center; padding: 24px; }
+        .modal { max-width: 720px; border-radius: 20px; max-height: 88vh; animation: modalIn 0.18s ease; }
+        .modal-lg { max-width: 940px; }
+        .modal-header { border-radius: 20px 20px 0 0; padding: 18px 24px 14px; }
+        .modal-body { padding: 20px 24px; }
+        .modal-footer { padding: 14px 24px; position: sticky; bottom: 0; background: white; border-radius: 0 0 20px 20px; }
+      }
+      @keyframes modalIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+      /* Три поля в строку — на узком экране схлопывается в одну колонку */
+      .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+      /* ── Подсказка в значке вопроса ── */
+      .hint-wrap { position: relative; display: inline-flex; vertical-align: middle; margin-left: 5px; }
+      .hint-btn { width: 15px; height: 15px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+                  background: ${T.border}; color: ${T.muted}; font-size: 10px; font-weight: 800;
+                  line-height: 15px; text-align: center; font-family: inherit; transition: all 0.15s; }
+      .hint-btn:hover, .hint-btn[aria-expanded="true"] { background: ${T.green}; color: white; }
+      .hint-pop { position: absolute; left: 0; top: 21px; z-index: 40; width: 260px; max-width: 70vw;
+                  background: ${T.ink}; color: white; border-radius: 10px; padding: 9px 12px;
+                  font-size: 12px; font-weight: 500; line-height: 1.5; text-transform: none;
+                  letter-spacing: 0; box-shadow: 0 6px 20px rgba(0,0,0,0.22); }
+      .hint-pop::before { content: ''; position: absolute; top: -5px; left: 4px; width: 10px; height: 10px;
+                          background: ${T.ink}; transform: rotate(45deg); border-radius: 2px; }
+
       /* ── Form ── */
       .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .form-group { margin-bottom: 12px; }
@@ -185,6 +214,7 @@ export function GlobalStyles() {
          MOBILE — iPhone 7+
          ══════════════════════ */
       @media (max-width: 768px) {
+        .form-row-3 { grid-template-columns: 1fr; }
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }

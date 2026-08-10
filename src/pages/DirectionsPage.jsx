@@ -3,10 +3,24 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { QuickAdd } from '../components/QuickAdd'
+import { Hint } from '../components/Hint'
 import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 import { NumberInput } from '../components/SearchSelect'
 
-const DIRECTION_COLORS = ['#7BAF8E','#F2A65A','#7c3aed','#3b82f6','#ec4899','#14b8a6','#f59e0b','#ef4444','#8b5cf6','#06b6d4']
+// Цвета работают как метки: их различают боковым зрением на карточках
+// и в расписании. Поэтому подряд идут разные тона, а не оттенки одного.
+const DIRECTION_COLORS = [
+  '#7BAF8E', // шалфей — фирменный, по умолчанию
+  '#E4572E', // терракота
+  '#3B82F6', // синий
+  '#F2A65A', // охра
+  '#7C3AED', // фиолетовый
+  '#0F9B8E', // бирюзовый
+  '#D62598', // малиновый
+  '#B45309', // коричневый
+  '#2563A0', // синий стальной
+  '#5B8C2A', // оливковый
+]
 const WEEK_DAYS = [
   { key:'Пн', full:'Понедельник' }, { key:'Вт', full:'Вторник' },
   { key:'Ср', full:'Среда' }, { key:'Чт', full:'Четверг' },
@@ -122,7 +136,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false, studioId, onAddressCreated }) {
+function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false, studioId, onAddressCreated }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
@@ -161,28 +175,6 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
               placeholder="Онежская утро / Хуторская / Вечер..." />
           </div>
         )}
-        {features.teachers && (
-          <div className="form-group">
-            <label className="form-label">Кто ведёт</label>
-            {teachers.length === 0 ? (
-              <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
-                Пока никто не закреплён. Откройте раздел «👩‍🏫 Педагоги» и отметьте это направление в карточке нужного педагога.
-              </div>
-            ) : (
-              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                {teachers.map(t => (
-                  <span key={t.id} style={{ background:T.greenBg, color:T.greenDark, borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700 }}>
-                    {t.name}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div style={{ fontSize:11, color:T.muted, marginTop:6, lineHeight:1.5 }}>
-              Список формируется автоматически из карточек педагогов.
-              {teachers.length > 1 && ' Кто вёл занятие в конкретный день — отмечается в расписании.'}
-            </div>
-          </div>
-        )}
       </div>
       {features.addresses && (
         <div className="form-group">
@@ -212,7 +204,7 @@ function GroupBlock({ group, teachers, addresses, onChange, onRemove, isOnly, id
       </div>
       )}
       <div className="form-group" style={{ marginBottom:0 }}>
-        <label className="form-label">Расписание подгруппы</label>
+        <label className="form-label">{hideSubgroupLabel ? 'Расписание направления' : 'Расписание подгруппы'}</label>
         <ScheduleBuilder slots={slots} compact onChange={handleSlots} />
       </div>
     </div>
@@ -331,11 +323,24 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   return (
     <Modal title={direction?`✏️ ${direction.name}`:'+ Новое направление'} onClose={onClose}
       footer={<><button className="btn btn-outline" onClick={onClose}>Отмена</button><button className="btn btn-primary" onClick={save}>Сохранить</button></>}>
-      <div className="form-group"><label className="form-label">Название *</label>
-        <input className="form-input" value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Смышлёная Панда / Английский язык" autoFocus />
-      </div>
       <div className="form-row">
-        <div className="form-group"><label className="form-label">Длительность занятия</label>
+        <div className="form-group"><label className="form-label">Название *</label>
+          <input className="form-input" value={f.name} onChange={e=>set('name',e.target.value)} placeholder="Смышлёная Панда / Английский язык" autoFocus />
+        </div>
+        <div className="form-group">
+          <label className="form-label">
+            Цвет
+            <Hint text="Этим цветом направление помечается в расписании и на карточках. Берите разные — так их проще различать взглядом." />
+          </label>
+          <ColorPicker value={f.color} onChange={v=>set('color',v)} />
+        </div>
+      </div>
+      <div className="form-row-3">
+        <div className="form-group">
+          <label className="form-label">
+            Длительность
+            <Hint text="По этому значению считается почасовая оплата педагогам. Список значений настраивается в «Настройки → Справочники» — или добавьте прямо здесь." />
+          </label>
           <select className="form-input" value={f.duration} onChange={e => {
             const name = e.target.value
             const found = durations.find(x => x.name === name)
@@ -346,10 +351,9 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
               <option value={f.duration}>{f.duration} — нет в справочнике</option>
             )}
           </select>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
-            {+f.duration_hours ? `${f.duration_hours} ч. — по этому значению считается оплата педагогам. ` : ''}
-            Список настраивается в «⚙️ Настройки → Справочники».
-          </div>
+          {+f.duration_hours > 0 && (
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>{f.duration_hours} ч.</div>
+          )}
           <QuickAdd
             label="добавить длительность"
             fields={[
@@ -364,25 +368,28 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             }}
           />
         </div>
-        <div className="form-group"><label className="form-label">Дата запуска</label>
+        <div className="form-group">
+          <label className="form-label">
+            Дата запуска
+            <Hint text="По умолчанию сегодня. Поставьте более раннюю дату, если направление уже работает и нужно внести посещения задним числом." />
+          </label>
           <input className="form-input" type="date" value={f.launched} onChange={e=>set('launched',e.target.value)} />
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4, lineHeight: 1.4 }}>
-            По умолчанию — сегодня. Измените если направление работает с другой даты и нужно вносить посещения задним числом.
-          </div>
         </div>
-      </div>
-      <div className="form-row">
-        <div className="form-group"><label className="form-label">Макс. учеников на занятии</label>
+        <div className="form-group">
+          <label className="form-label">
+            Макс. учеников
+            <Hint text="Сколько человек помещается на одно занятие. 0 — без ограничений." />
+          </label>
           <NumberInput value={f.max_per_slot} onChange={v=>set('max_per_slot',v)} min={0} placeholder="0 = без ограничений" />
-        </div>
-        <div className="form-group"><label className="form-label">Цвет направления</label>
-          <ColorPicker value={f.color} onChange={v=>set('color',v)} />
         </div>
       </div>
 
       {/* Формат записи */}
       <div className="form-group">
-        <label className="form-label">Формат записи</label>
+        <label className="form-label">
+          Формат записи
+          <Hint text="Как клиенты попадают в расписание: записаны в направление целиком, записываются на конкретные даты, или ходят по своим дням недели." />
+        </label>
         <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           {[['group','👥 Групповой'],['calendar','📅 По записи на даты'],['client_days','🗓 По дням клиента']].map(([val, label]) => (
             <label key={val} onClick={() => set('enrollment_type', val)} style={{
@@ -419,29 +426,6 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         )}
       </div>
 
-      {/* Формат оплаты педагога */}
-      {features.teachers && (
-        <div className="form-group">
-          <label className="form-label">Как оплачивается работа педагога</label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-            {[['per_lesson','📚 За занятие'],['per_hour','⏱ За час']].map(([val, label]) => (
-              <label key={val} onClick={() => set('payment_type', val)} style={{
-                flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
-                border: `2px solid ${f.payment_type === val ? T.green : T.border}`,
-                background: f.payment_type === val ? T.greenBg : T.cream,
-                textAlign: 'center', fontWeight: 600, fontSize: 13,
-                color: f.payment_type === val ? T.greenDark : T.ink,
-              }}>{label}</label>
-            ))}
-          </div>
-          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
-            {f.payment_type === 'per_lesson'
-              ? 'Оплата за проведённое занятие. Ставка задаётся в карточке педагога — фиксированная или в зависимости от количества учеников.'
-              : 'Оплата за отработанные часы. В расписании отмечается, кто работал и сколько часов — можно указать несколько педагогов на один день.'}
-          </div>
-        </div>
-      )}
-
       {/* Блок подгрупп */}
       <div style={{ marginTop:18, marginBottom:14 }}>
         {/* Есть ли уже существующие подгруппы (legacy) при выключенной функции */}
@@ -461,7 +445,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             <>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:10 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>
-                  {multi ? `👥 Подгруппы (${groups.length})` : '🗓 Где и когда проходят занятия'}
+                  {multi ? `👥 Подгруппы (${groups.length})` : '🗓 Расписание направления'}
                 </div>
                 {canAdd && (
                   <button type="button" className="btn btn-outline btn-sm" onClick={addGroup}>
@@ -470,9 +454,9 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
                 )}
               </div>
 
-              <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
+              <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5, display: multi ? 'none' : undefined }}>
                 {multi
-                  ? 'У каждой подгруппы своё расписание и педагог. Например: «Онежская утро» с одним педагогом, «Хуторская» — с другим.'
+                  ? ''
                   : canAdd
                     ? 'Подгруппы не обязательны. Если у направления одно расписание — просто заполните дни и время. Нужны разные потоки с разными педагогами — нажмите «+ Добавить подгруппу».'
                     : ''}
@@ -490,7 +474,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
               )}
 
               {groups.map((g, idx) => (
-                <GroupBlock key={g._key} group={g} teachers={directionTeachers} addresses={addresses} idx={idx}
+                <GroupBlock key={g._key} group={g} addresses={addresses} idx={idx}
                   isOnly={groups.length === 1}
                   onChange={ng => updateGroup(idx, ng)}
                   onRemove={() => removeGroup(idx)} features={features}
@@ -502,9 +486,66 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         })()}
       </div>
 
+      {/* Кто ведёт — справка. Связь заводится в карточке педагога:
+          там же задаётся ставка, без неё занятие посчитается в ноль. */}
+      {features.teachers && (
+        <div className="form-group" style={{ marginTop: 18 }}>
+          <label className="form-label">
+            Педагоги
+            <Hint text="Список собирается из карточек педагогов: откройте «Педагоги» и отметьте это направление у нужного человека. Там же задаётся его ставка." />
+          </label>
+          {directionTeachers.length === 0 ? (
+            <div style={{ fontSize:12, color:T.muted, padding:'6px 0' }}>
+              Пока никто не закреплён.
+            </div>
+          ) : (
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              {directionTeachers.map(t => (
+                <span key={t.id} style={{ background:T.greenBg, color:T.greenDark, borderRadius:8, padding:'4px 10px', fontSize:12, fontWeight:700 }}>
+                  {t.name}
+                </span>
+              ))}
+            </div>
+          )}
+          {directionTeachers.length > 1 && (
+            <div style={{ fontSize:11, color:T.muted, marginTop:6 }}>
+              Кто вёл занятие в конкретный день — отмечается в расписании.
+            </div>
+          )}
+        </div>
+      )}
+      {/* Формат оплаты педагога */}
+      {features.teachers && (
+        <div className="form-group">
+          <label className="form-label">
+            Как оплачивается работа педагога
+            <Hint text="Способ расчёта для этого направления. Сама ставка — в карточке педагога: фиксированная, по числу учеников или почасовая." />
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+            {[['per_lesson','📚 За занятие'],['per_hour','⏱ За час']].map(([val, label]) => (
+              <label key={val} onClick={() => set('payment_type', val)} style={{
+                flex: 1, padding: '10px 12px', borderRadius: 10, cursor: 'pointer',
+                border: `2px solid ${f.payment_type === val ? T.green : T.border}`,
+                background: f.payment_type === val ? T.greenBg : T.cream,
+                textAlign: 'center', fontWeight: 600, fontSize: 13,
+                color: f.payment_type === val ? T.greenDark : T.ink,
+              }}>{label}</label>
+            ))}
+          </div>
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            {f.payment_type === 'per_lesson'
+              ? 'Оплата за проведённое занятие. Ставка задаётся в карточке педагога — фиксированная или в зависимости от количества учеников.'
+              : 'Оплата за отработанные часы. В расписании отмечается, кто работал и сколько часов — можно указать несколько педагогов на один день.'}
+          </div>
+        </div>
+      )}
+
       {/* Категории стоимости */}
       <div className="form-group">
-        <label className="form-label">Категории стоимости</label>
+        <label className="form-label">
+          Категории стоимости
+          <Hint text="Определяют, какие абонементы предложить при оплате этого направления. Настраиваются в разделе «Стоимость»." />
+        </label>
         {priceCategories.length === 0 ? (
           <div style={{ fontSize:12, color:T.muted, padding:'8px 0' }}>
             Категорий пока нет. Можно добавить прямо здесь — она попадёт в раздел «🎟️ Стоимость».
