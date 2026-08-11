@@ -12,7 +12,11 @@ const isHourly = (dir) => dir?.payment_type === 'per_hour'
 // Расчёт заработка по журналу работы.
 // Журнал — источник правды: он говорит, кто работал и сколько часов.
 // Для занятий до его появления есть запасной путь — отметки посещаемости.
-function calcEarnings({ work = [], attendance = [], rates = [], directions = [], teacherId, paidWorkLogIds = new Set(), paidLegacyKeys = new Set() }) {
+// paidAmountByWorkLog / paidAmountByLegacy — сколько РЕАЛЬНО заплатили за
+// уже оплаченное занятие. Без них выплаченное пересчитывалось по текущим
+// ставкам: поменяла ставку после выплаты — и закрытый месяц снова показывал
+// долг или переплату. Оплаченное занятие считается по факту, а не по прайсу.
+function calcEarnings({ work = [], attendance = [], rates = [], directions = [], teacherId, paidWorkLogIds = new Set(), paidLegacyKeys = new Set(), paidAmountByWorkLog = {}, paidAmountByLegacy = {} }) {
   // Сколько учеников было на занятии — нужно для ставки «по кол-ву учеников»
   const students = {}
   attendance.forEach(a => {
@@ -50,14 +54,19 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const dir = directions.find(d => d.id === w.direction_id)
     const rate = rateFor(w.direction_id, w.group_id)
     const hourly = dir?.payment_type === 'per_hour'
-    const amount = hourly
+    const isPaid = paidWorkLogIds.has(w.id)
+    const calc = hourly
       ? (+w.hours || 0) * (rate?.rate_hour || 0)
       : lessonRate(rate, `${w.date}_${w.direction_id}`)
+    // Оплаченное — по зафиксированной сумме, остальное — по текущей ставке
+    const amount = isPaid && paidAmountByWorkLog[w.id] != null
+      ? +paidAmountByWorkLog[w.id]
+      : calc
     add(w.direction_id, hourly ? { hours: +w.hours || 0, amount } : { lessons: 1, amount })
     items.push({
       workLogId: w.id, date: w.date, directionId: w.direction_id,
       hours: hourly ? (+w.hours || 0) : null, amount,
-      paid: paidWorkLogIds.has(w.id),
+      paid: isPaid,
       fromLog: true,
     })
   })
@@ -71,12 +80,16 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     if (covered.has(k) || seen.has(k)) return
     seen.add(k)
     // В отметках посещаемости подгруппа не хранится — берём ставку направления
-    const amount = lessonRate(rateFor(a.direction_id, 0), k)
+    const legacyKey = `${a.date}_${a.direction_id}`
+    const isPaid = paidLegacyKeys.has(legacyKey)
+    const amount = isPaid && paidAmountByLegacy[legacyKey] != null
+      ? +paidAmountByLegacy[legacyKey]
+      : lessonRate(rateFor(a.direction_id, 0), k)
     add(a.direction_id, { lessons: 1, amount })
     items.push({
       workLogId: null, date: a.date, directionId: a.direction_id,
       hours: null, amount,
-      paid: paidLegacyKeys.has(`${a.date}_${a.direction_id}`),
+      paid: isPaid,
       fromLog: false,
     })
   })
@@ -587,7 +600,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
       supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
       supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
-      supabase.from('lesson_payments').select('work_log_id, date, direction_id, payout_id').eq('teacher_id', teacher.id),
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id, payout_id, amount').eq('teacher_id', teacher.id),
     ])
     setWorkLog(work || [])
     setAttStats(att || [])
@@ -607,6 +620,14 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
 
   const paidWorkLogIds = new Set(paidLinks.filter(x => x.work_log_id).map(x => x.work_log_id))
   const paidLegacyKeys = new Set(paidLinks.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+  // Сколько реально заплатили за каждое закрытое занятие
+  const paidAmountByWorkLog = {}
+  const paidAmountByLegacy = {}
+  paidLinks.forEach(x => {
+    if (x.amount == null) return
+    if (x.work_log_id) paidAmountByWorkLog[x.work_log_id] = x.amount
+    else paidAmountByLegacy[`${x.date}_${x.direction_id}`] = x.amount
+  })
   // Какой выплатой закрыто каждое занятие — для подсветки по клику на выплату
   const payoutByWorkLog = {}
   const payoutByLegacy = {}
@@ -618,7 +639,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   // Всё заработанное за всё время — по журналу, с запасным путём на посещаемость
   const earn = attStats ? calcEarnings({
     work: workLog, attendance: attStats, rates, directions, teacherId: teacher.id,
-    paidWorkLogIds, paidLegacyKeys,
+    paidWorkLogIds, paidLegacyKeys, paidAmountByWorkLog, paidAmountByLegacy,
   }) : null
   const totalEarned = attStats
     ? (teacher.salary_type === 'salary' ? (teacher.salary_amount || 0) : earn.total)
@@ -904,15 +925,22 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     if (!studioId || !teachers.length) return
     let cancelled = false
     const loadSummary = async () => {
-      const [{ data: work }, { data: att }, { data: rates }, { data: payouts }] = await Promise.all([
+      const [{ data: work }, { data: att }, { data: rates }, { data: payouts }, { data: links }] = await Promise.all([
         supabase.from('teacher_work_log').select('*').eq('studio_id', studioId),
         supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
         supabase.from('teacher_rates').select('*').eq('studio_id', studioId),
         supabase.from('teacher_payouts').select('teacher_id, amount').eq('studio_id', studioId),
+        supabase.from('lesson_payments').select('teacher_id, work_log_id, date, direction_id, amount').eq('studio_id', studioId),
       ])
       if (cancelled) return
       const paidByTeacher = {}
       ;(payouts || []).forEach(p => { paidByTeacher[p.teacher_id] = (paidByTeacher[p.teacher_id] || 0) + p.amount })
+      // Закрытые занятия и их фактические суммы — по каждому педагогу
+      const linksByTeacher = {}
+      ;(links || []).forEach(x => {
+        if (!linksByTeacher[x.teacher_id]) linksByTeacher[x.teacher_id] = []
+        linksByTeacher[x.teacher_id].push(x)
+      })
       const map = {}
       teachers.forEach(t => {
         const paid = paidByTeacher[t.id] || 0
@@ -920,12 +948,23 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           map[t.id] = { debt: (t.salary_amount || 0) - paid, lessons: 0, hours: 0, salary: true }
           return
         }
+        const my = linksByTeacher[t.id] || []
+        const paidWorkLogIds = new Set(my.filter(x => x.work_log_id).map(x => x.work_log_id))
+        const paidLegacyKeys = new Set(my.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+        const paidAmountByWorkLog = {}
+        const paidAmountByLegacy = {}
+        my.forEach(x => {
+          if (x.amount == null) return
+          if (x.work_log_id) paidAmountByWorkLog[x.work_log_id] = x.amount
+          else paidAmountByLegacy[`${x.date}_${x.direction_id}`] = x.amount
+        })
         const earn = calcEarnings({
           work: (work || []).filter(w => w.teacher_id === t.id),
           attendance: att || [],
           rates: (rates || []).filter(r => r.teacher_id === t.id),
           directions,
           teacherId: t.id,
+          paidWorkLogIds, paidLegacyKeys, paidAmountByWorkLog, paidAmountByLegacy,
         })
         map[t.id] = { debt: earn.total - paid, lessons: earn.lessons, hours: earn.hours }
       })
