@@ -1367,12 +1367,12 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               if (!t||!d) { allErrors.push(`Ставка: не найден ${!t?`педагог "${tName}"`:`направление "${dName}"`}`); continue }
               const rType = String(row['Тип (за занятие/по кол-ву учеников)']||'').toLowerCase().includes('кол') ? 'by_students' : 'per_lesson'
               const { error } = await supabase.from('teacher_rates').upsert({
-                teacher_id:t.id, studio_id:studioId, direction_id:d.id, rate_type:rType,
+                teacher_id:t.id, studio_id:studioId, direction_id:d.id, group_id:0, rate_type:rType,
                 rate:rType==='per_lesson'?(+row['Ставка фикс, ₽']||0):0,
                 rate_part:rType==='by_students'?(+row['Неполная группа, ₽']||0):0,
                 rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0,
                 min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0,
-              }, { onConflict: 'teacher_id,direction_id' })
+              }, { onConflict: 'teacher_id,direction_id,group_id' })
               if (error) allErrors.push(`Ставка ${tName}/${dName}: ${error.message}`)
               else { importDetails['Ставки педагогов'] = (importDetails['Ставки педагогов']||0)+1; totalInserted++ }
             }
@@ -1542,12 +1542,13 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               teacher_id: teacher.id,
               studio_id: studioId,
               direction_id: dir.id,
+              group_id: 0,          // импорт из шаблона — всегда ставка на всё направление
               rate_type: rateType,
               rate: rateType === 'per_lesson' ? (+row['Ставка фикс, ₽'] || 0) : 0,
               rate_part: rateType === 'by_students' ? (+row['Неполная группа, ₽'] || 0) : 0,
               rate_full: rateType === 'by_students' ? (+row['Полная группа, ₽'] || 0) : 0,
               min_students: rateType === 'by_students' ? (+row['Порог (чел.)'] || 0) : 0,
-            }, { onConflict: 'teacher_id,direction_id' })
+            }, { onConflict: 'teacher_id,direction_id,group_id' })
             if (error) errors.push(`Ставка ${teacherName}/${dirName}: ${error.message}`)
           }
         }
