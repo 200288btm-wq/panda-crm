@@ -266,6 +266,32 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   // Периоды
   const addPeriod = async () => {
     if (!newPeriod.label.trim()) { setPeriodMsg({ type: 'error', text: 'Введите название' }); return }
+
+    // Дубль периода — это совпадение ПОВЕДЕНИЯ, а не названия.
+    // «6мес» и «6 месяцев» — разные строки справочника, но система
+    // считает по ним одно и то же. Сравниваем тип и срок.
+    const sameName = periods.find(p => p.label.trim().toLowerCase() === newPeriod.label.trim().toLowerCase())
+    if (sameName) {
+      setPeriodMsg({ type: 'error', text: `Период «${sameName.label}» уже есть в списке` })
+      setTimeout(() => setPeriodMsg(null), 5000)
+      return
+    }
+    const twin = periods.find(p => {
+      if (p.period_type !== newPeriod.period_type) return false
+      if (newPeriod.period_type !== 'fixed') return true   // два «без срока» ведут себя одинаково
+      return +p.duration_value === +newPeriod.duration_value && p.duration_unit === newPeriod.duration_unit
+    })
+    if (twin) {
+      setPeriodMsg({
+        type: 'error',
+        text: newPeriod.period_type === 'fixed'
+          ? `Такой период уже есть — «${twin.label}» (${periodTypeLabel(twin)}). Используйте его или переименуйте.`
+          : `Период без срока уже есть — «${twin.label}». Используйте его или переименуйте.`,
+      })
+      setTimeout(() => setPeriodMsg(null), 6000)
+      return
+    }
+
     const { error } = await supabase.from('subscription_periods').insert({
       label: newPeriod.label.trim(),
       period_type: newPeriod.period_type,
