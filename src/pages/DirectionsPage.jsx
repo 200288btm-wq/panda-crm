@@ -591,11 +591,14 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       </div>
       )}
 
-      {/* Превью цен из выбранных категорий */}
+      {/* Превью цен. Источник зависит от того, выбраны ли категории:
+          выбраны — абонементы этих категорий, не выбраны — все активные. */}
       {autoPrice && autoPrice.count > 0 && (
         <div style={{ background:T.greenBg, borderRadius:12, padding:'12px 14px', marginBottom:14 }}>
           <div style={{ fontSize:12, fontWeight:700, color:T.greenDark, marginBottom:8 }}>
-            💳 Цены из выбранных категорий ({autoPrice.count} абонементов)
+            💳 {(f.category_ids || []).length > 0
+                  ? `Цены из выбранных категорий (${autoPrice.count} абонементов)`
+                  : `Цены из всех абонементов студии (${autoPrice.count})`}
           </div>
           <div style={{ display:'flex', gap:24 }}>
             {autoPrice.avgPrice !== null && (
@@ -1001,7 +1004,11 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                   return (s.direction_ids||[]).length === 0 || (s.direction_ids||[]).includes(showDetail.id)
                 })
                 if (relevant.length === 0) {
-                  return <div style={{ padding:'20px 0', textAlign:'center', color:T.muted, fontSize:13 }}>В категориях этого направления пока нет абонементов</div>
+                  return <div style={{ padding:'20px 0', textAlign:'center', color:T.muted, fontSize:13 }}>
+                    {catIds.length > 0
+                      ? 'В категориях этого направления пока нет абонементов'
+                      : 'Активных абонементов пока нет. Добавьте их в разделе «🎟️ Стоимость».'}
+                  </div>
                 }
                 return relevant.map(s => {
                   const cat = priceCategories.find(c => c.id === s.category_id)
