@@ -16,16 +16,25 @@ export function QuickAdd({ label, fields, onCreate, onCreated }) {
   const [values, setValues] = useState({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
 
-  const reset = () => { setValues({}); setError(null); setSaving(false) }
+  const reset = () => { setValues({}); setError(null); setNotice(null); setSaving(false) }
 
   const close = () => { setOpen(false); reset() }
 
   const save = async () => {
-    setSaving(true); setError(null)
+    setSaving(true); setError(null); setNotice(null)
     const { row, error: err, existed } = await onCreate(values)
     setSaving(false)
     if (err) { setError(err); return }
+    if (existed) {
+      // Такая запись уже была. Раньше форма молча закрывалась и человек
+      // не понимал, сохранилось что-то или нет. Говорим вслух, даём
+      // прочитать и закрываемся сами — выбранное значение уже подставлено.
+      setNotice(`«${row?.name || ''}» уже есть в списке — выбрали её`)
+      setTimeout(() => { close(); onCreated && onCreated(row, existed) }, 1600)
+      return
+    }
     close()
     onCreated && onCreated(row, existed)
   }
@@ -57,8 +66,11 @@ export function QuickAdd({ label, fields, onCreate, onCreated }) {
       {error && (
         <div style={{ fontSize: 11, color: T.red, marginTop: 6, fontWeight: 600 }}>⚠️ {error}</div>
       )}
+      {notice && (
+        <div style={{ fontSize: 11, color: T.greenDark, marginTop: 6, fontWeight: 600 }}>ℹ️ {notice}</div>
+      )}
       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-        <button type="button" className="btn btn-primary" onClick={save} disabled={saving}
+        <button type="button" className="btn btn-primary" onClick={save} disabled={saving || !!notice}
           style={{ padding: '6px 14px', fontSize: 12 }}>
           {saving ? 'Сохраняем…' : 'Сохранить'}
         </button>

@@ -243,11 +243,18 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     // Та же функция, что вызывает быстрое добавление из модалки направления.
     // Раньше здесь был свой insert без проверки дублей: «Безлимиты» из
     // справочника и «безлимиты» из модалки создавали две разные строки.
-    const { error, existed } = await createCategory(studioId, { name: newCatName })
+    const { row, error, existed } = await createCategory(studioId, { name: newCatName })
     setCatSaving(false)
-    if (error) { setCatMsg({ type: 'error', text: error }); setTimeout(() => setCatMsg(null), 2500); return }
+    if (error) { setCatMsg({ type: 'error', text: error }); setTimeout(() => setCatMsg(null), 4000); return }
+    if (existed) {
+      // Дубль — не успех. Поле НЕ чистим: человек видит, что он ввёл,
+      // и может поправить название. Раньше кнопка просто ничего не делала.
+      setCatMsg({ type: 'error', text: `Категория «${row.name}» уже есть в списке — используйте её или задайте другое название` })
+      setTimeout(() => setCatMsg(null), 6000)
+      return
+    }
     setNewCatName('')
-    setCatMsg({ type: 'success', text: existed ? 'Такая категория уже есть' : 'Категория добавлена' })
+    setCatMsg({ type: 'success', text: 'Категория добавлена' })
     loadAll()
     setTimeout(() => setCatMsg(null), 2500)
   }
@@ -506,15 +513,14 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           T={T}
         />
 
-        {/* Настройка самой функции остаётся видимой даже при выключенном
-            тумблере — иначе включить её обратно было бы негде.
-            Но говорим прямо, что сейчас она ни на что не влияет. */}
+        {/* Справочник целиком прячется вместе с функцией. Раньше он
+            оставался на месте с предупреждением — по правилу «настройку
+            функции скрывать нельзя». Но сам тумблер живёт на вкладке
+            «Функции», а не здесь: включить обратно есть где, поэтому
+            держать на экране список, который ни на что не влияет, незачем.
+            Данные остаются в базе — включил обратно, всё на месте. */}
+        {features.categories !== false && (
         <Section title="Категории абонементов" icon="🏷️">
-          {features.categories === false && (
-            <div className="alert alert-warning" style={{ marginBottom: 12 }}>
-              Функция «Категории стоимости» выключена ниже — эти категории сейчас нигде не используются.
-            </div>
-          )}
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Позволяют разделить абонементы по типам направлений: «Основная», «Лагерь», «Льготная».
           </div>
@@ -534,6 +540,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           </div>
           <Msg msg={catMsg} />
         </Section>
+        )}
 
         <Section title="Периоды абонементов" icon="📅">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
