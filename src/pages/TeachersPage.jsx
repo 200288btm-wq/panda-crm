@@ -29,6 +29,13 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     byDir[dirId].amount += patch.amount || 0
   }
 
+  // Ставка ищется сначала по конкретной подгруппе, затем «на всё
+  // направление» (group_id = 0). Так занятие, проведённое в подгруппе
+  // без своей ставки, считается по общей — а не в ноль.
+  const rateFor = (dirId, groupId) =>
+    rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0))
+    || rates.find(r => r.direction_id === dirId && +r.group_id === 0)
+
   const lessonRate = (rate, key) => {
     if (rate?.rate_type === 'by_students') {
       const cnt = students[key] || 0
@@ -41,7 +48,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
 
   work.forEach(w => {
     const dir = directions.find(d => d.id === w.direction_id)
-    const rate = rates.find(r => r.direction_id === w.direction_id)
+    const rate = rateFor(w.direction_id, w.group_id)
     const hourly = dir?.payment_type === 'per_hour'
     const amount = hourly
       ? (+w.hours || 0) * (rate?.rate_hour || 0)
@@ -63,7 +70,8 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const k = `${a.date}_${a.direction_id}`
     if (covered.has(k) || seen.has(k)) return
     seen.add(k)
-    const amount = lessonRate(rates.find(r => r.direction_id === a.direction_id), k)
+    // В отметках посещаемости подгруппа не хранится — берём ставку направления
+    const amount = lessonRate(rateFor(a.direction_id, 0), k)
     add(a.direction_id, { lessons: 1, amount })
     items.push({
       workLogId: null, date: a.date, directionId: a.direction_id,
@@ -93,12 +101,13 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   const [f, setF] = useState(teacher ? {
     name: teacher.name || '', phone: teacher.phone || '',
     direction_ids: teacher.direction_ids || [],
+    group_ids: teacher.group_ids || [],
     status: teacher.status || 'Активен', hired: teacher.hired || '',
     birthday: teacher.birthday || '', contract_date: teacher.contract_date || '',
     salary_type: teacher.salary_type || 'per_lesson', // 'per_lesson' (сделка) | 'salary' (оклад)
     salary_amount: teacher.salary_amount || 0,
   } : {
-    name: '', phone: '', direction_ids: [], status: 'Активен',
+    name: '', phone: '', direction_ids: [], group_ids: [], status: 'Активен',
     hired: '', birthday: '', contract_date: '',
     salary_type: 'per_lesson', salary_amount: 0,
   })
@@ -119,17 +128,37 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     setLoadingRates(false)
   }
 
-  const getRateForDir = (dirId) => rates.find(r => r.direction_id === dirId)
+  // Ставка адресуется парой «направление + подгруппа». 0 = на всё направление
+  const getRateForDir = (dirId, groupId = 0) =>
+    rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId)
 
-  const setRate = (dirId, field, value) => {
+  const setRate = (dirId, groupId, field, value) => {
+    const gid = +(groupId || 0)
     setRates(prev => {
-      const existing = prev.find(r => r.direction_id === dirId)
-      if (existing) return prev.map(r => r.direction_id === dirId ? { ...r, [field]: value } : r)
-      return [...prev, { direction_id: dirId, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
+      const existing = prev.find(r => r.direction_id === dirId && +(r.group_id || 0) === gid)
+      if (existing) return prev.map(r =>
+        (r.direction_id === dirId && +(r.group_id || 0) === gid) ? { ...r, [field]: value } : r)
+      return [...prev, { direction_id: dirId, group_id: gid, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
     })
   }
 
   const selectedDirs = directions.filter(d => (f.direction_ids || []).includes(d.id))
+
+  // Настоящие подгруппы — те, которых больше одной. Одна подгруппа —
+  // это обычное расписание направления, служебная «Основная»;
+  // показывать её как выбор было бы шумом.
+  const realGroups = (d) => {
+    const gs = (d.groups || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    return gs.length > 1 ? gs : []
+  }
+
+  // Подгруппы направления, отмеченные у педагога
+  const chosenGroups = (d) => realGroups(d).filter(g => (f.group_ids || []).includes(g.id))
+
+  const toggleGroup = (gid) => {
+    const cur = f.group_ids || []
+    set('group_ids', cur.includes(gid) ? cur.filter(x => x !== gid) : [...cur, gid])
+  }
 
   return (
     <Modal title={teacher ? `✏️ ${teacher.name}` : '+ Новый педагог'} onClose={onClose}
@@ -252,7 +281,14 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
             {selectedDirs.map(d => {
               const hourly = isHourly(d)
-              const r = getRateForDir(d.id) || { rate_type: hourly ? 'per_hour' : 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0 }
+              const groups = realGroups(d)
+              const chosen = chosenGroups(d)
+              // Ставку заводим на каждую отмеченную подгруппу; если не
+              // отмечено ни одной — одна ставка на всё направление (0)
+              const targets = chosen.length
+                ? chosen.map(g => ({ gid: g.id, label: g.name }))
+                : [{ gid: 0, label: null }]
+
               return (
                 <div key={d.id} style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1px solid ${T.border}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -262,74 +298,111 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                     </span>
                   </div>
 
-                  {hourly ? (
-                    <div className="form-row">
-                      <div className="form-group" style={{ marginBottom: 0 }}>
-                        <label className="form-label">Ставка за час, ₽</label>
-                        <input className="form-input" type="number" value={r.rate_hour}
-                          onChange={e => setRate(d.id, 'rate_hour', e.target.value)}
-                          onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate_hour', '') }}
-                          onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate_hour', 0) }}
-                          placeholder="500" />
-                        <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-                          Отработанные часы отмечаются в расписании
-                        </div>
+                  {/* Подгруппы — только там, где их реально больше одной */}
+                  {groups.length > 0 && (
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {groups.map(g => {
+                          const on = (f.group_ids || []).includes(g.id)
+                          return (
+                            <label key={g.id} className={`chip ${on ? 'chip-active' : 'chip-inactive'}`}
+                              style={{ fontSize: 12 }}>
+                              <input type="checkbox" checked={on} style={{ display: 'none' }}
+                                onChange={() => toggleGroup(g.id)} />
+                              {g.name || 'Без названия'}
+                            </label>
+                          )
+                        })}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                        {chosen.length
+                          ? 'Ведёт отмеченные подгруппы. У каждой своя ставка — ниже.'
+                          : 'Ничего не отмечено — ведёт все подгруппы, ставка одна на направление. Отметьте, если ставки различаются.'}
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                        {[['per_lesson', 'Фикс за занятие'], ['by_students', 'По кол-ву учеников']].map(([val, label]) => (
-                          <label key={val} onClick={() => setRate(d.id, 'rate_type', val)} style={{
-                            flex: 1, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, textAlign: 'center',
-                            border: `2px solid ${r.rate_type === val ? T.green : T.border}`,
-                            background: r.rate_type === val ? T.greenBg : 'white',
-                            color: r.rate_type === val ? T.greenDark : T.ink,
-                          }}>{label}</label>
-                        ))}
-                      </div>
-                      {r.rate_type !== 'by_students' && (
-                        <div className="form-row">
-                          <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label className="form-label">Ставка, ₽</label>
-                            <input className="form-input" type="number" value={r.rate}
-                              onChange={e => setRate(d.id, 'rate', e.target.value)}
-                              onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate', '') }}
-                              onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate', 0) }} />
-                          </div>
-                        </div>
-                      )}
-                      {r.rate_type === 'by_students' && (
-                        <div className="form-row">
-                          <div className="form-group">
-                            <label className="form-label">Неполная группа, ₽</label>
-                            <input className="form-input" type="number" value={r.rate_part}
-                              onChange={e => setRate(d.id, 'rate_part', e.target.value)}
-                              onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate_part', '') }}
-                              onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate_part', 0) }} />
-                          </div>
-                          <div className="form-group">
-                            <label className="form-label">Полная группа, ₽</label>
-                            <input className="form-input" type="number" value={r.rate_full}
-                              onChange={e => setRate(d.id, 'rate_full', e.target.value)}
-                              onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'rate_full', '') }}
-                              onBlur={e => { if (e.target.value === '') setRate(d.id, 'rate_full', 0) }} />
-                          </div>
-                          <div className="form-group">
-                            <label className="form-label">Полная группа от (чел.)</label>
-                            <input className="form-input" type="number" value={r.min_students}
-                              onChange={e => setRate(d.id, 'min_students', e.target.value)}
-                              onFocus={e => { if (+e.target.value === 0) setRate(d.id, 'min_students', '') }}
-                              onBlur={e => { if (e.target.value === '') setRate(d.id, 'min_students', 0) }}
-                              placeholder="5" />
-                            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-                              До {r.min_students || '?'} чел. → {fmt(r.rate_part)}, от {r.min_students || '?'} чел. → {fmt(r.rate_full)}
+                  )}
+
+                  {targets.map(({ gid, label }) => {
+                    const r = getRateForDir(d.id, gid) || { rate_type: hourly ? 'per_hour' : 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0 }
+                    return (
+                      <div key={gid} style={targets.length > 1
+                        ? { background: 'white', borderRadius: 10, padding: '10px 12px', marginTop: 8, border: `1px solid ${T.border}` }
+                        : undefined}>
+                        {label && (
+                          <div style={{ fontWeight: 700, fontSize: 12, color: T.greenDark, marginBottom: 8 }}>📍 {label}</div>
+                        )}
+
+                        {hourly ? (
+                          <div className="form-row">
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label className="form-label">Ставка за час, ₽</label>
+                              <input className="form-input" type="number" value={r.rate_hour}
+                                onChange={e => setRate(d.id, gid, 'rate_hour', e.target.value)}
+                                onFocus={e => { if (+e.target.value === 0) setRate(d.id, gid, 'rate_hour', '') }}
+                                onBlur={e => { if (e.target.value === '') setRate(d.id, gid, 'rate_hour', 0) }}
+                                placeholder="500" />
+                              <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                                Отработанные часы отмечаются в расписании
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </>
-                  )}
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                              {[['per_lesson', 'Фикс за занятие'], ['by_students', 'По кол-ву учеников']].map(([val, lbl]) => (
+                                <label key={val} onClick={() => setRate(d.id, gid, 'rate_type', val)} style={{
+                                  flex: 1, padding: '6px 10px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600, textAlign: 'center',
+                                  border: `2px solid ${r.rate_type === val ? T.green : T.border}`,
+                                  background: r.rate_type === val ? T.greenBg : 'white',
+                                  color: r.rate_type === val ? T.greenDark : T.ink,
+                                }}>{lbl}</label>
+                              ))}
+                            </div>
+                            {r.rate_type !== 'by_students' && (
+                              <div className="form-row">
+                                <div className="form-group" style={{ marginBottom: 0 }}>
+                                  <label className="form-label">Ставка, ₽</label>
+                                  <input className="form-input" type="number" value={r.rate}
+                                    onChange={e => setRate(d.id, gid, 'rate', e.target.value)}
+                                    onFocus={e => { if (+e.target.value === 0) setRate(d.id, gid, 'rate', '') }}
+                                    onBlur={e => { if (e.target.value === '') setRate(d.id, gid, 'rate', 0) }} />
+                                </div>
+                              </div>
+                            )}
+                            {r.rate_type === 'by_students' && (
+                              <div className="form-row">
+                                <div className="form-group">
+                                  <label className="form-label">Неполная группа, ₽</label>
+                                  <input className="form-input" type="number" value={r.rate_part}
+                                    onChange={e => setRate(d.id, gid, 'rate_part', e.target.value)}
+                                    onFocus={e => { if (+e.target.value === 0) setRate(d.id, gid, 'rate_part', '') }}
+                                    onBlur={e => { if (e.target.value === '') setRate(d.id, gid, 'rate_part', 0) }} />
+                                </div>
+                                <div className="form-group">
+                                  <label className="form-label">Полная группа, ₽</label>
+                                  <input className="form-input" type="number" value={r.rate_full}
+                                    onChange={e => setRate(d.id, gid, 'rate_full', e.target.value)}
+                                    onFocus={e => { if (+e.target.value === 0) setRate(d.id, gid, 'rate_full', '') }}
+                                    onBlur={e => { if (e.target.value === '') setRate(d.id, gid, 'rate_full', 0) }} />
+                                </div>
+                                <div className="form-group">
+                                  <label className="form-label">Полная группа от (чел.)</label>
+                                  <input className="form-input" type="number" value={r.min_students}
+                                    onChange={e => setRate(d.id, gid, 'min_students', e.target.value)}
+                                    onFocus={e => { if (+e.target.value === 0) setRate(d.id, gid, 'min_students', '') }}
+                                    onBlur={e => { if (e.target.value === '') setRate(d.id, gid, 'min_students', 0) }}
+                                    placeholder="5" />
+                                  <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                                    До {r.min_students || '?'} чел. → {fmt(r.rate_part)}, от {r.min_students || '?'} чел. → {fmt(r.rate_full)}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
@@ -651,10 +724,14 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {rates.map(r => {
                       const dir = directions.find(d => d.id === r.direction_id)
+                      const grp = +(r.group_id || 0)
+                        ? (dir?.groups || []).find(g => g.id === +r.group_id)
+                        : null
                       return (
                         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                           <span style={{ color: T.ink }}>
                             {dir?.name || '—'}
+                            {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
                             {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
                           </span>
                           <span style={{ color: T.greenDark, fontWeight: 700 }}>{rateLabel(r)}</span>
@@ -859,8 +936,17 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   }, [teachers, studioId, directions])
 
   const save = async (f, rates) => {
+    // Подгруппы снятых направлений в списке оставаться не должны
+    const liveGroupIds = new Set(
+      directions
+        .filter(d => (f.direction_ids || []).includes(d.id))
+        .flatMap(d => (d.groups || []).map(g => g.id))
+    )
+    const cleanGroupIds = (f.group_ids || []).map(Number).filter(id => liveGroupIds.has(id))
+
     const cleaned = {
       ...f,
+      group_ids: cleanGroupIds,
       hired: f.hired || null,
       birthday: f.birthday || null,
       contract_date: f.contract_date || null,
@@ -883,6 +969,10 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       await supabase.from('teacher_rates').delete().eq('teacher_id', teacherId)
       const toInsert = rates
         .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
+        // Ставка по подгруппе имеет смысл, только пока эта подгруппа
+        // отмечена у педагога. Сняли отметку — ставка не сохраняется,
+        // занятия считаются по ставке направления
+        .filter(r => !+(r.group_id || 0) || cleanGroupIds.includes(+r.group_id))
         .map(r => {
           const dir = directions.find(d => d.id === r.direction_id)
           const hourly = isHourly(dir)
@@ -890,6 +980,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
             teacher_id: teacherId,
             studio_id: studioId,
             direction_id: r.direction_id,
+            group_id: +(r.group_id || 0),
             rate_type: hourly ? 'per_hour' : (r.rate_type === 'by_students' ? 'by_students' : 'per_lesson'),
             rate: hourly ? 0 : (+r.rate || 0),
             rate_hour: hourly ? (+r.rate_hour || 0) : 0,
