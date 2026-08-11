@@ -237,6 +237,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [lastWork, setLastWork] = useState({})   // состав с прошлого занятия — для подстановки
   const [savingWork, setSavingWork] = useState(null)
   const dirtyRef = useRef(false)  // накопитель: были ли изменения, требующие reload при закрытии
+  const markingRef = useRef(new Set())  // отметки в процессе сохранения — защита от двойного клика
 
   const today = new Date(); today.setHours(0,0,0,0)
   const isPast = date <= today
@@ -344,7 +345,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       .eq('studio_id', studioId).eq('date', ds).then(({ data }) => {
       if (data) {
         const map = {}
-        data.forEach(r => { map[`${r.client_id}_${r.direction_id}`] = r.present })
+        // Ключ включает подгруппу: одна и та же дата+клиент+направление
+        // может быть двумя разными занятиями («Утро» и «Вечер»)
+        data.forEach(r => { map[`${r.client_id}_${r.direction_id}_${r.group_id || 0}`] = r.present })
         setAttendance(map)
       }
     })
@@ -354,8 +357,13 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     if (!isPast) return
     const canMark = isAdmin || (myTeacherName && (ev.teachersList || []).some(t => t.name === myTeacherName))
     if (!canMark) return
-    const key = `${clientId}_${dirId}`
-    const newVal = !attendance[key]
+    const gid = ev.groupId || null
+    const key = `${clientId}_${dirId}_${gid || 0}`
+    // Второй клик, пока первый не долетел, давал двойное списание занятия
+    if (markingRef.current.has(key)) return
+    markingRef.current.add(key)
+    const prevVal = !!attendance[key]
+    const newVal = !prevVal
     setAttendance(p => ({ ...p, [key]: newVal }))
     // Снимок педагога для истории: берём того, кто отмечен работавшим
     const wkey = `${ev.dirId}_${ev.groupId || 0}`
@@ -363,22 +371,32 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     const teacherObj = workedIds.length
       ? teachers.find(t => t.id === +workedIds[0])
       : ((ev.teachersList || []).length === 1 ? ev.teachersList[0] : null)
-    await supabase.from('attendance').upsert(
+    const { error: attErr } = await supabase.from('attendance').upsert(
       {
         studio_id: studioId,
         date: ds,
         client_id: clientId,
         direction_id: dirId,
+        group_id: gid,
         present: newVal,
         time: ev.time || null,
         teacher_id: teacherObj?.id || null,
       },
-      { onConflict: 'date,client_id,direction_id' }
+      { onConflict: 'date,client_id,direction_id,group_key' }
     )
+    // Раньше ошибка проглатывалась: галочка стояла, в базе ничего не было
+    if (attErr) {
+      setAttendance(p => ({ ...p, [key]: prevVal }))
+      markingRef.current.delete(key)
+      alert('Не удалось сохранить отметку: ' + attErr.message)
+      return
+    }
     // Модель A: visited_lessons = стартовое число + отметки. Меняем по дельте
     // (+1 при отметке, −1 при снятии), чтобы не терять стартовое значение,
     // введённое вручную или пришедшее из импорта.
-    await supabase.rpc('adjust_visited', { p_client_id: clientId, p_delta: newVal ? 1 : -1 })
+    const { error: visErr } = await supabase.rpc('adjust_visited', { p_client_id: clientId, p_delta: newVal ? 1 : -1 })
+    if (visErr) alert('Отметка сохранена, но баланс занятий не пересчитан: ' + visErr.message)
+    markingRef.current.delete(key)
     dirtyRef.current = true  // обновим списки при закрытии, а не сейчас — иначе модалка закроется
   }
 
@@ -391,7 +409,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       {events.length === 0 && <div className="empty"><div className="empty-icon">🗓️</div><div className="empty-text">Занятий нет</div></div>}
       {events.map((ev, i) => {
         const canMark = isPast && (isAdmin || (myTeacherName && (ev.teachersList || []).some(t => t.name === myTeacherName)))
-        const presentCount = ev.students.filter(s => attendance[`${s.id}_${ev.dirId}`]).length
+        const presentCount = ev.students.filter(s => attendance[`${s.id}_${ev.dirId}_${ev.groupId || 0}`]).length
         const isCalendar = ev.enrollmentType === 'calendar'
         const isClientDays = ev.enrollmentType === 'client_days'
         const enrollKey = `${ev.dirId}_${ev.groupId || 0}`
@@ -488,7 +506,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
             )}
             {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
             {ev.students.map(s => {
-              const key = `${s.id}_${ev.dirId}`
+              const key = `${s.id}_${ev.dirId}_${ev.groupId || 0}`
               const present = attendance[key]
               return (
                 <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}` }}>
@@ -520,9 +538,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                         padding:'5px 14px', borderRadius:10, border:'none',
                         cursor: 'pointer',
                         fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                        background: attendance[`${s.id}_${ev.dirId}`] ? T.greenBg : '#f5f5f0',
-                        color: attendance[`${s.id}_${ev.dirId}`] ? T.greenDark : T.muted,
-                      }}>{attendance[`${s.id}_${ev.dirId}`] ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                        background: present ? T.greenBg : '#f5f5f0',
+                        color: present ? T.greenDark : T.muted,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
                       <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
                     </div>
                   ) : (
