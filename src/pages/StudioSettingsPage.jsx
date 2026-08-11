@@ -5,7 +5,7 @@ import BookingSettingsPage from './BookingSettingsPage'
 import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
 import * as XLSX from 'xlsx'
-import { createDuration, createAddress } from '../lib/dictionaries'
+import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -240,11 +240,16 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const addCategory = async () => {
     if (!newCatName.trim()) return
     setCatSaving(true); setCatMsg(null)
-    const { error } = await supabase.from('price_categories').insert({ name: newCatName.trim(), studio_id: studioId, sort_order: categories.length })
-    if (error) setCatMsg({ type: 'error', text: error.message })
-    else { setNewCatName(''); setCatMsg({ type: 'success', text: 'Категория добавлена' }); loadAll() }
+    // Та же функция, что вызывает быстрое добавление из модалки направления.
+    // Раньше здесь был свой insert без проверки дублей: «Безлимиты» из
+    // справочника и «безлимиты» из модалки создавали две разные строки.
+    const { error, existed } = await createCategory(studioId, { name: newCatName })
     setCatSaving(false)
-    setTimeout(() => setCatMsg(null), 2000)
+    if (error) { setCatMsg({ type: 'error', text: error }); setTimeout(() => setCatMsg(null), 2500); return }
+    setNewCatName('')
+    setCatMsg({ type: 'success', text: existed ? 'Такая категория уже есть' : 'Категория добавлена' })
+    loadAll()
+    setTimeout(() => setCatMsg(null), 2500)
   }
 
   const deleteCategory = async (id, name) => {
