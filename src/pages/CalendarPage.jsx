@@ -463,6 +463,12 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
                   👩‍🏫 Кто работал{hourly ? ' и сколько часов' : ''}
                 </div>
+                {isPrefill && (
+                  <div style={{ fontSize:11, color:'#c47a00', background:'#fff4e6', borderRadius:8, padding:'6px 10px', marginBottom:8, fontWeight:600, lineHeight:1.4 }}>
+                    Это предложение по прошлому занятию — в журнале пока пусто.
+                    Нажмите «Подтвердить», чтобы записать.
+                  </div>
+                )}
                 <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                   {cands.map(t => {
                     const on = shown[t.id] !== undefined
@@ -470,10 +476,13 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                       <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
                         <div onClick={() => toggleWorker(t.id)} style={{
                           padding:'5px 12px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:700,
-                          background: on ? ev.color : 'white',
-                          color: on ? 'white' : T.muted,
-                          border:`1.5px solid ${on ? ev.color : T.border}`,
-                        }}>{on ? '✓ ' : ''}{t.name}</div>
+                          // Предложенный состав рисуем пунктиром и бледным:
+                          // раньше он выглядел точно как записанный, и снятая
+                          // отметка «возвращалась» при повторном открытии дня
+                          background: on ? (isPrefill ? ev.color + '22' : ev.color) : 'white',
+                          color: on ? (isPrefill ? ev.color : 'white') : T.muted,
+                          border: `1.5px ${on && isPrefill ? 'dashed' : 'solid'} ${on ? ev.color : T.border}`,
+                        }}>{on ? (isPrefill ? '' : '✓ ') : ''}{t.name}</div>
                         {on && hourly && (
                           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                             <input type="number" step="0.5" min="0" value={shown[t.id]}
@@ -492,7 +501,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                       onClick={() => saveWork(wkey, ev.dirId, ev.groupId, shown)}>
                       {savingWork === wkey ? 'Сохраняем…' : '✓ Подтвердить'}
                     </button>
-                    {isPrefill && <span style={{ fontSize:11, color:T.muted }}>подставлено по прошлому занятию</span>}
+                    {isPrefill && Object.keys(shown).length === 0 && (
+                      <span style={{ fontSize:11, color:T.muted }}>никто не отмечен</span>
+                    )}
                   </div>
                 ) : (
                   Object.keys(shown).length > 0 && (
