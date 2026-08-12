@@ -72,10 +72,16 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
   })
 
   // Запасной путь: занятия, которых нет в журнале.
-  // covered — намеренно БЕЗ подгруппы: если по направлению за этот день
-  // журнал заполнен, отметки ничего не добавляют. С подгруппой в ключе
-  // занятие, отмеченное до её появления, задвоилось бы с журнальным.
-  const covered = new Set(work.map(w => `${w.date}_${w.direction_id}`))
+  //
+  // Отметка считается «уже учтённой» по двум разным правилам:
+  //   • отметка знает свою подгруппу → журнал должен быть по этой же
+  //     подгруппе. Заполнено «Утро», «Вечер» пуст — вечернее занятие
+  //     всё равно попадёт в начисления по отметкам;
+  //   • отметка без подгруппы (сделана до 12.08.2026) → хватает журнала
+  //     по направлению за этот день, иначе старое занятие задвоится
+  //     с журнальным, где подгруппа уже проставлена.
+  const coveredDir = new Set(work.map(w => `${w.date}_${w.direction_id}`))
+  const coveredGroup = new Set(work.map(w => `${w.date}_${w.direction_id}_${+(w.group_id || 0)}`))
   const seen = new Set()
   attendance.forEach(a => {
     if (a.teacher_id !== teacherId) return
@@ -84,7 +90,8 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     // Между собой отметки различаются по подгруппе: «Утро» и «Вечер»
     // в один день — два занятия, а не одно
     const seenKey = `${k}_${gid}`
-    if (covered.has(k) || seen.has(seenKey)) return
+    const isCovered = gid ? coveredGroup.has(seenKey) : coveredDir.has(k)
+    if (isCovered || seen.has(seenKey)) return
     seen.add(seenKey)
     const legacyKey = `${a.date}_${a.direction_id}_${gid}`
     const isPaid = paidLegacyKeys.has(legacyKey)
