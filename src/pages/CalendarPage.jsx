@@ -497,12 +497,20 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 </div>
                 {workDirty ? (
                   <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, flexWrap:'wrap' }}>
-                    <button className="btn btn-primary btn-sm" disabled={savingWork === wkey}
-                      onClick={() => saveWork(wkey, ev.dirId, ev.groupId, shown)}>
-                      {savingWork === wkey ? 'Сохраняем…' : '✓ Подтвердить'}
-                    </button>
-                    {isPrefill && Object.keys(shown).length === 0 && (
-                      <span style={{ fontSize:11, color:T.muted }}>никто не отмечен</span>
+                    {/* Сняли всех — это уже не подтверждение состава,
+                        а удаление записи. Кнопка должна говорить об этом
+                        прямо, иначе непонятно, что снятие надо сохранить */}
+                    {Object.keys(shown).length === 0 ? (
+                      <button className="btn btn-sm" disabled={savingWork === wkey}
+                        onClick={() => saveWork(wkey, ev.dirId, ev.groupId, shown)}
+                        style={{ background:'#fde8e8', color:'#c0392b', border:'1.5px solid #e8b4b4', fontWeight:700 }}>
+                        {savingWork === wkey ? 'Убираем…' : '✕ Убрать отметку'}
+                      </button>
+                    ) : (
+                      <button className="btn btn-primary btn-sm" disabled={savingWork === wkey}
+                        onClick={() => saveWork(wkey, ev.dirId, ev.groupId, shown)}>
+                        {savingWork === wkey ? 'Сохраняем…' : '✓ Подтвердить'}
+                      </button>
                     )}
                   </div>
                 ) : (
