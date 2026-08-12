@@ -64,30 +64,36 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
       : calc
     add(w.direction_id, hourly ? { hours: +w.hours || 0, amount } : { lessons: 1, amount })
     items.push({
-      workLogId: w.id, date: w.date, directionId: w.direction_id,
+      workLogId: w.id, date: w.date, directionId: w.direction_id, groupId: +(w.group_id || 0),
       hours: hourly ? (+w.hours || 0) : null, amount,
       paid: isPaid,
       fromLog: true,
     })
   })
 
-  // Запасной путь: занятия, которых нет в журнале
+  // Запасной путь: занятия, которых нет в журнале.
+  // covered — намеренно БЕЗ подгруппы: если по направлению за этот день
+  // журнал заполнен, отметки ничего не добавляют. С подгруппой в ключе
+  // занятие, отмеченное до её появления, задвоилось бы с журнальным.
   const covered = new Set(work.map(w => `${w.date}_${w.direction_id}`))
   const seen = new Set()
   attendance.forEach(a => {
     if (a.teacher_id !== teacherId) return
+    const gid = +(a.group_id || 0)
     const k = `${a.date}_${a.direction_id}`
-    if (covered.has(k) || seen.has(k)) return
-    seen.add(k)
-    // В отметках посещаемости подгруппа не хранится — берём ставку направления
-    const legacyKey = `${a.date}_${a.direction_id}`
+    // Между собой отметки различаются по подгруппе: «Утро» и «Вечер»
+    // в один день — два занятия, а не одно
+    const seenKey = `${k}_${gid}`
+    if (covered.has(k) || seen.has(seenKey)) return
+    seen.add(seenKey)
+    const legacyKey = `${a.date}_${a.direction_id}_${gid}`
     const isPaid = paidLegacyKeys.has(legacyKey)
     const amount = isPaid && paidAmountByLegacy[legacyKey] != null
       ? +paidAmountByLegacy[legacyKey]
-      : lessonRate(rateFor(a.direction_id, 0), k)
+      : lessonRate(rateFor(a.direction_id, gid), k)
     add(a.direction_id, { lessons: 1, amount })
     items.push({
-      workLogId: null, date: a.date, directionId: a.direction_id,
+      workLogId: null, date: a.date, directionId: a.direction_id, groupId: gid,
       hours: null, amount,
       paid: isPaid,
       fromLog: false,
@@ -444,16 +450,16 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
         .eq('teacher_id', teacher.id).eq('studio_id', studioId)
         .gte('date', periodFrom).lte('date', periodTo),
       // Посещаемость нужна и для запасного пути, и для ставки «по кол-ву учеников»
-      supabase.from('attendance').select('date, direction_id, teacher_id')
+      supabase.from('attendance').select('date, direction_id, group_id, teacher_id')
         .eq('present', true).gte('date', periodFrom).lte('date', periodTo)
         .eq('studio_id', studioId),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
       // Уже оплаченные занятия — чтобы не заплатить дважды
-      supabase.from('lesson_payments').select('work_log_id, date, direction_id')
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id, group_id')
         .eq('teacher_id', teacher.id),
     ])
     const paidWorkLogIds = new Set((lp || []).filter(x => x.work_log_id).map(x => x.work_log_id))
-    const paidLegacyKeys = new Set((lp || []).filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+    const paidLegacyKeys = new Set((lp || []).filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}_${+(x.group_id || 0)}`))
 
     let total = 0
     const details = []
@@ -597,10 +603,10 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
     setLoadingStats(true)
     const [{ data: work }, { data: att }, { data: py }, { data: rt }, { data: lp }] = await Promise.all([
       supabase.from('teacher_work_log').select('*').eq('teacher_id', teacher.id).eq('studio_id', studioId),
-      supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
+      supabase.from('attendance').select('date, direction_id, group_id, teacher_id').eq('present', true).eq('studio_id', studioId),
       supabase.from('teacher_payouts').select('*').eq('teacher_id', teacher.id).order('created_at', { ascending: false }),
       supabase.from('teacher_rates').select('*').eq('teacher_id', teacher.id),
-      supabase.from('lesson_payments').select('work_log_id, date, direction_id, payout_id, amount').eq('teacher_id', teacher.id),
+      supabase.from('lesson_payments').select('work_log_id, date, direction_id, group_id, payout_id, amount').eq('teacher_id', teacher.id),
     ])
     setWorkLog(work || [])
     setAttStats(att || [])
@@ -619,21 +625,21 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const dirNames = (teacher.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean)
 
   const paidWorkLogIds = new Set(paidLinks.filter(x => x.work_log_id).map(x => x.work_log_id))
-  const paidLegacyKeys = new Set(paidLinks.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+  const paidLegacyKeys = new Set(paidLinks.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}_${+(x.group_id || 0)}`))
   // Сколько реально заплатили за каждое закрытое занятие
   const paidAmountByWorkLog = {}
   const paidAmountByLegacy = {}
   paidLinks.forEach(x => {
     if (x.amount == null) return
     if (x.work_log_id) paidAmountByWorkLog[x.work_log_id] = x.amount
-    else paidAmountByLegacy[`${x.date}_${x.direction_id}`] = x.amount
+    else paidAmountByLegacy[`${x.date}_${x.direction_id}_${+(x.group_id || 0)}`] = x.amount
   })
   // Какой выплатой закрыто каждое занятие — для подсветки по клику на выплату
   const payoutByWorkLog = {}
   const payoutByLegacy = {}
   paidLinks.forEach(x => {
     if (x.work_log_id) payoutByWorkLog[x.work_log_id] = x.payout_id
-    else payoutByLegacy[`${x.date}_${x.direction_id}`] = x.payout_id
+    else payoutByLegacy[`${x.date}_${x.direction_id}_${+(x.group_id || 0)}`] = x.payout_id
   })
 
   // Всё заработанное за всё время — по журналу, с запасным путём на посещаемость
@@ -650,12 +656,17 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   // История занятий с признаком оплаты — прямо из движка расчёта
   const lessonHistory = earn ? earn.items.map(i => {
     const dir = directions.find(d => d.id === i.directionId)
-    const payoutId = i.workLogId ? payoutByWorkLog[i.workLogId] : payoutByLegacy[`${i.date}_${i.directionId}`]
+    const payoutId = i.workLogId ? payoutByWorkLog[i.workLogId] : payoutByLegacy[`${i.date}_${i.directionId}_${+(i.groupId || 0)}`]
     return {
       workLogId: i.workLogId, date: i.date,
       dirName: dir?.name || 'Направление удалено', color: dir?.color,
+      // Название подгруппы — чтобы в истории было видно, какое из двух
+      // занятий в один день чем оплачено
+      groupName: +(i.groupId || 0)
+        ? ((dir?.groups || []).find(g => g.id === +i.groupId)?.name || null)
+        : null,
       hours: i.hours, amount: i.amount, paid: i.paid, fromLog: i.fromLog,
-      directionId: i.directionId, payoutId: payoutId || null,
+      directionId: i.directionId, groupId: +(i.groupId || 0), payoutId: payoutId || null,
     }
   }) : []
 
@@ -772,7 +783,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 260, overflowY: 'auto' }}>
                     {lessonHistory.map((l, i) => {
-                      const lkey = l.workLogId ? `wl_${l.workLogId}` : `lg_${l.date}_${l.directionId}`
+                      const lkey = l.workLogId ? `wl_${l.workLogId}` : `lg_${l.date}_${l.directionId}_${+(l.groupId || 0)}`
                       const paid = l.paid || justPaid.has(lkey)
                       const inSelected = selectedPayout && l.payoutId === selectedPayout
                       return (
@@ -786,7 +797,10 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
                           {new Date(l.date + 'T00:00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', weekday: 'short' })}
                         </div>
-                        <div style={{ flex: 1, fontSize: 13, color: T.ink }}>{l.dirName}</div>
+                        <div style={{ flex: 1, fontSize: 13, color: T.ink }}>
+                          {l.dirName}
+                          {l.groupName && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {l.groupName}</span>}
+                        </div>
                         {l.hours !== null && (
                           <span style={{ fontSize: 12, fontWeight: 700, color: '#c47a00', background: '#fff4e6', borderRadius: 6, padding: '1px 8px' }}>{l.hours} ч.</span>
                         )}
@@ -927,10 +941,10 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     const loadSummary = async () => {
       const [{ data: work }, { data: att }, { data: rates }, { data: payouts }, { data: links }] = await Promise.all([
         supabase.from('teacher_work_log').select('*').eq('studio_id', studioId),
-        supabase.from('attendance').select('date, direction_id, teacher_id').eq('present', true).eq('studio_id', studioId),
+        supabase.from('attendance').select('date, direction_id, group_id, teacher_id').eq('present', true).eq('studio_id', studioId),
         supabase.from('teacher_rates').select('*').eq('studio_id', studioId),
         supabase.from('teacher_payouts').select('teacher_id, amount').eq('studio_id', studioId),
-        supabase.from('lesson_payments').select('teacher_id, work_log_id, date, direction_id, amount').eq('studio_id', studioId),
+        supabase.from('lesson_payments').select('teacher_id, work_log_id, date, direction_id, group_id, amount').eq('studio_id', studioId),
       ])
       if (cancelled) return
       const paidByTeacher = {}
@@ -950,13 +964,13 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         }
         const my = linksByTeacher[t.id] || []
         const paidWorkLogIds = new Set(my.filter(x => x.work_log_id).map(x => x.work_log_id))
-        const paidLegacyKeys = new Set(my.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}`))
+        const paidLegacyKeys = new Set(my.filter(x => !x.work_log_id).map(x => `${x.date}_${x.direction_id}_${+(x.group_id || 0)}`))
         const paidAmountByWorkLog = {}
         const paidAmountByLegacy = {}
         my.forEach(x => {
           if (x.amount == null) return
           if (x.work_log_id) paidAmountByWorkLog[x.work_log_id] = x.amount
-          else paidAmountByLegacy[`${x.date}_${x.direction_id}`] = x.amount
+          else paidAmountByLegacy[`${x.date}_${x.direction_id}_${+(x.group_id || 0)}`] = x.amount
         })
         const earn = calcEarnings({
           work: (work || []).filter(w => w.teacher_id === t.id),
@@ -1054,7 +1068,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     const { error: linkErr } = await supabase.from('lesson_payments').insert({
       studio_id: studioId, teacher_id: teacher.id, payout_id: payout.id,
       work_log_id: lesson.workLogId || null, date: lesson.date,
-      direction_id: lesson.directionId, amount: lesson.amount,
+      direction_id: lesson.directionId, group_id: +(lesson.groupId || 0), amount: lesson.amount,
     })
     if (linkErr) {
       // Откатываем выплату, если привязка не легла (например, занятие уже оплачено)
@@ -1091,6 +1105,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         work_log_id: i.workLogId || null,
         date: i.date,
         direction_id: i.directionId,
+        group_id: +(i.groupId || 0),
         amount: i.amount,
       }))
       const { error: linkErr } = await supabase.from('lesson_payments').insert(links)
