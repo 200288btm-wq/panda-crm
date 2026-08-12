@@ -438,6 +438,15 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
           else m[tid] = hourly ? defaultHours : 1
           setWorkFor(m)
         }
+        // Крестик у имени убирает педагога СРАЗУ, без «Подтвердить».
+        // Клик по имени только меняет состав на экране — снятие через
+        // него приходилось отдельно сохранять, и это было неочевидно
+        const removeWorker = (tid) => {
+          const m = { ...shown }
+          delete m[tid]
+          setWorkFor(m)
+          saveWork(wkey, ev.dirId, ev.groupId, m)
+        }
         return (
           <div key={i} style={{ marginBottom:20 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}` }}>
@@ -474,15 +483,25 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     const on = shown[t.id] !== undefined
                     return (
                       <div key={t.id} style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
-                        <div onClick={() => toggleWorker(t.id)} style={{
-                          padding:'5px 12px', borderRadius:20, cursor:'pointer', fontSize:12, fontWeight:700,
+                        <div style={{
+                          display:'inline-flex', alignItems:'center', gap:2,
+                          borderRadius:20, fontSize:12, fontWeight:700,
                           // Предложенный состав рисуем пунктиром и бледным:
                           // раньше он выглядел точно как записанный, и снятая
                           // отметка «возвращалась» при повторном открытии дня
                           background: on ? (isPrefill ? ev.color + '22' : ev.color) : 'white',
                           color: on ? (isPrefill ? ev.color : 'white') : T.muted,
                           border: `1.5px ${on && isPrefill ? 'dashed' : 'solid'} ${on ? ev.color : T.border}`,
-                        }}>{on ? (isPrefill ? '' : '✓ ') : ''}{t.name}</div>
+                        }}>
+                          <span onClick={() => toggleWorker(t.id)}
+                            style={{ padding: on ? '5px 4px 5px 12px' : '5px 12px', cursor:'pointer' }}>
+                            {on ? (isPrefill ? '' : '✓ ') : ''}{t.name}
+                          </span>
+                          {on && (
+                            <span onClick={() => removeWorker(t.id)} title="Убрать педагога"
+                              style={{ padding:'5px 10px 5px 4px', cursor:'pointer', opacity:0.75, fontSize:13, lineHeight:1 }}>✕</span>
+                          )}
+                        </div>
                         {on && hourly && (
                           <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                             <input type="number" step="0.5" min="0" value={shown[t.id]}
