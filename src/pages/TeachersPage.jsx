@@ -944,10 +944,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const [dismissed, setDismissed] = useState(new Set()) // скрытые лично мной
 
   // ── Подгруппы, за которые педагогу нечего платить ────────────────────────
-  // Ставка ищется «подгруппа → направление (group_id = 0)». Значит проблема
-  // только там, где нет НИ той, НИ другой: занятие посчитается в ноль.
-  // Педагог с отмеченными чипами подгрупп ведёт только их, с пустым
-  // group_ids — все подгруппы своих направлений.
+  // Ставка ищется «подгруппа → направление (group_id = 0)». Проблема там,
+  // где итоговая ставка нулевая: строки может не быть вовсе, а может быть
+  // заведённая пустышка с нулём — для денег это одно и то же, занятие
+  // считается в ноль. Педагог с отмеченными чипами подгрупп ведёт только их,
+  // с пустым group_ids — все подгруппы своих направлений.
   useEffect(() => {
     if (!studioId || !teachers.length) return
     let cancelled = false
@@ -955,7 +956,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       const { data: user } = await supabase.auth.getUser()
       const uid = user?.user?.id
       const [{ data: rates }, { data: dis }] = await Promise.all([
-        supabase.from('teacher_rates').select('teacher_id, direction_id, group_id').eq('studio_id', studioId),
+        supabase.from('teacher_rates').select('*').eq('studio_id', studioId),
         uid
           ? supabase.from('alert_dismissals').select('alert_key').eq('studio_id', studioId).eq('user_id', uid)
           : Promise.resolve({ data: [] }),
@@ -963,21 +964,32 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       if (cancelled) return
       setDismissed(new Set((dis || []).map(d => d.alert_key)))
 
-      const has = new Set((rates || []).map(r => `${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`))
+      const byKey = {}
+      ;(rates || []).forEach(r => { byKey[`${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`] = r })
+      // Ставка «есть» только если по ней реально начислятся деньги
+      const paying = (r, hourly) => {
+        if (!r) return false
+        if (hourly) return +r.rate_hour > 0
+        if (r.rate_type === 'by_students') return +r.rate_part > 0 || +r.rate_full > 0
+        return +r.rate > 0
+      }
+
       const problems = []
       teachers.filter(t => t.status !== 'Уволен' && t.salary_type !== 'salary').forEach(t => {
         ;(t.direction_ids || []).forEach(dirId => {
           const dir = directions.find(d => d.id === dirId)
           if (!dir) return
+          const hourly = isHourly(dir)
           const groups = dir.groups || []
           // Одна подгруппа = обычное направление, ставка на неё общая
           if (groups.length < 2) return
-          if (has.has(`${t.id}_${dirId}_0`)) return   // общая ставка закрывает всё
+          const common = byKey[`${t.id}_${dirId}_0`]
+          if (paying(common, hourly)) return   // общая ставка закрывает всё
           const mine = (t.group_ids || []).length
             ? groups.filter(g => (t.group_ids || []).includes(g.id))
             : groups
           mine.forEach(g => {
-            if (has.has(`${t.id}_${dirId}_${g.id}`)) return
+            if (paying(byKey[`${t.id}_${dirId}_${g.id}`], hourly)) return
             problems.push({
               key: `teacher_rate_missing:${t.id}:${g.id}`,
               teacherId: t.id, teacherName: t.name,
