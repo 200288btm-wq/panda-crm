@@ -6,6 +6,7 @@ import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
 import * as XLSX from 'xlsx'
 import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
+import { Modal } from '../components/Modal'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -136,6 +137,49 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     else setPlanInfo({ plan: 'free', expires_at: null })
     if (dur.data) setDurations(dur.data)
   }
+
+  // ── Что реально задето выключением функции ──────────────────────────────
+  // Считаем ПО ФАКТУ данных, а не по флагу: выключение ничего не удаляет,
+  // поэтому пользователю нужно показать, что именно продолжит работать.
+  // Подгруппы берём из directions.groups — CRM грузит их вместе с направлениями,
+  // отдельный запрос не нужен
+  const featureUsage = (() => {
+    // Подгруппой считается только реальное разделение: >1 группы у направления.
+    // Одна группа = обычное расписание направления, это не подгруппы.
+    const subDirs = (directions || []).filter(d => (d.groups || []).length > 1)
+    const subCount = subDirs.reduce((s, d) => s + (d.groups || []).length, 0)
+    const dirGroups = (directions || []).flatMap(d => (d.groups || []).map(g => ({ ...g, direction_id: d.id })))
+
+    const activeTeachers = (teachers || []).filter(t => t.status !== 'Уволен')
+    const teacherDirIds = new Set()
+    activeTeachers.forEach(t => (t.direction_ids || []).forEach(id => teacherDirIds.add(id)))
+    const teacherDirs = (directions || []).filter(d => teacherDirIds.has(d.id))
+
+    const boundGroups = (dirGroups || []).filter(g => g.address_id)
+    const addrDirIds = new Set(boundGroups.map(g => g.direction_id))
+    const addrDirs = (directions || []).filter(d => addrDirIds.has(d.id))
+
+    return {
+      subgroups: {
+        count: subCount,
+        dirs: subDirs.map(d => d.name),
+        unit: 'подгрупп',
+        note: 'Подгруппы не удалятся: расписание, отметки посещаемости и ставки педагогов по подгруппам продолжат работать. Выключение скрывает только заведение новых подгрупп.',
+      },
+      teachers: {
+        count: activeTeachers.length,
+        dirs: teacherDirs.map(d => d.name),
+        unit: 'педагогов',
+        note: 'Педагоги, ставки, начисления и выплаты сохранятся, журнал «кто работал» продолжит писаться. Выключение убирает раздел «Педагоги» из меню — начисления станут недоступны для просмотра и выплаты.',
+      },
+      addresses: {
+        count: (addresses || []).length,
+        dirs: addrDirs.map(d => d.name),
+        unit: 'адресов',
+        note: `Адреса не удалятся, привязка подгрупп сохранится${boundGroups.length ? ` (${boundGroups.length} подгрупп${boundGroups.length === 1 ? 'а' : ''} привязано к адресам)` : ''}. Выключение убирает вкладку «Адреса» и фильтр по адресу в расписании.`,
+      },
+    }
+  })()
 
   const set = (k, v) => setSettings(prev => ({ ...prev, [k]: v }))
 
@@ -651,7 +695,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
       {/* ── Функции ── */}
       {tab === 'features' && (
-        <FeaturesTab settings={settings} onChange={(k, v) => setSettings(p => ({ ...p, [k]: v }))} onSave={saveSettings} saving={saving} msg={msg} T={T} />
+        <FeaturesTab settings={settings} onChange={(k, v) => setSettings(p => ({ ...p, [k]: v }))} onSave={saveSettings} saving={saving} msg={msg} T={T} usage={featureUsage} />
       )}
 
       {/* ── Тариф ── */}
@@ -742,22 +786,28 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   )
 }
 
-function FeaturesTab({ settings, onChange, onSave, saving, msg, T }) {
+function FeaturesTab({ settings, onChange, onSave, saving, msg, T, usage = {} }) {
+  // Выключение функции ничего не удаляет — но пользователь этого не знает.
+  // Если функция где-то используется, показываем что именно останется работать.
+  const [confirmOff, setConfirmOff] = useState(null)
   const features = [
     {
       key: 'feature_teachers',
+      usageKey: 'teachers',
       label: 'Педагоги',
       icon: '👩‍🏫',
       desc: 'Раздел педагогов, ставки, выплаты, фильтр по педагогу в расписании',
     },
     {
       key: 'feature_addresses',
+      usageKey: 'addresses',
       label: 'Несколько адресов',
       icon: '📍',
       desc: 'Управление адресами, привязка подгрупп к адресам, фильтр по адресу в расписании',
     },
     {
       key: 'feature_subgroups',
+      usageKey: 'subgroups',
       label: 'Подгруппы',
       icon: '👥',
       desc: 'Подгруппы внутри направлений, распределение учеников по подгруппам',
@@ -785,13 +835,27 @@ function FeaturesTab({ settings, onChange, onSave, saving, msg, T }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
         {features.map(f => {
           const enabled = settings[f.key] !== false
+          const u = usage[f.usageKey] || null
+          const used = !!(u && u.count > 0)
+          const toggle = () => {
+            // Включаем молча. Выключаем молча, если функция нигде не задействована
+            if (enabled && used) setConfirmOff({ ...f, usage: u })
+            else onChange(f.key, !enabled)
+          }
           return (
-            <div key={f.key} onClick={() => onChange(f.key, !enabled)}
+            <div key={f.key} onClick={toggle}
               style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: `2px solid ${enabled ? T.green : T.border}`, cursor: 'pointer', transition: 'border 0.15s, background 0.15s', display: 'flex', alignItems: 'center', gap: 14 }}>
               <div style={{ fontSize: 24 }}>{f.icon}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: T.ink, marginBottom: 2 }}>{f.label}</div>
                 <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>{f.desc}</div>
+                {used && (
+                  <div style={{ fontSize: 11, color: T.greenDark, fontWeight: 700, marginTop: 4 }}>
+                    {u.dirs.length
+                      ? `Используется в ${u.dirs.length} ${plural(u.dirs.length, 'направлении', 'направлениях', 'направлениях')} · ${u.count} ${u.unit}`
+                      : `Заведено ${u.count} ${u.unit}`}
+                  </div>
+                )}
               </div>
               <div style={{ width: 44, height: 24, borderRadius: 99, background: enabled ? T.green : '#ddd', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
                 <div style={{ width: 18, height: 18, borderRadius: '50%', background: 'white', position: 'absolute', top: 3, left: enabled ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
@@ -805,8 +869,46 @@ function FeaturesTab({ settings, onChange, onSave, saving, msg, T }) {
         {saving ? 'Сохранение...' : '✅ Сохранить настройки'}
       </button>
       <Msg msg={msg} />
+
+      {confirmOff && (
+        <Modal title={`Выключить «${confirmOff.label}»?`} onClose={() => setConfirmOff(null)}
+          footer={<>
+            <button className="btn btn-outline" onClick={() => setConfirmOff(null)}>Отмена</button>
+            <button className="btn btn-primary" onClick={() => { onChange(confirmOff.key, false); setConfirmOff(null) }}>
+              Выключить
+            </button>
+          </>}>
+          <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.6, marginBottom: 12 }}>
+            {confirmOff.usage.note}
+          </div>
+          {confirmOff.usage.dirs.length > 0 && (
+            <>
+              <div style={{ fontSize: 12, color: T.muted, fontWeight: 700, marginBottom: 6 }}>
+                Затронутые направления ({confirmOff.usage.dirs.length}):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                {confirmOff.usage.dirs.map(n => (
+                  <span key={n} style={{ background: T.greenBg, color: T.greenDark, borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{n}</span>
+                ))}
+              </div>
+            </>
+          )}
+          <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.5 }}>
+            Функцию можно включить обратно в любой момент — данные никуда не денутся.
+            Не забудьте нажать «Сохранить настройки».
+          </div>
+        </Modal>
+      )}
     </div>
   )
+}
+
+// 1 направлении / 2 направлениях — русские числительные
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few
+  return many
 }
 
 function PlanTab({ planInfo, T }) {

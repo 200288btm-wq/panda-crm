@@ -899,7 +899,13 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:12 }}>
                   {subgroups.map(sg => {
                     const slots = parseSlots(sg.schedule || '')
-                    const dirTeachers = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
+                    // Педагог виден под подгруппой, если ведёт именно её.
+                    // Пустой group_ids = ведёт все подгруппы своих направлений
+                    const dirTeachers = (teachers || []).filter(t => {
+                      if (!(t.direction_ids || []).includes(d.id)) return false
+                      const gids = t.group_ids || []
+                      return gids.length === 0 || gids.includes(sg.id)
+                    })
                     const addr = sg.address_id ? addresses.find(a => a.id === sg.address_id) : null
                     return (
                       <div key={sg.id} style={{ background: color+'10', borderLeft:`3px solid ${color}`, borderRadius:8, padding:'8px 10px' }}>

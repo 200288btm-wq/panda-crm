@@ -940,6 +940,73 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const [showEdit, setShowEdit] = useState(null)
   const [showPayout, setShowPayout] = useState(null)
   const [summary, setSummary] = useState({}) // teacher_id → { debt, lessons, hours }
+  const [rateAlerts, setRateAlerts] = useState([])   // подгруппы без ставки
+  const [dismissed, setDismissed] = useState(new Set()) // скрытые лично мной
+
+  // ── Подгруппы, за которые педагогу нечего платить ────────────────────────
+  // Ставка ищется «подгруппа → направление (group_id = 0)». Значит проблема
+  // только там, где нет НИ той, НИ другой: занятие посчитается в ноль.
+  // Педагог с отмеченными чипами подгрупп ведёт только их, с пустым
+  // group_ids — все подгруппы своих направлений.
+  useEffect(() => {
+    if (!studioId || !teachers.length) return
+    let cancelled = false
+    const loadAlerts = async () => {
+      const { data: user } = await supabase.auth.getUser()
+      const uid = user?.user?.id
+      const [{ data: rates }, { data: dis }] = await Promise.all([
+        supabase.from('teacher_rates').select('teacher_id, direction_id, group_id').eq('studio_id', studioId),
+        uid
+          ? supabase.from('alert_dismissals').select('alert_key').eq('studio_id', studioId).eq('user_id', uid)
+          : Promise.resolve({ data: [] }),
+      ])
+      if (cancelled) return
+      setDismissed(new Set((dis || []).map(d => d.alert_key)))
+
+      const has = new Set((rates || []).map(r => `${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`))
+      const problems = []
+      teachers.filter(t => t.status !== 'Уволен' && t.salary_type !== 'salary').forEach(t => {
+        ;(t.direction_ids || []).forEach(dirId => {
+          const dir = directions.find(d => d.id === dirId)
+          if (!dir) return
+          const groups = dir.groups || []
+          // Одна подгруппа = обычное направление, ставка на неё общая
+          if (groups.length < 2) return
+          if (has.has(`${t.id}_${dirId}_0`)) return   // общая ставка закрывает всё
+          const mine = (t.group_ids || []).length
+            ? groups.filter(g => (t.group_ids || []).includes(g.id))
+            : groups
+          mine.forEach(g => {
+            if (has.has(`${t.id}_${dirId}_${g.id}`)) return
+            problems.push({
+              key: `teacher_rate_missing:${t.id}:${g.id}`,
+              teacherId: t.id, teacherName: t.name,
+              dirName: dir.name, groupName: g.name || 'без названия',
+            })
+          })
+        })
+      })
+      setRateAlerts(problems)
+    }
+    loadAlerts()
+    return () => { cancelled = true }
+  }, [teachers, directions, studioId])
+
+  // Скрытие личное и точечное: появится новая подгруппа без ставки — придёт снова
+  const dismissAlert = async (key) => {
+    setDismissed(prev => new Set([...prev, key]))
+    const { data: user } = await supabase.auth.getUser()
+    const uid = user?.user?.id
+    if (!uid) return
+    const { error } = await supabase.from('alert_dismissals')
+      .upsert({ studio_id: studioId, user_id: uid, alert_key: key }, { onConflict: 'studio_id,user_id,alert_key' })
+    if (error) {
+      console.warn('alert_dismissals:', error.message)
+      setDismissed(prev => { const n = new Set(prev); n.delete(key); return n })
+    }
+  }
+
+  const visibleAlerts = rateAlerts.filter(a => !dismissed.has(a.key))
 
   // Одним махом считаем «к выплате» по всем педагогам — чтобы видеть сразу, не разворачивая карточки
   useEffect(() => {
@@ -1134,6 +1201,28 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
   return (
     <div>
+      {visibleAlerts.length > 0 && (
+        <div style={{ background: '#fff3e0', border: '1px solid #f0a83533', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, color: '#c47a00', marginBottom: 8 }}>
+            ⚠️ Не задана ставка для подгруппы — эти занятия считаются в ноль
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {visibleAlerts.map(a => (
+              <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#c47a00' }}>
+                <button className="btn btn-ghost btn-sm btn-icon" title="Скрыть это уведомление"
+                  onClick={() => dismissAlert(a.key)} style={{ color: '#c47a00' }}>✕</button>
+                <span>
+                  <b>{a.teacherName}</b> — {a.dirName} · {a.groupName}
+                </span>
+                <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}
+                  onClick={() => setShowEdit(teachers.find(t => t.id === a.teacherId))}>
+                  Задать ставку
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 18 }}>
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>+ Добавить педагога</button>
       </div>
