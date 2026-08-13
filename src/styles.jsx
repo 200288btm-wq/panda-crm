@@ -304,3 +304,18 @@ export const STATUS_COLORS = {
 export const STATUSES = Object.keys(STATUS_COLORS)
 export const ROLES = ['Директор', 'Администратор', 'Преподаватель']
 export const ROLE_COLORS = { 'Директор': 'badge-purple', 'Администратор': 'badge-blue', 'Преподаватель': 'badge-green' }
+
+// Палитра адресов. Живёт здесь, а не в AddressesPage, потому что тем же
+// цветом красится расписание в режиме «Цвет: по адресам».
+export const ADDRESS_COLORS = ['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#db2777','#65a30d','#4f46e5','#0d9488']
+
+// Цвет адреса с запасным вариантом. Адрес, заведённый быстрым добавлением,
+// сохраняется без цвета — раньше карточка адресов рисовала его первым цветом
+// палитры, а расписание не находило цвета вовсе и брало цвет направления.
+// Теперь и там и там один и тот же расчёт: цвет по месту в списке.
+export const addressColor = (addr, list = []) => {
+  if (!addr) return null
+  if (addr.color) return addr.color
+  const idx = list.findIndex(a => String(a.id) === String(addr.id))
+  return ADDRESS_COLORS[(idx < 0 ? 0 : idx) % ADDRESS_COLORS.length]
+}
