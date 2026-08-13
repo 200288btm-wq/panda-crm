@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles.jsx'
+import { T, ADDRESS_COLORS, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { createAddress } from '../lib/dictionaries'
 
 // Палитра цветов для адресов — отличается от палитры направлений,
 // чтобы при переключении календаря на режим «по адресам» цвета читались иначе
-const ADDRESS_COLORS = ['#2563eb','#dc2626','#16a34a','#9333ea','#ea580c','#0891b2','#db2777','#65a30d','#4f46e5','#0d9488']
+
 
 function ColorPicker({ value, onChange }) {
   return (
@@ -99,7 +99,7 @@ export default function AddressesPage({ addresses = [], reload, isAdmin, studioI
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:14 }}>
         {addresses.map(a => {
-          const color = a.color || ADDRESS_COLORS[0]
+          const color = addressColor(a, addresses)
           return (
             <div key={a.id} className="card card-pad" style={{ borderTop:`4px solid ${color}` }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:8 }}>

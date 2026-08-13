@@ -15,6 +15,7 @@
 // =====================================================================
 
 import { supabase } from '../supabase'
+import { ADDRESS_COLORS } from '../styles.jsx'
 
 const norm = (s) => String(s ?? '').trim().toLowerCase()
 
@@ -94,7 +95,7 @@ export async function listAddresses(studioId) {
   return { rows: data || [], error }
 }
 
-export async function createAddress(studioId, { name, address }) {
+export async function createAddress(studioId, { name, address, color } = {}) {
   if (!studioId) return { row: null, error: 'Студия не определена', existed: false }
 
   const cleanName = String(name ?? '').trim()
@@ -108,8 +109,12 @@ export async function createAddress(studioId, { name, address }) {
   const dup = rows.find(r => norm(r.name) === norm(cleanName))
   if (dup) return { row: dup, error: null, existed: true }
 
+  // Цвет проставляем всегда: адрес без цвета расписание красить не умеет,
+  // и режим «Цвет: по адресам» молча показывал цвет направления
+  const nextColor = color || ADDRESS_COLORS[rows.length % ADDRESS_COLORS.length]
+
   const { data, error } = await supabase.from('addresses')
-    .insert({ studio_id: studioId, name: cleanName, address: cleanAddress || null })
+    .insert({ studio_id: studioId, name: cleanName, address: cleanAddress || null, color: nextColor })
     .select().single()
 
   if (error) return { row: null, error: error.message, existed: false }
