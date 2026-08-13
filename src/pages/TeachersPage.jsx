@@ -578,7 +578,7 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
 }
 
 // ── Карточка педагога (раскрывающаяся) ──────────────────────
-function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne, reload }) {
+function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout, summary, onPayOne, reload, refreshKey = 0 }) {
   const [justPaid, setJustPaid] = useState(new Set())  // занятия, оплаченные прямо сейчас — до перезагрузки
   const [confirmPay, setConfirmPay] = useState(null)   // занятие, ждущее подтверждения оплаты
   const [payingOne, setPayingOne] = useState(false)
@@ -605,8 +605,8 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [workLog, setWorkLog] = useState([])
   const [paidLinks, setPaidLinks] = useState([])
 
-  const loadDetails = async () => {
-    if (attStats) return
+  const loadDetails = async (force = false) => {
+    if (attStats && !force) return
     setLoadingStats(true)
     const [{ data: work }, { data: att }, { data: py }, { data: rt }, { data: lp }] = await Promise.all([
       supabase.from('teacher_work_log').select('*').eq('teacher_id', teacher.id).eq('studio_id', studioId),
@@ -627,6 +627,16 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
     setOpen(!open)
     if (!open) loadDetails()
   }
+
+  // Ставки и начисления кэшируются до первого открытия карточки, поэтому
+  // после сохранения модалки раскрытая карточка показывала старое, пока не
+  // обновишь страницу. refreshKey меняется после каждого сохранения —
+  // сбрасываем кэш, а открытую карточку сразу перечитываем
+  useEffect(() => {
+    if (!refreshKey) return
+    setAttStats(null)
+    if (open) loadDetails(true)
+  }, [refreshKey])
 
   const totalPaid = payouts.reduce((s, p) => s + p.amount, 0)
   const dirNames = (teacher.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean)
@@ -940,6 +950,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const [showEdit, setShowEdit] = useState(null)
   const [showPayout, setShowPayout] = useState(null)
   const [summary, setSummary] = useState({}) // teacher_id → { debt, lessons, hours }
+  const [refreshKey, setRefreshKey] = useState(0)    // растёт после сохранений
   const [rateAlerts, setRateAlerts] = useState([])   // подгруппы без ставки
   const [dismissed, setDismissed] = useState(new Set()) // скрытые лично мной
 
@@ -1152,6 +1163,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
     setShowAdd(false)
     setShowEdit(null)
+    setRefreshKey(k => k + 1)
     reload()
   }
 
@@ -1227,6 +1239,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       payout_id: payout.id,
     })
     setShowPayout(null)
+    setRefreshKey(k => k + 1)
     reload()
   }
 
@@ -1277,6 +1290,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           summary={summary[t.id]}
           onPayOne={payOneLesson}
           reload={reload}
+          refreshKey={refreshKey}
         />
       ))}
 
