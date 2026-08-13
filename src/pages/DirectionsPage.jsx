@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
@@ -637,6 +637,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   // адрес нужен на экране сразу, до следующего reload — держим его тут.
   // Как только общая загрузка его подхватит, дубль отсеется по id.
   const [freshAddresses, setFreshAddresses] = useState([])
+  const detailDownRef = useRef(false)
   const [dragId, setDragId] = useState(null)
   const [dragOverId, setDragOverId] = useState(null)
 
@@ -994,8 +995,12 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       </div>
 
       {showDetail && (
-        <div className="modal-backdrop" onClick={()=>setShowDetail(null)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
+        // Своя подложка вместо общей Modal: закрываем только если клик
+        // начался на ней самой, иначе выделение текста мышкой закрывает окно
+        <div className="modal-backdrop"
+          onMouseDown={e => { detailDownRef.current = e.target === e.currentTarget }}
+          onClick={e => { if (detailDownRef.current && e.target === e.currentTarget) setShowDetail(null) }}>
+          <div className="modal">
             <div className="modal-header">
               <span className="modal-title">💳 Варианты оплаты — {showDetail.name}</span>
               <button className="btn btn-ghost btn-icon" onClick={()=>setShowDetail(null)}>✕</button>
