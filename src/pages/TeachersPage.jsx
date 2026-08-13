@@ -987,7 +987,17 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           if (paying(common, hourly)) return   // общая ставка закрывает всё
           const mine = (t.group_ids || []).length
             ? groups.filter(g => (t.group_ids || []).includes(g.id))
-            : groups
+            : null
+          // Чипы не отмечены — педагог ведёт всё направление по одной ставке.
+          // Проблема тут одна, а не по строке на каждую подгруппу
+          if (!mine) {
+            problems.push({
+              key: `teacher_rate_missing:${t.id}:0`,
+              teacherId: t.id, teacherName: t.name,
+              dirName: dir.name, groupName: null,
+            })
+            return
+          }
           mine.forEach(g => {
             if (paying(byKey[`${t.id}_${dirId}_${g.id}`], hourly)) return
             problems.push({
@@ -1110,8 +1120,17 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
         // Ставка по подгруппе имеет смысл, только пока эта подгруппа
         // отмечена у педагога. Сняли отметку — ставка не сохраняется,
-        // занятия считаются по ставке направления
-        .filter(r => !+(r.group_id || 0) || cleanGroupIds.includes(+r.group_id))
+        // занятия считаются по ставке направления.
+        // Обратное тоже верно: если подгруппы отмечены, ставка «на всё
+        // направление» (0) не редактируется в карточке и остаётся нулём —
+        // мусорной строкой, из-за которой начисление молча уходит в ноль
+        .filter(r => {
+          const gid = +(r.group_id || 0)
+          if (gid) return cleanGroupIds.includes(gid)
+          const groups = directions.find(d => d.id === r.direction_id)?.groups || []
+          const hasChosen = groups.length > 1 && groups.some(g => cleanGroupIds.includes(g.id))
+          return !hasChosen
+        })
         .map(r => {
           const dir = directions.find(d => d.id === r.direction_id)
           const hourly = isHourly(dir)
@@ -1224,7 +1243,8 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
                 <button className="btn btn-ghost btn-sm btn-icon" title="Скрыть это уведомление"
                   onClick={() => dismissAlert(a.key)} style={{ color: '#c47a00' }}>✕</button>
                 <span>
-                  <b>{a.teacherName}</b> — {a.dirName} · {a.groupName}
+                  <b>{a.teacherName}</b> — {a.dirName}
+                  {a.groupName ? ` · ${a.groupName}` : ' — ставка на направление не задана'}
                 </span>
                 <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}
                   onClick={() => setShowEdit(teachers.find(t => t.id === a.teacherId))}>
