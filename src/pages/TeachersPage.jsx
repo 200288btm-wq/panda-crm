@@ -1235,7 +1235,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       {visibleAlerts.length > 0 && (
         <div style={{ background: '#fff3e0', border: '1px solid #f0a83533', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: '#c47a00', marginBottom: 8 }}>
-            ⚠️ Не задана ставка для подгруппы — эти занятия считаются в ноль
+            ⚠️ Не задана ставка — эти занятия считаются в ноль
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {visibleAlerts.map(a => (
@@ -1243,8 +1243,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
                 <button className="btn btn-ghost btn-sm btn-icon" title="Скрыть это уведомление"
                   onClick={() => dismissAlert(a.key)} style={{ color: '#c47a00' }}>✕</button>
                 <span>
-                  <b>{a.teacherName}</b> — {a.dirName}
-                  {a.groupName ? ` · ${a.groupName}` : ' — ставка на направление не задана'}
+                  <b>{a.teacherName}</b> — {a.dirName}{a.groupName ? ` · ${a.groupName}` : ''}
                 </span>
                 <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}
                   onClick={() => setShowEdit(teachers.find(t => t.id === a.teacherId))}>
