@@ -242,6 +242,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
   const [lastWork, setLastWork] = useState({})   // состав с прошлого занятия — для подстановки
   const [savingWork, setSavingWork] = useState(null)
+  const [noWork, setNoWork] = useState({})      // занятия, помеченные «никто не работал»
   const dirtyRef = useRef(false)  // накопитель: были ли изменения, требующие reload при закрытии
   const markingRef = useRef(new Set())  // отметки в процессе сохранения — защита от двойного клика
 
@@ -327,6 +328,14 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
         if (last[k].date === r.date) last[k].rows[r.teacher_id] = +r.hours
       })
       setLastWork(last)
+
+      // Явная пометка «никто не работал». Без неё пустой журнал означал
+      // сразу две разные вещи: занятия не было и его просто не заполнили
+      const { data: nw } = await supabase.from('lesson_no_work').select('*')
+        .eq('studio_id', studioId).eq('date', ds)
+      const nwMap = {}
+      ;(nw || []).forEach(r => { nwMap[`${r.direction_id}_${r.group_id || 0}`] = true })
+      setNoWork(nwMap)
     }
     if (studioId) loadWork()
   }, [ds, studioId])
@@ -341,8 +350,37 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       group_id: groupId || 0, teacher_id: +tid, hours: +h || 0,
     }))
     if (rows.length) await supabase.from('teacher_work_log').insert(rows)
+    // Отметили педагога — «никто не работал» перестало быть правдой.
+    // Снимаем молча, иначе получится противоречивое состояние
+    if (rows.length) await clearNoWork(wkey, dirId, groupId)
     setSavedWork(p => ({ ...p, [wkey]: map }))
     setSavingWork(null)
+  }
+
+  const clearNoWork = async (wkey, dirId, groupId) => {
+    if (!noWork[wkey]) return
+    await supabase.from('lesson_no_work').delete()
+      .eq('studio_id', studioId).eq('date', ds)
+      .eq('direction_id', dirId).eq('group_id', groupId || 0)
+    setNoWork(p => { const n = { ...p }; delete n[wkey]; return n })
+  }
+
+  const markNoWork = async (wkey, dirId, groupId) => {
+    setSavingWork(wkey)
+    // Пометка и записанные часы взаимоисключающи
+    await supabase.from('teacher_work_log').delete()
+      .eq('studio_id', studioId).eq('date', ds)
+      .eq('direction_id', dirId).eq('group_id', groupId || 0)
+    const { data: u } = await supabase.auth.getUser()
+    const { error } = await supabase.from('lesson_no_work').upsert({
+      studio_id: studioId, date: ds, direction_id: dirId,
+      group_id: groupId || 0, marked_by: u?.user?.id || null,
+    }, { onConflict: 'studio_id,date,direction_id,group_id' })
+    setSavingWork(null)
+    if (error) { alert('Не удалось поставить пометку: ' + error.message); return }
+    setNoWork(p => ({ ...p, [wkey]: true }))
+    setSavedWork(p => ({ ...p, [wkey]: {} }))
+    setWork(p => ({ ...p, [wkey]: {} }))
   }
 
   useEffect(() => {
@@ -429,9 +467,12 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
         const defaultHours = Math.round((ev.durationMin / 60) * 10) / 10
         const savedMap = savedWork[wkey]
         const prefillMap = lastWork[wkey]?.rows
+        const isNoWork = !!noWork[wkey]
         let shown = work[wkey]
         let isPrefill = false
-        if (!shown) {
+        // Помечено «никто не работал» — состав по прошлому занятию не предлагаем
+        if (isNoWork) { shown = shown || {}; }
+        else if (!shown) {
           if (prefillMap && Object.keys(prefillMap).length) { shown = prefillMap; isPrefill = true }
           else if (cands.length === 1) { shown = { [cands[0].id]: hourly ? defaultHours : 1 }; isPrefill = true }
           else shown = {}
@@ -484,6 +525,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     Нажмите «Подтвердить», чтобы записать.
                   </div>
                 )}
+                {isNoWork && (
+                  <div style={{ fontSize:11, color:T.muted, background:'white', border:`1px solid ${T.border}`, borderRadius:8, padding:'6px 10px', marginBottom:8, fontWeight:600, lineHeight:1.4 }}>
+                    Занятие не состоялось — никто не работал. Отметьте педагога, чтобы снять пометку.
+                  </div>
+                )}
                 <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
                   {cands.map(t => {
                     const on = shown[t.id] !== undefined
@@ -520,7 +566,14 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     )
                   })}
                 </div>
-                {workDirty ? (
+                {isNoWork && !workDirty ? (
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8 }}>
+                    <button className="btn btn-ghost btn-sm" disabled={savingWork === wkey}
+                      onClick={() => clearNoWork(wkey, ev.dirId, ev.groupId)}>
+                      ↩ Снять пометку
+                    </button>
+                  </div>
+                ) : workDirty ? (
                   <div style={{ display:'flex', alignItems:'center', gap:10, marginTop:8, flexWrap:'wrap' }}>
                     {/* Сняли всех — это уже не подтверждение состава,
                         а удаление записи. Кнопка должна говорить об этом
@@ -538,10 +591,16 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                       </button>
                     )}
                   </div>
+                ) : Object.keys(shown).length > 0 ? (
+                  <div style={{ fontSize:11, color:T.greenDark, marginTop:8, fontWeight:600 }}>✅ Записано</div>
                 ) : (
-                  Object.keys(shown).length > 0 && (
-                    <div style={{ fontSize:11, color:T.greenDark, marginTop:8, fontWeight:600 }}>✅ Записано</div>
-                  )
+                  // Пустой журнал без пометки — это «не заполнено».
+                  // Даём сказать явно, что занятия не было
+                  <button className="btn btn-ghost btn-sm" disabled={savingWork === wkey}
+                    onClick={() => markNoWork(wkey, ev.dirId, ev.groupId)}
+                    style={{ marginTop:8, fontSize:11, color:T.muted }}>
+                    {savingWork === wkey ? 'Отмечаем…' : '🚫 Никто не работал'}
+                  </button>
                 )}
               </div>
             )}
