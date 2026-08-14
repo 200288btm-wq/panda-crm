@@ -7,6 +7,9 @@ import StaffPage from './StaffPage'
 import * as XLSX from 'xlsx'
 import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 import { Modal } from '../components/Modal'
+import ImportPreviewModal from '../components/ImportPreviewModal'
+import { parseDate, dateToRu } from '../lib/importParse'
+import { buildClientsPlan, applyClientsPlan, CLIENT_SELECT } from '../lib/importClients'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -1107,6 +1110,12 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
   const [importing, setImporting] = useState(null)
   const [importMsg, setImportMsg] = useState(null)
   const [importResult, setImportResult] = useState(null)
+  // План импорта клиентов: считается из файла, применяется только после подтверждения
+  const [importPlan, setImportPlan] = useState(null)
+  const [importMode, setImportMode] = useState('fill')
+  const [planRows, setPlanRows] = useState(null)
+  const [planExisting, setPlanExisting] = useState(null)
+  const [applying, setApplying] = useState(false)
   const importRef = useRef()
   const [currentImportType, setCurrentImportType] = useState(null)
   // Диалог выбора пустой/с данными
@@ -1121,8 +1130,8 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
   const TEMPLATES = {
     clients: {
       label: 'Клиенты',
-      columns: ['Имя ребёнка*', 'Имя родителя', 'Телефон*', 'Email', 'Статус', 'Оплачено занятий', 'Посещено занятий', 'Скидка %', 'Дата рождения (ГГГГ-ММ-ДД)', 'Источник', 'Комментарий'],
-      example: ['Иван Петров', 'Мария Петрова', '+79001234567', '', 'Активен', '8', '4', '0', '2018-05-12', 'ВКонтакте', ''],
+      columns: ['Имя ребёнка*', 'Имя родителя', 'Телефон*', 'Email', 'Статус', 'Оплачено занятий', 'Посещено занятий', 'Скидка %', 'Дата рождения (ДД.ММ.ГГГГ)', 'Источник', 'Комментарий'],
+      example: ['Иван Петров', 'Мария Петрова', '+79001234567', '', 'Активен', '8', '4', '0', '12.05.2018', 'ВКонтакте', ''],
     },
     payments: {
       label: 'Оплаты',
@@ -1167,7 +1176,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     const wb = XLSX.utils.book_new()
     if (withData) {
       let rows = [tmpl.columns]
-      if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
+      if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
       else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
       else if (type === 'teachers') {
         rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
@@ -1245,7 +1254,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           supabase.from('teacher_rates').select('*').eq('studio_id', studioId).then(({ data: rates }) => {
             Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
               let rows = [tmpl.columns]
-              if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,c.birthday||'',c.source||'',c.comment||'']))
+              if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
               else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
               else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
               else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
@@ -1308,7 +1317,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       paid_lessons: c.paid_lessons || 0,
       visited_lessons: c.visited_lessons || 0,
       discount: c.discount || 0,
-      birthday: c.birthday || '',
+      birthday: dateToRu(c.birthday),
       source: c.source || '',
       comment: c.comment || '',
       start_date: c.start_date || '',
@@ -1412,7 +1421,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
 
     try {
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf)
+      const wb = XLSX.read(buf, { cellDates: true })
 
       // Для общего файла — читаем все листы
       if (type === 'all') {
@@ -1427,7 +1436,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         const existingExpenseKeys = new Set((existingExpenses||[]).map(e => `${e.expense_date}_${e.expense_type}_${e.amount}`))
         const { data: existingPayments } = await supabase.from('payments').select('payment_date, client_id, amount').eq('studio_id', studioId)
         const existingPaymentKeys = new Set((existingPayments||[]).map(p => `${p.payment_date}_${p.client_id}_${p.amount}`))
-        const existingClientPhones = new Set((existingClients||[]).flatMap(c => (c.contacts||[]).filter(x=>x.type==='Телефон').map(x=>x.val.replace(/\D/g,'').slice(-9))))
+        const existingClientPhones = new Set((existingClients||[]).flatMap(c => (c.contacts||[]).filter(x=>x&&x.type==='Телефон'&&x.val).map(x=>String(x.val).replace(/\D/g,'').slice(-10))))
         const existingClientNames = new Set((existingClients||[]).map(c => c.child_name?.toLowerCase().trim()))
         const existingTeacherNames = new Set((existingTeachers||[]).map(t => t.name?.toLowerCase().trim()))
         const existingDirNames = new Set((existingDirs||[]).map(d => d.name?.toLowerCase().trim()))
@@ -1439,22 +1448,23 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             .filter(row => !Object.values(row).some(v => String(v).startsWith('⚠️')))
 
           if (lower.includes('клиент')) {
-            for (const row of sheetRows) {
-              const name = String(row['Имя ребёнка*']||row['Имя ребёнка']||'').trim()
-              if (!name) continue
-              if (existingClientNames.has(name.toLowerCase())) { allErrors.push(`Дубликат клиент: ${name}`); continue }
-              const phone = String(row['Телефон*']||row['Телефон']||'').trim()
-              if (phone) { const d = phone.replace(/\D/g,'').slice(-9); if (existingClientPhones.has(d)) { allErrors.push(`Дубликат телефон: ${phone}`); continue } }
-              const { error } = await supabase.from('clients').insert({ studio_id: studioId, child_name: name, adult_name: String(row['Имя родителя']||'').trim()||null, contacts: phone?[{type:'Телефон',val:phone}]:[], status: String(row['Статус']||'Новый').trim(), paid_lessons: +row['Оплачено занятий']||0, visited_lessons: +row['Посещено занятий']||0, discount: +row['Скидка %']||0, birthday: String(row['Дата рождения (ГГГГ-ММ-ДД)']||'').trim()||null, source: String(row['Источник']||'').trim()||null, comment: String(row['Комментарий']||'').trim()||null })
-              if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Клиенты'] = (importDetails['Клиенты']||0)+1 }
-            }
+            // Тот же движок, что и в одиночном импорте: телефон+имя = тот же
+            // ребёнок, только телефон = брат/сестра. Режим — «дополнить».
+            const { data: exClients } = await supabase
+              .from('clients').select(CLIENT_SELECT).eq('studio_id', studioId)
+            const plan = buildClientsPlan({ rows: sheetRows, existingClients: exClients, mode: 'fill' })
+            const res = await applyClientsPlan({ supabase, studioId, items: plan.items })
+            totalInserted += res.inserted + res.updated
+            if (res.inserted) importDetails['Клиенты'] = (importDetails['Клиенты']||0) + res.inserted
+            if (res.updated) importDetails['Клиенты (дополнено)'] = (importDetails['Клиенты (дополнено)']||0) + res.updated
+            allErrors.push(...res.errors)
           } else if (lower.includes('педагог') && !lower.includes('ставк')) {
             for (const row of sheetRows) {
               const name = String(row['ФИО*']||row['ФИО']||'').trim()
               if (!name || name.startsWith('⚠️')) continue
               if (existingTeacherNames.has(name.toLowerCase())) { allErrors.push(`Дубликат педагог: ${name}`); continue }
               const salaryType = String(row['Тип оплаты (За занятие/Оклад)']||'').toLowerCase().includes('оклад') ? 'salary' : 'per_lesson'
-              const { error } = await supabase.from('teachers').insert({ studio_id: studioId, name, phone: String(row['Телефон']||'').trim()||null, status: String(row['Статус']||'Активен').trim(), salary_type: salaryType, salary_amount: salaryType==='salary'?(+row['Оклад (если оклад), ₽']||0):0, hired: String(row['Дата приёма (ГГГГ-ММ-ДД)*']||row['Дата приёма (ГГГГ-ММ-ДД)']||'').trim()||null })
+              const { error } = await supabase.from('teachers').insert({ studio_id: studioId, name, phone: String(row['Телефон']||'').trim()||null, status: String(row['Статус']||'Активен').trim(), salary_type: salaryType, salary_amount: salaryType==='salary'?(+row['Оклад (если оклад), ₽']||0):0, hired: parseDate(row['Дата приёма (ГГГГ-ММ-ДД)*']||row['Дата приёма (ГГГГ-ММ-ДД)']).iso })
               if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Педагоги'] = (importDetails['Педагоги']||0)+1 }
             }
           } else if (lower.includes('ставк')) {
@@ -1486,9 +1496,23 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               const { error } = await supabase.from('directions').insert({ studio_id:studioId, name, teacher_name:String(row['Педагог']||'').trim()||null, schedule:String(row['Расписание']||'').trim()||null, cost_abo:+row['Цена абонемент']||0, cost_single:+row['Цена разовое']||0, max_capacity:+row['Вместимость']||0 })
               if (error) allErrors.push(`${name}: ${error.message}`); else { totalInserted++; importDetails['Направления'] = (importDetails['Направления']||0)+1 }
             }
+          } else if (lower.includes('оплат')) {
+            const { data: cls } = await supabase.from('clients').select('id, child_name').eq('studio_id', studioId)
+            for (const row of sheetRows) {
+              const clientName = String(row['Имя ребёнка*']||row['Имя ребёнка']||'').trim()
+              const date = parseDate(row['Дата (ГГГГ-ММ-ДД)*']||row['Дата']).iso
+              const amount = +row['Сумма*']||+row['Сумма']||0
+              if (!clientName || !date) continue
+              const client = (cls||[]).find(c => (c.child_name||'').trim().toLowerCase() === clientName.toLowerCase())
+              if (!client) { allErrors.push(`Оплата: клиент не найден «${clientName}»`); continue }
+              const key = `${date}_${client.id}_${amount}`
+              if (existingPaymentKeys.has(key)) { allErrors.push(`Дубликат оплата: ${clientName} ${date} ${amount}₽`); continue }
+              const { error } = await supabase.from('payments').insert({ studio_id: studioId, client_id: client.id, payment_date: date, payment_type: String(row['Тип (Абонемент/Разовое/Пробное)']||'Абонемент').trim(), amount, lessons_count: +row['Занятий']||0, comment: String(row['Комментарий']||'').trim()||null })
+              if (error) allErrors.push(`Оплата ${clientName}: ${error.message}`); else { totalInserted++; importDetails['Оплаты'] = (importDetails['Оплаты']||0)+1; existingPaymentKeys.add(key) }
+            }
           } else if (lower.includes('расход')) {
             for (const row of sheetRows) {
-              const date = String(row['Дата (ГГГГ-ММ-ДД)*']||row['Дата']||'').trim()
+              const date = parseDate(row['Дата (ГГГГ-ММ-ДД)*']||row['Дата']).iso
               const expType = String(row['Вид расхода*']||row['Вид расхода']||'').trim()
               const amount = +row['Сумма*']||+row['Сумма']||0
               if (!date||!expType) continue
@@ -1525,45 +1549,14 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       let inserted = 0, errors = []
 
       if (type === 'clients') {
-        // Загружаем существующие телефоны для проверки дубликатов
-        const { data: existingClients } = await supabase.from('clients').select('child_name, contacts').eq('studio_id', studioId)
-        const existingPhones = new Set((existingClients || []).flatMap(c =>
-          (c.contacts || []).filter(x => x.type === 'Телефон').map(x => x.val.replace(/\D/g, '').slice(-9))
-        ))
-        const existingNames = new Set((existingClients || []).map(c => c.child_name?.toLowerCase().trim()))
-
-        for (const row of rows) {
-          const name = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
-          const phone = String(row['Телефон*'] || row['Телефон'] || '').trim()
-          if (!name) { errors.push(`Пропущено имя ребёнка`); continue }
-
-          // Проверка дубликата по имени
-          if (existingNames.has(name.toLowerCase())) {
-            errors.push(`Дубликат: клиент «${name}» уже существует`); continue
-          }
-          // Проверка дубликата по телефону
-          if (phone) {
-            const phoneDigits = phone.replace(/\D/g, '').slice(-9)
-            if (existingPhones.has(phoneDigits)) {
-              errors.push(`Дубликат: телефон ${phone} уже используется`); continue
-            }
-          }
-          const { error } = await supabase.from('clients').insert({
-            studio_id: studioId,
-            child_name: name,
-            adult_name: String(row['Имя родителя'] || '').trim() || null,
-            contacts: phone ? [{ type: 'Телефон', val: phone }] : [],
-            status: String(row['Статус'] || 'Новый').trim(),
-            paid_lessons: +row['Оплачено занятий'] || 0,
-            visited_lessons: +row['Посещено занятий'] || 0,
-            discount: +row['Скидка %'] || 0,
-            birthday: String(row['Дата рождения (ГГГГ-ММ-ДД)'] || '').trim() || null,
-            source: String(row['Источник'] || '').trim() || null,
-            comment: String(row['Комментарий'] || '').trim() || null,
-          })
-          if (error) errors.push(`${name}: ${error.message}`)
-          else inserted++
-        }
+        // Ничего не пишем сразу: строим план и показываем предпросмотр.
+        const { data: existingClients } = await supabase
+          .from('clients').select(CLIENT_SELECT).eq('studio_id', studioId)
+        setPlanRows(rows)
+        setPlanExisting(existingClients || [])
+        setImportPlan(buildClientsPlan({ rows, existingClients, mode: importMode }))
+        setImporting(null)
+        return
       }
 
       if (type === 'payments') {
@@ -1572,7 +1565,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         const existingPayKeys = new Set((existingPay||[]).map(p => `${p.payment_date}_${p.client_id}_${p.amount}`))
         for (const row of rows) {
           const clientName = String(row['Имя ребёнка*'] || row['Имя ребёнка'] || '').trim()
-          const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
+          const date = parseDate(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата']).iso
           const amount = +row['Сумма*'] || +row['Сумма'] || 0
           if (!clientName || !date) { errors.push(`Пропущено имя или дата`); continue }
           const client = cls?.find(c => c.child_name === clientName)
@@ -1612,7 +1605,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             status: String(row['Статус'] || 'Активен').trim(),
             salary_type: salaryType,
             salary_amount: salaryType === 'salary' ? (+row['Оклад (если оклад), ₽'] || 0) : 0,
-            hired: String(row['Дата приёма (ГГГГ-ММ-ДД)*'] || row['Дата приёма (ГГГГ-ММ-ДД)'] || '').trim() || null,
+            hired: parseDate(row['Дата приёма (ГГГГ-ММ-ДД)*'] || row['Дата приёма (ГГГГ-ММ-ДД)']).iso,
           }).select().single()
           if (error) { errors.push(`${name}: ${error.message}`); continue }
           inserted++
@@ -1684,7 +1677,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         const { data: existingExp } = await supabase.from('expenses').select('expense_date, expense_type, amount').eq('studio_id', studioId)
         const existingExpKeys = new Set((existingExp||[]).map(e => `${e.expense_date}_${e.expense_type}_${e.amount}`))
         for (const row of rows) {
-          const date = String(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата'] || '').trim()
+          const date = parseDate(row['Дата (ГГГГ-ММ-ДД)*'] || row['Дата']).iso
           const expType = String(row['Вид расхода*'] || row['Вид расхода'] || '').trim()
           const amount = +row['Сумма*'] || +row['Сумма'] || 0
           if (!date || !expType) { errors.push('Пропущена дата или вид расхода'); continue }
@@ -1735,9 +1728,45 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     importRef.current.click()
   }
 
+  // ── Предпросмотр импорта клиентов ────────────────────────
+  const changeImportMode = (m) => {
+    setImportMode(m)
+    if (planRows) setImportPlan(buildClientsPlan({ rows: planRows, existingClients: planExisting, mode: m }))
+  }
+  const togglePlanItem = (id) => setImportPlan(p => ({
+    ...p, items: p.items.map(i => i.id === id ? { ...i, selected: !i.selected } : i),
+  }))
+  const togglePlanAll = (on) => setImportPlan(p => ({
+    ...p, items: p.items.map(i => i.action === 'same' ? i : { ...i, selected: on }),
+  }))
+  const closePlan = () => { setImportPlan(null); setPlanRows(null); setPlanExisting(null) }
+
+  const confirmPlan = async () => {
+    setApplying(true)
+    const items = importMode === 'skip'
+      ? importPlan.items.filter(i => i.action === 'create')
+      : importPlan.items
+    const res = await applyClientsPlan({ supabase, studioId, items })
+    setApplying(false)
+    closePlan()
+    setImportResult({ inserted: res.inserted, updated: res.updated, errors: res.errors })
+    if ((res.inserted || res.updated) && reload) reload()
+  }
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
       <input ref={importRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleImportFile} />
+
+      <ImportPreviewModal
+        plan={importPlan}
+        mode={importMode}
+        busy={applying}
+        onModeChange={changeImportMode}
+        onToggle={togglePlanItem}
+        onToggleAll={togglePlanAll}
+        onConfirm={confirmPlan}
+        onCancel={closePlan}
+      />
 
       {/* Красивый диалог */}
       {dialog && (
@@ -1799,7 +1828,8 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
         {importResult && (
           <div style={{ marginBottom: 16, padding: '12px 14px', borderRadius: 10, background: T.cream, border: `1px solid ${T.border}` }}>
             <div style={{ fontWeight: 700, fontSize: 13, color: T.greenDark, marginBottom: 4 }}>
-              ✅ Импортировано: {importResult.inserted} записей
+              ✅ Добавлено: {importResult.inserted} записей
+              {importResult.updated > 0 && ` · дополнено: ${importResult.updated}`}
             </div>
             {importResult.details && Object.entries(importResult.details).length > 0 && (
               <div style={{ marginBottom: 8 }}>
