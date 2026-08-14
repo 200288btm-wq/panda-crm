@@ -266,6 +266,12 @@ export function GlobalStyles() {
         .form-row { grid-template-columns: 1fr; gap: 0; }
         .table-wrap { border-radius: 12px; }
         .search-input { width: 100%; }
+
+        /* iOS Safari зумит страницу, если шрифт поля меньше 16px.
+           Ставим 16px только на мобиле — на десктопе вёрстка не меняется. */
+        .form-input, .search-input, input, select, textarea { font-size: 16px !important; }
+        .form-input { padding: 11px 13px; }
+        .search-input { padding: 11px 12px 11px 34px; }
         .search-wrap { flex: 1; }
         .page-title { font-size: 16px; }
 
@@ -278,9 +284,14 @@ export function GlobalStyles() {
         .cal-daynum { font-size: 10px; margin-bottom: 2px; }
       }
 
+      /* Пока открыта модалка, фон под ней не прокручивается */
+      body.modal-open { overflow: hidden; }
+
       @supports (padding-bottom: env(safe-area-inset-bottom)) {
-        .mobile-nav { padding-bottom: env(safe-area-inset-bottom); }
-        .content { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+        @media (max-width: 768px) {
+          .mobile-nav { padding-bottom: env(safe-area-inset-bottom); }
+          .content { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+        }
       }
     `}</style>
   )
@@ -294,6 +305,16 @@ export const hashColor = (str = '') => {
 }
 
 export const fmt = (n) => (n ?? 0).toLocaleString('ru-RU') + ' ₽'
+
+// ── Даты ─────────────────────────────────────────────────────
+// toISOString() отдаёт UTC: в Екатеринбурге (UTC+5) всё, что заводится
+// с 00:00 до 05:00 местного, встаёт вчерашним числом. Считаем локально.
+export const toLocalISO = (date) => {
+  const d = date instanceof Date ? date : new Date(date)
+  if (isNaN(d.getTime())) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+export const todayLocal = () => toLocalISO(new Date())
 
 export const STATUS_COLORS = {
   'Новый': 'badge-blue', 'Активен': 'badge-green',

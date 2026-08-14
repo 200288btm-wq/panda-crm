@@ -1,14 +1,8 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles.jsx'
+import { T, fmt, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { NumberInput } from '../components/SearchSelect'
-
-// Локальная дата, а не toISOString(): в UTC+5 ночью тот отдаёт вчера.
-const todayLocal = () => {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 const ruDate = (iso) => {
   if (!iso) return '—'

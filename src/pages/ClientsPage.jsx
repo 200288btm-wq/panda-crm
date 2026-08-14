@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, STATUS_COLORS, STATUSES } from '../styles.jsx'
+import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const DEFAULT_COLOR = '#7BAF8E'
@@ -250,7 +250,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       const now = new Date()
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
       const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date, expires_at').eq('client_id', client.id)
-      const today = new Date().toISOString().slice(0, 10)
+      const today = todayLocal()
       const paidFromPayments = (pays||[]).filter(p => !p.expires_at || p.expires_at >= today).reduce((s,p) => s + (+p.lessons_count||0), 0)
       const totalPaid = (client.paid_lessons || 0) + paidFromPayments
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
@@ -282,7 +282,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
   const totalPaid = stats?.totalPaid ?? client.paid_lessons ?? 0
   const totalVisited = stats?.totalVisited ?? client.visited_lessons ?? 0
   const bal = calcBalance(totalPaid, totalVisited)
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = todayLocal()
   const activeFreeze = freezes.find(f => f.start_date <= todayStr && f.end_date >= todayStr)
   const futureFreeze = freezes.find(f => f.start_date > todayStr)
 
@@ -389,7 +389,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>История оплат ({cPay.length})</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
                 {cPay.length ? cPay.map(p => {
-                  const today = new Date().toISOString().slice(0, 10)
+                  const today = todayLocal()
                   const isExpired = p.expires_at && p.expires_at < today
                   return (
                     <div key={p.id} className="fin-row" style={{ opacity: isExpired ? 0.6 : 1 }}>
@@ -528,7 +528,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
 }
 
 function FreezeModal({ client, onClose, onSaved }) {
-  const todayISO = new Date().toISOString().slice(0, 10)
+  const todayISO = todayLocal()
   const [startDate, setStartDate] = useState(todayISO)
   const [days, setDays] = useState(7)
   const [note, setNote] = useState('')
@@ -538,7 +538,7 @@ function FreezeModal({ client, onClose, onSaved }) {
     if (!startDate || !days || days < 1) return ''
     const d = new Date(startDate)
     d.setDate(d.getDate() + (+days) - 1)
-    return d.toISOString().slice(0, 10)
+    return toLocalISO(d)
   })()
   const save = async () => {
     setError(null)
@@ -587,7 +587,7 @@ function FreezeModal({ client, onClose, onSaved }) {
 }
 
 const calcRealBalance = (client, payments) => {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocal()
   const paidFromPayments = payments
     .filter(p => p.client_id === client.id)
     .filter(p => !p.expires_at || p.expires_at >= today)

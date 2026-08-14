@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles.jsx'
+import { T, todayLocal } from '../styles.jsx'
 import BookingSettingsPage from './BookingSettingsPage'
 import AddressesPage from './AddressesPage'
 import StaffPage from './StaffPage'
@@ -1405,7 +1405,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     ])
     XLSX.utils.book_append_sheet(wb, wsSubs, 'Абонементы')
 
-    const date = new Date().toISOString().slice(0, 10)
+    const date = todayLocal()
     XLSX.writeFile(wb, `учтено_экспорт_${date}.xlsx`)
   }
 

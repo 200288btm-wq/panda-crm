@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor } from '../styles.jsx'
+import { T, fmt, hashColor, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
@@ -227,7 +227,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
               <div style={{ fontSize: 13, color: '#e05a5a', fontWeight: 600, marginBottom: 6 }}>
                 ⚠️ Укажите дату начала работы
               </div>
-              <button onClick={() => { set('hired', new Date().toISOString().slice(0, 10)); setHiredError(false) }}
+              <button onClick={() => { set('hired', todayLocal()); setHiredError(false) }}
                 style={{ fontSize: 12, color: T.green, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
                 Использовать сегодняшнюю дату ({new Date().toLocaleDateString('ru-RU')})
               </button>
@@ -349,7 +349,14 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                   )}
 
                   {targets.map(({ gid, label }) => {
-                    const r = getRateForDir(d.id, gid) || { rate_type: hourly ? 'per_hour' : 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0 }
+                    // rate_type мог приехать пустым (старые строки, импорт).
+                    // Расчёт такую строку считает как «фикс» — кнопки должны
+                    // говорить то же самое, а не стоять обе неподсвеченными.
+                    const rawRate = getRateForDir(d.id, gid)
+                    const fallbackType = hourly ? 'per_hour' : 'per_lesson'
+                    const r = rawRate
+                      ? { ...rawRate, rate_type: rawRate.rate_type || fallbackType }
+                      : { rate_type: fallbackType, rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0 }
                     return (
                       <div key={gid} style={targets.length > 1
                         ? { background: 'white', borderRadius: 10, padding: '10px 12px', marginTop: 8, border: `1px solid ${T.border}` }
@@ -441,7 +448,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
 
 // ── Модалка выплаты ─────────────────────────────────────────
 function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayLocal()
   const firstDay = today.slice(0, 8) + '01'
   const [periodFrom, setPeriodFrom] = useState(firstDay)
   const [periodTo, setPeriodTo] = useState(today)
@@ -1195,7 +1202,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     }
 
     await supabase.from('expenses').insert({
-      studio_id: studioId, expense_date: new Date().toISOString().slice(0, 10),
+      studio_id: studioId, expense_date: todayLocal(),
       expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
       comment: `${teacher.name}: разовая оплата занятия ${lesson.date}`,
       payout_id: payout.id,
@@ -1231,7 +1238,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
     await supabase.from('expenses').insert({
       studio_id: studioId,
-      expense_date: new Date().toISOString().slice(0, 10),
+      expense_date: todayLocal(),
       expense_type: 'Зарплата',
       category: 'Разовый',
       amount,

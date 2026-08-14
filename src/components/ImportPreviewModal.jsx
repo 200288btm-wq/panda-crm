@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { T } from '../styles.jsx'
 
 const MODES = [
@@ -9,6 +9,20 @@ const MODES = [
 
 export default function ImportPreviewModal({ plan, mode, onModeChange, onToggle, onToggleAll, onConfirm, onCancel, busy }) {
   const downRef = useRef(false)
+  const open = !!plan
+
+  // Escape закрывает, фон не прокручивается. Во время записи не закрываем.
+  useEffect(() => {
+    if (!open) return
+    document.body.classList.add('modal-open')
+    const onKey = (e) => { if (e.key === 'Escape' && !busy) onCancel() }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.classList.remove('modal-open')
+    }
+  }, [open, busy, onCancel])
+
   if (!plan) return null
 
   const { items, stats } = plan
