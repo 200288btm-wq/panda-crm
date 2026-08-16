@@ -600,6 +600,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [cancelPayout, setCancelPayout] = useState(null)  // выплата, ждущая подтверждения отмены
   const [cancelling, setCancelling] = useState(false)
   const [selectedPayout, setSelectedPayout] = useState(null)  // подсвечиваем занятия этой выплаты
+  const [showAllPayouts, setShowAllPayouts] = useState(false) // история обрезана до 5, пока не развернут
 
   const doCancelPayout = async (payout) => {
     setCancelling(true)
@@ -858,12 +859,15 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
               </div>
 
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>История выплат</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                  <span>История выплат{payouts.length ? ` · ${payouts.length}` : ''}</span>
+                  {payouts.length > 0 && <span style={{ textTransform: 'none', letterSpacing: 0 }}>всего {fmt(totalPaid)}</span>}
+                </div>
                 {payouts.length === 0 ? (
                   <div style={{ fontSize: 13, color: T.muted }}>Выплат пока нет</div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {payouts.slice(0, 5).map(p => {
+                    {(showAllPayouts ? payouts : payouts.slice(0, 5)).map(p => {
                       const active = selectedPayout === p.id
                       return (
                       <div key={p.id} onClick={() => setSelectedPayout(active ? null : p.id)}
@@ -887,6 +891,14 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         </div>
                       </div>
                     )})}
+                    {payouts.length > 5 && (
+                      <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start', color: T.muted }}
+                        onClick={() => setShowAllPayouts(v => !v)}>
+                        {showAllPayouts
+                          ? '▴ Свернуть'
+                          : `▾ Показать все выплаты (${payouts.length})`}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
