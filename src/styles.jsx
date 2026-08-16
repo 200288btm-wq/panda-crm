@@ -316,6 +316,13 @@ export const toLocalISO = (date) => {
 }
 export const todayLocal = () => toLocalISO(new Date())
 
+/** ГГГГ-ММ-ДД → ДД.ММ.ГГГГ для показа. Принимает и timestamp. */
+export const ruDate = (iso) => {
+  if (!iso) return '—'
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : String(iso)
+}
+
 export const STATUS_COLORS = {
   'Новый': 'badge-blue', 'Активен': 'badge-green',
   'Временно отсутствует': 'badge-orange', 'Неактивен': 'badge-gray',

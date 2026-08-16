@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, todayLocal } from '../styles.jsx'
+import { T, fmt, hashColor, todayLocal, ruDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { TEACHER_TRACES, countTraces, setArchived } from '../lib/archive'
@@ -608,7 +608,12 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
     setCancelling(false)
     if (error) { alert('Ошибка отмены: ' + error.message); return }
     setCancelPayout(null)
-    setAttStats(null)  // перечитать историю при следующем открытии
+    // Раньше история только сбрасывалась и перечитывалась при следующем
+    // открытии: в раскрытой карточке отменённая выплата оставалась на
+    // экране. Перечитываем сразу.
+    setJustPaid(new Set())
+    setSelectedPayout(null)
+    await loadDetails(true)
     reload()
   }
   const [open, setOpen] = useState(false)
@@ -867,12 +872,16 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                           outline: active ? '2px solid #34a853' : 'none', transition: 'all 0.15s' }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{fmt(p.amount)}</div>
-                          <div style={{ fontSize: 11, color: T.muted }}>{p.period_from} — {p.period_to} · {p.lessons_count} зан.</div>
+                          <div style={{ fontSize: 11, color: T.muted }}>
+                            {p.period_from === p.period_to
+                              ? ruDate(p.period_from)
+                              : `${ruDate(p.period_from)} — ${ruDate(p.period_to)}`} · {p.lessons_count} зан.
+                          </div>
                           {p.note && <div style={{ fontSize: 11, color: T.muted }}>{p.note}</div>}
                           {active && <div style={{ fontSize: 11, color: T.greenDark, fontWeight: 600, marginTop: 2 }}>↑ занятия этой выплаты подсвечены выше</div>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ fontSize: 11, color: T.muted }}>{p.created_at?.slice(0, 10)}</div>
+                          <div style={{ fontSize: 11, color: T.muted }}>{ruDate(p.created_at)}</div>
                           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#e05a5a', padding: '2px 8px' }}
                             onClick={(e) => { e.stopPropagation(); setCancelPayout(p) }}>Отменить</button>
                         </div>
@@ -885,8 +894,8 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
               {(teacher.hired || teacher.contract_date || teacher.phone) && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
                   {teacher.phone && <div><div style={{ fontSize: 11, color: T.muted }}>Телефон</div><div style={{ fontSize: 13 }}>{teacher.phone}</div></div>}
-                  {teacher.hired && <div><div style={{ fontSize: 11, color: T.muted }}>Принят</div><div style={{ fontSize: 13 }}>{teacher.hired}</div></div>}
-                  {teacher.contract_date && <div><div style={{ fontSize: 11, color: T.muted }}>Договор</div><div style={{ fontSize: 13 }}>{teacher.contract_date}</div></div>}
+                  {teacher.hired && <div><div style={{ fontSize: 11, color: T.muted }}>Принят</div><div style={{ fontSize: 13 }}>{ruDate(teacher.hired)}</div></div>}
+                  {teacher.contract_date && <div><div style={{ fontSize: 11, color: T.muted }}>Договор</div><div style={{ fontSize: 13 }}>{ruDate(teacher.contract_date)}</div></div>}
                 </div>
               )}
 
@@ -1265,9 +1274,12 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     await supabase.from('expenses').insert({
       studio_id: studioId, expense_date: todayLocal(),
       expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
-      comment: `${teacher.name}: разовая оплата занятия ${lesson.date}`,
+      comment: `${teacher.name}: разовая оплата занятия ${ruDate(lesson.date)}`,
       payout_id: payout.id,
     })
+    // Без этого выплата ложилась в базу, но список в раскрытой карточке
+    // оставался прежним: он кэшируется до первого открытия
+    setRefreshKey(k => k + 1)
     reload()
     return true
   }
