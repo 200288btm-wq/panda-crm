@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { CLIENT_TRACES, countTraces } from '../lib/archive'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
@@ -123,7 +124,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
       </div>
       <div className="form-group"><label className="form-label">Направления</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-          {directions.map(d => {
+          {directions.filter(d => !d.archived_at || (f.direction_ids || []).includes(d.id)).map(d => {
             const on = (f.direction_ids || []).includes(d.id)
             const color = d.color || DEFAULT_COLOR
             return (
@@ -630,6 +631,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
   const [enrollModal, setEnrollModal] = useState(null)
   const [showEdit, setShowEdit] = useState(null)
   const [showFreeze, setShowFreeze] = useState(null)
+  const [deleteAsk, setDeleteAsk] = useState(null)
+  const [busy, setBusy] = useState(false)
   const [addresses, setAddresses] = useState([])
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
   useEffect(() => {
@@ -649,13 +652,21 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     supabase.from('addresses').select('*').eq('studio_id', studioId)
       .then(({ data }) => setAddresses(data || []))
   }, [studioId])
+  // Архива у клиентов нет намеренно: роль архива играет статус.
+  // Но «Все» должно означать «все, с кем работаем», иначе список за пару
+  // лет зарастает ушедшими и перестаёт быть рабочим. Ушедшие видны на
+  // своей вкладке и находятся поиском по имени с любой вкладки.
+  const HIDDEN_STATUSES = ['Неактивен', 'Отказ', 'Негатив']
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
     const match = !q || (c.child_name || '').toLowerCase().includes(q) || (c.adult_name || '').toLowerCase().includes(q)
-    const st = statusFilter === 'Все' || c.status === statusFilter
+    const st = statusFilter === 'Все'
+      ? (!HIDDEN_STATUSES.includes(c.status) || !!q)
+      : c.status === statusFilter
     const dir = dirFilter === 'all' || (c.direction_ids || []).includes(+dirFilter)
     return match && st && dir
   })
+  const hiddenCount = clients.filter(c => HIDDEN_STATUSES.includes(c.status)).length
   const save = async (f) => {
     const cleaned = {
       ...f,
@@ -680,9 +691,34 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
     await reload()
   }
+  // У клиента с посещениями и оплатами удаление уносило бы историю:
+  // отметки — основа начислений педагогам, оплаты — основа финансов.
+  // Такому клиенту ставится статус «Неактивен», он и прячет из списка.
   const deleteClient = async (c) => {
-    if (!confirm(`Удалить клиента «${c.child_name}»? Это действие нельзя отменить.`)) return
-    await supabase.from('clients').delete().eq('id', c.id)
+    setDeleteAsk({ client: c, loading: true })
+    const traces = await countTraces(CLIENT_TRACES, c.id, studioId)
+    setDeleteAsk({ client: c, loading: false, traces })
+  }
+
+  const doDeleteClient = async () => {
+    const c = deleteAsk.client
+    setBusy(true)
+    const { error } = await supabase.from('clients').delete().eq('id', c.id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { alert(`Удалить «${c.child_name}» не получилось: ${error.message}`); return }
+    setDeleteAsk(null)
+    setShowDetail(null)
+    await reload()
+  }
+
+  const markInactive = async () => {
+    const c = deleteAsk.client
+    setBusy(true)
+    const { error } = await supabase.from('clients').update({ status: 'Неактивен' })
+      .eq('id', c.id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setDeleteAsk(null)
     setShowDetail(null)
     await reload()
   }
@@ -695,13 +731,18 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         </div>
         <select className="form-input" style={{ width: 'auto', padding: '8px 12px' }} value={dirFilter} onChange={e => setDirFilter(e.target.value)}>
           <option value="all">Все направления</option>
-          {directions.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {directions.filter(d => !d.archived_at).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAdd(true)}>+ Новый клиент</button>
       </div>
       <div className="tabs" style={{ marginBottom: 14 }}>
         {['Все', ...STATUSES_LIST].map(s => <button key={s} className={`tab ${statusFilter === s ? 'active' : ''}`} onClick={() => setStatusFilter(s)}>{s}</button>)}
       </div>
+      {statusFilter === 'Все' && hiddenCount > 0 && !search && (
+        <div style={{ fontSize: 12, color: T.muted, marginBottom: 12, marginTop: -6 }}>
+          Скрыто ушедших: {hiddenCount}. Они на своих вкладках, поиск по имени находит их отовсюду.
+        </div>
+      )}
       <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
           <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th><th>Комментарий</th></tr></thead>
@@ -841,6 +882,66 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           features={features}
         />
       )}
+      {deleteAsk && (() => {
+        const { client, loading, traces } = deleteAsk
+        const hasHistory = !!traces && traces.total > 0
+        const failed = !!traces && traces.errors.length > 0
+        return (
+          <Modal title={hasHistory ? 'Клиент с историей' : 'Удалить клиента'} onClose={() => setDeleteAsk(null)}
+            footer={<>
+              <button className="btn btn-ghost" onClick={() => setDeleteAsk(null)} disabled={busy}>Отмена</button>
+              {!loading && !failed && (hasHistory
+                ? (client.status !== 'Неактивен' && (
+                    <button className="btn btn-primary" onClick={markInactive} disabled={busy}>
+                      {busy ? 'Сохраняем…' : 'Пометить «Неактивен»'}
+                    </button>
+                  ))
+                : (
+                    <button className="btn btn-danger" onClick={doDeleteClient} disabled={busy}>
+                      {busy ? 'Удаляем…' : '🗑️ Удалить'}
+                    </button>
+                  )
+              )}
+            </>}>
+            {loading && <div style={{ fontSize: 14, color: T.muted }}>Смотрим, что числится за клиентом…</div>}
+
+            {!loading && failed && (
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: '#e05a5a' }}>
+                Не удалось проверить историю, поэтому ничего не трогаем. Попробуйте ещё раз.
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>{traces.errors.join('; ')}</div>
+              </div>
+            )}
+
+            {!loading && !failed && hasHistory && (
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+                За <strong>{client.child_name}</strong> числится история:
+                <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', margin: '12px 0' }}>
+                  {traces.details.map(d => (
+                    <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
+                      <span style={{ color: T.muted }}>{d.label}</span>
+                      <b>{d.count}</b>
+                    </div>
+                  ))}
+                </div>
+                Удалить нельзя: отметки посещаемости — основа начислений
+                педагогам, а оплаты — основа финансовых отчётов.
+                {client.status === 'Неактивен'
+                  ? <div style={{ marginTop: 10, color: T.muted, fontSize: 13 }}>Клиент уже помечен «Неактивен» и скрыт из общего списка.</div>
+                  : <div style={{ marginTop: 10 }}>Для ушедших есть статус «Неактивен» — он убирает клиента из общего списка, оставляя историю нетронутой.</div>}
+              </div>
+            )}
+
+            {!loading && !failed && !hasHistory && (
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: T.ink }}>
+                За <strong>{client.child_name}</strong> ничего не числится — ни занятий,
+                ни оплат. Карточку можно удалить насовсем.
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 10 }}>Отменить не получится.</div>
+              </div>
+            )}
+          </Modal>
+        )
+      })()}
+
       {showFreeze && (
         <FreezeModal
           client={showFreeze}

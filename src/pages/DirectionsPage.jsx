@@ -6,6 +6,8 @@ import { QuickAdd } from '../components/QuickAdd'
 import { Hint } from '../components/Hint'
 import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 import { NumberInput } from '../components/SearchSelect'
+import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
+import { DIRECTION_TRACES, countTraces, setArchived } from '../lib/archive'
 
 // Цвета работают как метки: их различают боковым зрением на карточках
 // и в расписании. Поэтому подряд идут разные тона, а не оттенки одного.
@@ -639,6 +641,10 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
   const [freshAddresses, setFreshAddresses] = useState([])
   const detailDownRef = useRef(false)
   const [dragId, setDragId] = useState(null)
+  const [deleteAsk, setDeleteAsk] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
+  const archivedDirs = (directions || []).filter(d => d.archived_at)
   const [dragOverId, setDragOverId] = useState(null)
 
   useEffect(() => {
@@ -755,11 +761,36 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     reload()
   }
 
+  // Удаление разрешено только направлению без истории. Всё, по чему уже
+  // были занятия, уходит в архив: отметки и журнал — основа расчётов.
   const del = async (id, name) => {
-    if (!confirm(`Удалить направление «${name}»? Все его подгруппы тоже будут удалены.`)) return
-    const { error } = await supabase.from('directions').delete().eq('id', id)
-    if (error) { alert('Ошибка удаления: ' + error.message); return }
+    const dir = (directions || []).find(x => x.id === id)
+    setDeleteAsk({ id, name, loading: true })
+    const traces = await countTraces(DIRECTION_TRACES, id, studioId)
+    setDeleteAsk({ id, name, loading: false, traces, archived: !!dir?.archived_at })
+  }
+
+  const doDelete = async () => {
+    const { id, name } = deleteAsk
+    setBusy(true)
+    // Ставка сама по себе не история, но связь teacher_rates → directions
+    // блокирует удаление. Чистим её до направления, иначе пользователь
+    // увидит сырую ошибку Postgres вместо понятного сообщения.
+    await supabase.from('teacher_rates').delete().eq('direction_id', id).eq('studio_id', studioId)
+    const { error } = await supabase.from('directions').delete().eq('id', id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { alert(`Удалить «${name}» не получилось: ${error.message}`); return }
+    setDeleteAsk(null)
     await loadGroups()
+    reload()
+  }
+
+  const doArchive = async (id, archived) => {
+    setBusy(true)
+    const { error } = await setArchived('directions', id, studioId, archived)
+    setBusy(false)
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setDeleteAsk(null)
     reload()
   }
 
@@ -823,7 +854,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         </div>
       )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
-        {(localDirs || directions).map(d => {
+        {(localDirs || directions).filter(d => !d.archived_at).map(d => {
           const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
           const color = d.color||DIRECTION_COLORS[0]
           const auto = calcAutoPrice(d, subscriptions)
@@ -993,6 +1024,54 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         })}
         {!directions.length && <div className="card card-pad"><div className="empty"><div className="empty-icon">🎯</div><div className="empty-text">Направлений пока нет</div></div></div>}
       </div>
+
+      {archivedDirs.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowArchive(v => !v)}
+            style={{ color: T.muted, fontWeight: 700 }}>
+            {showArchive ? '▾' : '▸'} Архив · {archivedDirs.length}
+          </button>
+          {showArchive && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+                Новых занятий по этим направлениям не появляется. Прошлые
+                занятия, отметки и начисления остались в календаре и расчётах.
+              </div>
+              {archivedDirs.map(d => (
+                <div key={d.id} className="card card-pad"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, opacity: 0.75, flexWrap: 'wrap',
+                           borderLeft: `4px solid ${d.color || DIRECTION_COLORS[0]}` }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{d.name}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>
+                      в архиве с {String(d.archived_at).slice(0, 10).split('-').reverse().join('.')}
+                    </div>
+                  </div>
+                  {isAdmin && (
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                      <button className="btn btn-outline btn-sm" disabled={busy}
+                        onClick={() => doArchive(d.id, false)}>↩ Вернуть</button>
+                      <button className="btn btn-ghost btn-sm" style={{ color: T.red }} disabled={busy}
+                        onClick={() => del(d.id, d.name)}>🗑️</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {deleteAsk && (
+        <DeleteOrArchiveModal
+          ask={deleteAsk}
+          kind="direction"
+          busy={busy}
+          onClose={() => setDeleteAsk(null)}
+          onArchive={() => doArchive(deleteAsk.id, true)}
+          onDelete={doDelete}
+        />
+      )}
 
       {showDetail && (
         // Своя подложка вместо общей Modal: закрываем только если клик

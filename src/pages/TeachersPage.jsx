@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
+import { TEACHER_TRACES, countTraces, setArchived } from '../lib/archive'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
 const STATUSES_T = ['Активен', 'В поиске', 'Ожидание', 'Уволен']
@@ -213,6 +215,12 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
           <select className="form-input" value={f.status} onChange={e => set('status', e.target.value)}>
             {STATUSES_T.map(s => <option key={s}>{s}</option>)}
           </select>
+          {f.status === 'Уволен' && (
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+              Останется в списке, пока есть невыплаченное. После полного
+              расчёта уйдёт в архив — занятия, ставки и выплаты сохранятся.
+            </div>
+          )}
         </div>
       </div>
 
@@ -244,7 +252,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
       <div className="form-group">
         <label className="form-label">Направления</label>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 2 }}>
-          {directions.map(d => {
+          {directions.filter(d => !d.archived_at || (f.direction_ids || []).includes(d.id)).map(d => {
             const on = (f.direction_ids || []).includes(d.id)
             return (
               <label key={d.id} className={`chip ${on ? 'chip-active' : 'chip-inactive'}`}>
@@ -885,7 +893,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button className="btn btn-primary btn-sm" onClick={() => onPayout(teacher)}>💰 Выплата</button>
                 <button className="btn btn-outline btn-sm" onClick={() => onEdit(teacher)}>✏️ Редактировать</button>
-                <button className="btn btn-ghost btn-sm" onClick={() => onDelete(teacher.id, teacher.name)} style={{ color: '#e05a5a' }}>🗑️ Удалить</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => onDelete(teacher.id, teacher.name)} style={{ color: '#e05a5a' }}>🗑️ Удалить или в архив</button>
               </div>
             </>
           )}
@@ -960,6 +968,10 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const [refreshKey, setRefreshKey] = useState(0)    // растёт после сохранений
   const [rateAlerts, setRateAlerts] = useState([])   // подгруппы без ставки
   const [dismissed, setDismissed] = useState(new Set()) // скрытые лично мной
+  const [deleteAsk, setDeleteAsk] = useState(null)      // карточка, ждущая решения
+  const [busy, setBusy] = useState(false)
+  const [showArchive, setShowArchive] = useState(false)
+  const autoArchived = useRef(new Set())                // чтобы не писать повторно
 
   // ── Подгруппы, за которые педагогу нечего платить ────────────────────────
   // Ставка ищется «подгруппа → направление (group_id = 0)». Проблема там,
@@ -993,7 +1005,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       }
 
       const problems = []
-      teachers.filter(t => t.status !== 'Уволен' && t.salary_type !== 'salary').forEach(t => {
+      teachers.filter(t => t.status !== 'Уволен' && !t.archived_at && t.salary_type !== 'salary').forEach(t => {
         ;(t.direction_ids || []).forEach(dirId => {
           const dir = directions.find(d => d.id === dirId)
           if (!dir) return
@@ -1102,6 +1114,29 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     return () => { cancelled = true }
   }, [teachers, studioId, directions])
 
+  // ── Авто-архив уволенных ─────────────────────────────────────
+  // Уволенный остаётся на виду, пока с ним не рассчитались: карточка
+  // с долгом не должна пропадать из списка. Как только долг закрыт —
+  // уходит в архив сама. Долг считается по той же сводке, что видна
+  // в списке, поэтому расхождения между экраном и решением нет.
+  useEffect(() => {
+    if (!studioId || !Object.keys(summary).length) return
+    const ready = teachers.filter(t =>
+      t.status === 'Уволен' &&
+      !t.archived_at &&
+      summary[t.id] &&
+      Math.round(summary[t.id].debt || 0) <= 0 &&
+      !autoArchived.current.has(t.id)
+    )
+    if (!ready.length) return
+    ready.forEach(t => autoArchived.current.add(t.id))
+    Promise.all(ready.map(t => setArchived('teachers', t.id, studioId, true)))
+      .then(() => reload())
+  }, [summary, teachers, studioId])
+
+  const activeTeachers = teachers.filter(t => !t.archived_at)
+  const archivedTeachers = teachers.filter(t => t.archived_at)
+
   const save = async (f, rates) => {
     // Подгруппы снятых направлений в списке оставаться не должны
     const liveGroupIds = new Set(
@@ -1174,9 +1209,35 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     reload()
   }
 
+  // Удаление разрешено только пустой карточке. Всё, за чем числится
+  // история, уходит в архив: начисления считаются заново из журнала и
+  // отметок, поэтому снос записи молча переписал бы прошлое.
   const del = async (id, name) => {
-    if (!confirm(`Удалить педагога «${name}»?`)) return
-    await supabase.from('teachers').delete().eq('id', id)
+    const teacher = teachers.find(t => t.id === id)
+    setDeleteAsk({ id, name, loading: true })
+    const traces = await countTraces(TEACHER_TRACES, id, studioId)
+    setDeleteAsk({ id, name, loading: false, traces, archived: !!teacher?.archived_at })
+  }
+
+  const doDelete = async () => {
+    const { id, name } = deleteAsk
+    setBusy(true)
+    // Ставки — не история, сами по себе удалению не мешают, но
+    // осиротеть не должны
+    await supabase.from('teacher_rates').delete().eq('teacher_id', id).eq('studio_id', studioId)
+    const { error } = await supabase.from('teachers').delete().eq('id', id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { alert(`Удалить «${name}» не получилось: ${error.message}`); return }
+    setDeleteAsk(null)
+    reload()
+  }
+
+  const doArchive = async (id, archived) => {
+    setBusy(true)
+    const { error } = await setArchived('teachers', id, studioId, archived)
+    setBusy(false)
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setDeleteAsk(null)
     reload()
   }
 
@@ -1285,7 +1346,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         </div>
       )}
 
-      {teachers.map(t => (
+      {activeTeachers.map(t => (
         <TeacherCard
           key={t.id}
           teacher={t}
@@ -1300,6 +1361,54 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           refreshKey={refreshKey}
         />
       ))}
+
+      {archivedTeachers.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowArchive(v => !v)}
+            style={{ color: T.muted, fontWeight: 700 }}>
+            {showArchive ? '▾' : '▸'} Архив · {archivedTeachers.length}
+          </button>
+          {showArchive && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 10, lineHeight: 1.5 }}>
+                Занятия, ставки и выплаты этих педагогов остались в расчётах
+                и отчётах. Из активного списка они убраны.
+              </div>
+              {archivedTeachers.map(t => (
+                <div key={t.id} className="card card-pad"
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, opacity: 0.75, flexWrap: 'wrap' }}>
+                  <div className="avatar" style={{ background: '#d1d5db', width: 34, height: 34, fontSize: 13 }}>
+                    {(t.name || '?').slice(0, 1)}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{t.name}</div>
+                    <div style={{ fontSize: 11, color: T.muted }}>
+                      {t.status}{t.archived_at ? ` · в архиве с ${String(t.archived_at).slice(0, 10).split('-').reverse().join('.')}` : ''}
+                    </div>
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <button className="btn btn-outline btn-sm" disabled={busy}
+                      onClick={() => doArchive(t.id, false)}>↩ Вернуть</button>
+                    <button className="btn btn-ghost btn-sm" style={{ color: T.red }} disabled={busy}
+                      onClick={() => del(t.id, t.name)}>🗑️</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {deleteAsk && (
+        <DeleteOrArchiveModal
+          ask={deleteAsk}
+          kind="teacher"
+          busy={busy}
+          onClose={() => setDeleteAsk(null)}
+          onArchive={() => doArchive(deleteAsk.id, true)}
+          onDelete={doDelete}
+        />
+      )}
 
       {showAdd && (
         <TeacherModal directions={directions} studioId={studioId} onClose={() => setShowAdd(false)} onSave={save} />

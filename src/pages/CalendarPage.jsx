@@ -72,6 +72,10 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
   const ds = dateStr(date)
   const events = []
   directions.forEach(d => {
+    // Занятия рисуются из расписания, а не из базы. Поэтому архивное
+    // направление гасим только начиная с даты архивации: прошлые
+    // занятия и отметки по ним остаются видимыми в календаре.
+    if (d.archived_at && ds >= String(d.archived_at).slice(0, 10)) return
     // Фильтр по направлению
     if (Array.isArray(filterDir)) {
       if (filterDir.length > 0 && !filterDir.includes(String(d.id))) return
@@ -1100,7 +1104,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
 
       {/* Фильтр по направлениям — лентой сразу под панелью */}
       <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'flex-start', marginBottom:14 }}>
-        {directions.map(d => {
+        {directions.filter(d => !d.archived_at).map(d => {
           const active = filterDirs.includes(String(d.id))
           const color = d.color || DEFAULT_COLOR
           const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
