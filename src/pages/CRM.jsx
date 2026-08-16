@@ -248,6 +248,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
           ))}
         </div>
       ))}
+      <div className="sidebar-scroll-fade" />
     </>
   )
 

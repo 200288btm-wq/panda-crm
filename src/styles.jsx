@@ -25,7 +25,7 @@ export function GlobalStyles() {
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: ${T.greenLight}; border-radius: 10px; }
 
-      .app { display: flex; height: 100vh; overflow: hidden; }
+      .app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 
       /* ── Sidebar ── */
       .sidebar { width: 230px; min-width: 230px; background: ${T.white}; border-right: 1px solid ${T.border}; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; transition: width 0.25s ease, min-width 0.25s ease; z-index: 100; flex-shrink: 0; }
@@ -206,12 +206,13 @@ export function GlobalStyles() {
       .alert-success { background: ${T.greenBg}; color: ${T.greenDark}; }
       .alert-warning { background: #fef3c7; color: #92400e; }
 
-      .login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: ${T.cream}; padding: 20px; }
+      .login-page { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: ${T.cream}; padding: 20px; }
       .login-card { background: white; border-radius: 20px; border: 1px solid ${T.border}; padding: 32px 28px; width: 100%; max-width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
 
       /* ── Mobile bottom nav ── */
       .mobile-nav { display: none; }
       .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99; }
+      .sidebar-scroll-fade { display: none; }
       .topbar-hamburger { display: none; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; cursor: pointer; background: ${T.cream}; border: none; font-size: 18px; flex-shrink: 0; }
 
       /* ══════════════════════
@@ -222,7 +223,18 @@ export function GlobalStyles() {
         .sidebar-wrapper { display: none !important; }
         .sidebar-wrapper.mobile-open { display: block !important; position: fixed; inset: 0; z-index: 200; }
         .sidebar-overlay { display: block; }
-        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto !important; -webkit-overflow-scrolling: touch; }
+        /* 100vh на iOS Safari — это высота БЕЗ учёта адресной строки и
+           нижней панели, поэтому низ меню уходил под них и последний
+           пункт было не достать. 100dvh считает реальную видимую высоту;
+           100vh оставлен запасным для старых браузеров. */
+        .sidebar { position: fixed; left: 0; top: 0; height: 100vh; height: 100dvh; transform: translateX(-100%); transition: transform 0.25s ease; width: 260px !important; min-width: 260px !important; box-shadow: 4px 0 20px rgba(0,0,0,0.15); overflow-y: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+        /* Запас снизу: последний пункт не должен липнуть к краю, иначе
+           непонятно, что список кончился, а не обрезался */
+        .sidebar { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
+        /* Подсказка, что список прокручивается: нижний край растворяется,
+           пока не долистали до конца */
+        .sidebar-scroll-fade { display: block; position: sticky; bottom: 0; height: 24px; margin-top: -24px; pointer-events: none;
+          background: linear-gradient(to bottom, rgba(255,255,255,0), ${T.white}); }
         .sidebar-wrapper.mobile-open .sidebar { transform: translateX(0); }
         .sidebar-toggle { display: none !important; }
 
