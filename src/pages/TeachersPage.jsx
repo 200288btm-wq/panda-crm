@@ -619,6 +619,13 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   }
   const [open, setOpen] = useState(false)
   const [payouts, setPayouts] = useState([])
+  // Выплата может не попасть в первые пять — тогда подсветка ушла бы
+  // за пределы видимого списка. Раскрываем историю сразу.
+  const selectPayout = (id) => {
+    setSelectedPayout(id)
+    if (id && payouts.findIndex(p => p.id === id) >= 5) setShowAllPayouts(true)
+  }
+
   const [attStats, setAttStats] = useState(null)
   const [loadingStats, setLoadingStats] = useState(false)
   const [rates, setRates] = useState([])
@@ -691,6 +698,10 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const lessonsCount = earn ? earn.lessons : (attStats?.filter(a => a.teacher_id === teacher.id).length || 0)
   const debt = totalEarned !== null ? totalEarned - totalPaid : null
 
+  // Когда именно прошла выплата — чтобы показать это прямо в строке занятия
+  const payoutDateById = {}
+  payouts.forEach(p => { payoutDateById[p.id] = p.created_at })
+
   // История занятий с признаком оплаты — прямо из движка расчёта
   const lessonHistory = earn ? earn.items.map(i => {
     const dir = directions.find(d => d.id === i.directionId)
@@ -705,6 +716,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
         : null,
       hours: i.hours, amount: i.amount, paid: i.paid, fromLog: i.fromLog,
       directionId: i.directionId, groupId: +(i.groupId || 0), payoutId: payoutId || null,
+      paidAt: payoutId ? payoutDateById[payoutId] || null : null,
     }
   }) : []
 
@@ -824,12 +836,19 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                       const lkey = l.workLogId ? `wl_${l.workLogId}` : `lg_${l.date}_${l.directionId}_${+(l.groupId || 0)}`
                       const paid = l.paid || justPaid.has(lkey)
                       const inSelected = selectedPayout && l.payoutId === selectedPayout
+                      // Связь работает в обе стороны: клик по выплате подсвечивает
+                      // её занятия, клик по занятию — выплату, которой оно закрыто
+                      const canSelect = paid && l.payoutId
                       return (
-                      <div key={i} style={{
+                      <div key={i}
+                        onClick={canSelect ? () => selectPayout(inSelected ? null : l.payoutId) : undefined}
+                        title={canSelect ? 'Показать выплату по этому занятию' : undefined}
+                        style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8,
                         borderLeft: `3px solid ${l.color || '#ddd'}`,
                         background: inSelected ? '#b7e4c4' : paid ? '#e8f5ec' : '#fdeef0',
                         outline: inSelected ? '2px solid #34a853' : 'none',
+                        cursor: canSelect ? 'pointer' : 'default',
                         transition: 'background 0.15s, outline 0.15s',
                       }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.ink, minWidth: 92 }}>
@@ -845,6 +864,11 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         <span style={{ fontSize: 12, fontWeight: 700, color: paid ? T.greenDark : '#c0392b', minWidth: 68, textAlign: 'right' }}>
                           {fmt(l.amount)}{paid ? ' ✓' : ''}
                         </span>
+                        {paid && l.paidAt && (
+                          <span style={{ fontSize: 10, color: T.muted, whiteSpace: 'nowrap' }}>
+                            оплачено {ruDate(l.paidAt)}
+                          </span>
+                        )}
                         {!l.fromLog && (
                           <span style={{ fontSize: 10, color: T.muted, fontStyle: 'italic' }}>по отметкам</span>
                         )}
@@ -870,7 +894,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                     {(showAllPayouts ? payouts : payouts.slice(0, 5)).map(p => {
                       const active = selectedPayout === p.id
                       return (
-                      <div key={p.id} onClick={() => setSelectedPayout(active ? null : p.id)}
+                      <div key={p.id} onClick={() => selectPayout(active ? null : p.id)}
                         style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px',
                           background: active ? '#e8f5ec' : T.cream, borderRadius: 8, cursor: 'pointer',
                           outline: active ? '2px solid #34a853' : 'none', transition: 'all 0.15s' }}>
