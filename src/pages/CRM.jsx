@@ -30,7 +30,7 @@ const ROLE_PAGES = {
 const PAGE_TITLES = {
   dashboard: 'Дашборд', calendar: 'Расписание', clients: 'Клиенты',
   payments: 'Оплаты', expenses: 'Расходы', directions: 'Направления',
-  teachers: 'Педагоги', finance: 'Финансы', staff: 'Сотрудники',
+  teachers: 'Педагоги', finance: 'Отчёты', staff: 'Сотрудники',
   leads: 'Заявки', addresses: 'Адреса', booking: 'Онлайн-запись',
   subscriptions: 'Стоимость',
   income: 'Прочие доходы',
@@ -199,28 +199,46 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
 
   const navigate = (id, link = null) => { setPage(id); localStorage.setItem('crmPage', id); setMobileOpen(false); setDeepLink(link) }
 
+  // Раскрытые группы меню запоминаются, как «Скрыть» у чек-листа
+  const [openGroups, setOpenGroups] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('navGroups') || '{}') } catch { return {} }
+  })
+  const toggleGroup = (key) => {
+    // В свёрнутой панели раскрывать нечего — сначала разворачиваем саму панель
+    if (collapsed && !isMobile) {
+      setCollapsed(false)
+      setOpenGroups(g => { const n = { ...g, [key]: true }; localStorage.setItem('navGroups', JSON.stringify(n)); return n })
+      return
+    }
+    setOpenGroups(g => { const n = { ...g, [key]: !g[key] }; localStorage.setItem('navGroups', JSON.stringify(n)); return n })
+  }
+
+  // Меню: ежедневное сверху, разделители вместо заголовков секций (они
+  // занимали четыре строки и ничего не объясняли), редкое — под «Финансами».
+  // «Настройки» ушли в шапку: всё, что настраивается один раз, живёт
+  // под шестерёнкой рядом с аватаркой.
+  const financeItems = [
+    { id: 'finance', icon: '📈', label: 'Отчёты', show: isDirector },
+    { id: 'expenses', icon: '📤', label: 'Расходы', show: isDirector },
+    { id: 'income', icon: '💰', label: 'Прочие доходы', show: isDirector },
+    { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
+  ]
   const nav = [
-    { section: 'Главная', items: [
-      { id: 'dashboard', icon: '📊', label: 'Дашборд', show: true },
-      { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
-    ]},
-    { section: 'Учёт', items: [
-      { id: 'leads', icon: '📋', label: 'Заявки', badge: leadsCount || null, show: isAdmin },
-      { id: 'clients', icon: '👨‍👧', label: 'Клиенты', badge: newCount || null, show: isAdmin },
-      { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
-      { id: 'expenses', icon: '📤', label: 'Расходы', show: isDirector },
-      { id: 'income', icon: '💰', label: 'Прочие доходы', show: isDirector },
-    ]},
-    { section: 'Организация', items: [
-      { id: 'directions', icon: '🎯', label: 'Направления', show: true },
-      { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin && features.teachers },
-      { id: 'subscriptions', icon: '🎟️', label: 'Стоимость', show: isAdmin },
-    ]},
-    { section: 'Управление', items: [
-      // Раздел существовал, но пункта меню не было — открыть его было нельзя
-      { id: 'finance', icon: '📈', label: 'Финансы', show: isDirector },
-      { id: 'studio_settings', icon: '⚙️', label: 'Настройки', show: isDirector },
-    ]},
+    { id: 'dashboard', icon: '📊', label: 'Дашборд', show: true },
+    { divider: true },
+    { id: 'calendar', icon: '📅', label: 'Расписание', show: true },
+    { id: 'leads', icon: '📋', label: 'Заявки', badge: leadsCount || null, show: isAdmin },
+    { id: 'clients', icon: '👨‍👧', label: 'Клиенты', badge: newCount || null, show: isAdmin },
+    { id: 'payments', icon: '💳', label: 'Оплаты', show: isAdmin },
+    { divider: true },
+    { id: 'directions', icon: '🎯', label: 'Направления', show: true },
+    { id: 'teachers', icon: '👩‍🏫', label: 'Педагоги', show: isAdmin && features.teachers },
+    { divider: true },
+    // У директора — раскрывающаяся группа. У администратора внутри остался бы
+    // один пункт, поэтому группа не рисуется, «Стоимость» встаёт строкой
+    ...(isDirector
+      ? [{ group: 'finance', icon: '📈', label: 'Финансы', items: financeItems }]
+      : financeItems),
   ]
 
   const props = { clients, setClients, payments, setPayments, expenses, setExpenses, directions, teachers, staffList, setStaffList, subscriptions, addresses, reload: reloadBg, role, isAdmin, isDirector, staff, navigate, deepLink, setDeepLink, studioId: studio?.id, currentUserId: session?.user?.id, clientStatuses, features, studioSettings, otherIncome }
@@ -236,18 +254,43 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
         </div>
       </div>
 
-      {nav.map(s => (
-        <div key={s.section} className="nav-section">
-          <div className="nav-label">{s.section}</div>
-          {s.items.filter(i => i.show).map(item => (
-            <div key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-label-text">{item.label}</span>
-              {item.badge ? <span className="nav-badge">{item.badge}</span> : null}
+      <div className="nav-section">
+        {nav.map((n, idx) => {
+          if (n.divider) return <div key={`div${idx}`} className="nav-divider" />
+
+          if (n.group) {
+            const children = n.items.filter(i => i.show)
+            if (!children.length) return null
+            // Группа с открытой страницей внутри раскрыта всегда — иначе
+            // непонятно, где находишься
+            const hasActive = children.some(i => i.id === page)
+            const open = hasActive || !!openGroups[n.group]
+            return (
+              <div key={n.group}>
+                <div className={`nav-item ${open ? 'group-open' : ''}`} onClick={() => toggleGroup(n.group)}>
+                  <span className="nav-icon">{n.icon}</span>
+                  <span className="nav-label-text">{n.label}</span>
+                  <span className="nav-chevron">{open ? '▾' : '▸'}</span>
+                </div>
+                {open && !collapsed && children.map(item => (
+                  <div key={item.id} className={`nav-item nav-sub ${page === item.id ? 'active' : ''}`} onClick={() => navigate(item.id)}>
+                    <span className="nav-label-text">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+
+          if (!n.show) return null
+          return (
+            <div key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => navigate(n.id)}>
+              <span className="nav-icon">{n.icon}</span>
+              <span className="nav-label-text">{n.label}</span>
+              {n.badge ? <span className="nav-badge">{n.badge}</span> : null}
             </div>
-          ))}
-        </div>
-      ))}
+          )
+        })}
+      </div>
       <div className="sidebar-scroll-fade" />
     </>
   )
@@ -295,6 +338,13 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
             )}
           </div>
           <div className="topbar-right">
+            {isDirector && (
+              <button
+                className={`topbar-icon-btn ${page === 'studio_settings' ? 'active' : ''}`}
+                onClick={() => navigate('studio_settings')}
+                title="Настройки студии" aria-label="Настройки студии"
+              >⚙️</button>
+            )}
             {!isMobile && (
               <span style={{ fontSize: 11, color: T.muted }}>
                 {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
@@ -327,6 +377,16 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
                   >
                     👤 Личный кабинет
                   </button>
+                  {isDirector && (
+                    <button
+                      onClick={() => { setUserMenuOpen(false); navigate('studio_settings') }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.ink, fontFamily: 'inherit', textAlign: 'left' }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      ⚙️ Настройки студии
+                    </button>
+                  )}
                   <button
                     onClick={() => { setUserMenuOpen(false); setPwdModalOpen(true); setPwdMessage(null); setNewPwd(''); setConfirmPwd('') }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '12px 16px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: T.ink, fontFamily: 'inherit', textAlign: 'left' }}
