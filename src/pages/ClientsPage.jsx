@@ -3,17 +3,12 @@ import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { CLIENT_TRACES, countTraces } from '../lib/archive'
+import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
-const calcBalance = (paid, visited) => {
-  const p = +paid || 0
-  const v = +visited || 0
-  const left = p - v
-  if (left <= 0) return { left, status: 'debt', label: 'Требуется оплата', color: '#e05a5a', bg: '#fde8e8' }
-  if (left === 1) return { left, status: 'warn', label: 'Последнее занятие', color: '#c47a00', bg: '#fff4e6' }
-  return { left, status: 'ok', label: `Осталось ${left} зан.`, color: '#5a9070', bg: '#e8f4ed' }
-}
+// calcBalance / calcRealBalance переехали в lib/balance.js — тот же расчёт
+// теперь у дашборда (баг 35)
 
 const calcAge = (birthday) => {
   if (!birthday) return null
@@ -251,9 +246,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
       const now = new Date()
       const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
       const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date, expires_at').eq('client_id', client.id)
-      const today = todayLocal()
-      const paidFromPayments = (pays||[]).filter(p => !p.expires_at || p.expires_at >= today).reduce((s,p) => s + (+p.lessons_count||0), 0)
-      const totalPaid = (client.paid_lessons || 0) + paidFromPayments
+      const totalPaid = sumPaidLessons(pays, client.paid_lessons)
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
       const { data: att } = await supabase
         .from('attendance')
@@ -585,17 +578,6 @@ function FreezeModal({ client, onClose, onSaved }) {
       </div>
     </Modal>
   )
-}
-
-const calcRealBalance = (client, payments) => {
-  const today = todayLocal()
-  const paidFromPayments = payments
-    .filter(p => p.client_id === client.id)
-    .filter(p => !p.expires_at || p.expires_at >= today)
-    .reduce((s, p) => s + (+p.lessons_count || 0), 0)
-  const totalPaid = (client.paid_lessons || 0) + paidFromPayments
-  const totalVisited = client.visited_lessons || 0
-  return { totalPaid, totalVisited, bal: calcBalance(totalPaid, totalVisited) }
 }
 
 function CommentToggle({ comment }) {

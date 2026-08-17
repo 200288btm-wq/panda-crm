@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { T, fmt } from '../styles.jsx'
+import { calcRealBalance } from '../lib/balance'
 
 // Чек-лист «Начало работы» — помогает настроить новую студию.
 // Галочки загораются автоматически, когда в студии появляются данные.
@@ -79,16 +80,15 @@ export default function Dashboard({ clients, payments, expenses, directions, tea
   const profit = income - totalExp
   const avg = active ? Math.round(income / active) : 0
   const newC = clients.filter(c => c.status === 'Новый').length
-  // Реальный баланс = (начальные paid_lessons + занятия из оплат) - visited_lessons
+  // Реальный баланс = (начальные paid_lessons + занятия из ДЕЙСТВУЮЩИХ оплат) − visited_lessons.
+  // Считается общим модулем lib/balance.js — тем же, что в списке клиентов:
+  // раньше здесь фильтра по expires_at не было и сгоревшие абонементы
+  // продолжали закрывать долг (баг 35).
   const debtors = clients
     .filter(c => c.status === 'Активен')
     .map(c => {
-      const paidFromPayments = payments
-        .filter(p => p.client_id === c.id)
-        .reduce((s, p) => s + (+p.lessons_count || 0), 0)
-      const totalPaid = (c.paid_lessons || 0) + paidFromPayments
-      const totalVisited = c.visited_lessons || 0
-      return { ...c, realBalance: totalPaid - totalVisited, totalPaid, totalVisited }
+      const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
+      return { ...c, realBalance: bal.left, totalPaid, totalVisited }
     })
     .filter(c => c.realBalance < 0)
     .sort((a, b) => a.realBalance - b.realBalance)
