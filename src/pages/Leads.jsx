@@ -29,7 +29,7 @@ function Badge({ cfg }) {
 }
 
 // Модалка ручного добавления заявки
-function AddLeadModal({ onClose, onSaved }) {
+function AddLeadModal({ onClose, onSaved, studioId }) {
   const [f, setF] = useState({
     parent_name: '', parent_phone: '', child_name: '', child_age: '',
     source: 'studio', status: 'new', notes: '', squad: '', dates: '',
@@ -39,24 +39,32 @@ function AddLeadModal({ onClose, onSaved }) {
 
   const save = async () => {
     if (!f.parent_phone.trim()) { toast.error('Укажите телефон'); return }
+    if (!studioId) { toast.error('Студия не определена — перезагрузите страницу'); return }
     setSaving(true)
-    const { error } = await supabase.from('leads').insert({
-      parent_name: f.parent_name.trim() || null,
-      parent_phone: f.parent_phone.trim(),
-      child_name: f.child_name.trim() || null,
-      child_age: f.child_age.trim() || null,
-      source: f.source,
-      status: f.status,
-      notes: f.notes.trim() || null,
-      squad: f.squad.trim() || null,
-      dates: f.dates.trim() || null,
-      studio_id: studioId,
-    })
-    setSaving(false)
-    if (error) { toast.fromError(error, 'Не удалось сохранить заявку'); return }
-    toast.success('Заявка добавлена')
-    onSaved()
-    onClose()
+    // try/finally: сбой ДО запроса (как было с потерянным studioId) не должен
+    // оставлять кнопку в «Сохраняем…» навсегда
+    try {
+      const { error } = await supabase.from('leads').insert({
+        parent_name: f.parent_name.trim() || null,
+        parent_phone: f.parent_phone.trim(),
+        child_name: f.child_name.trim() || null,
+        child_age: f.child_age.trim() || null,
+        source: f.source,
+        status: f.status,
+        notes: f.notes.trim() || null,
+        squad: f.squad.trim() || null,
+        dates: f.dates.trim() || null,
+        studio_id: studioId,
+      })
+      if (error) { toast.fromError(error, 'Не удалось сохранить заявку'); return }
+      toast.success('Заявка добавлена')
+      onSaved()
+      onClose()
+    } catch (e) {
+      toast.fromError(e, 'Не удалось сохранить заявку')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const inp = { fontSize: 16, padding: '8px 12px' }
@@ -500,7 +508,7 @@ export default function Leads({ directions = [], studioId, reload }) {
         </div>
       )}
 
-      {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} onSaved={fetchLeads} />}
+      {showAddModal && <AddLeadModal studioId={studioId} onClose={() => setShowAddModal(false)} onSaved={fetchLeads} />}
 
       {convertLead && (
         <ConvertLeadModal lead={convertLead} directions={directions} studioId={studioId}
