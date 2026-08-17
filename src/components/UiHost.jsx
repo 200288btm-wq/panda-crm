@@ -46,6 +46,7 @@ export default function UiHost() {
   return (
     <>
       {ask && (
+        <div className="ui-confirm-layer">
         <Modal title={o.title || 'Подтвердите действие'} onClose={() => close(false)}
           footer={<>
             <button className="btn btn-ghost" onClick={() => close(false)} disabled={busy}>
@@ -65,6 +66,7 @@ export default function UiHost() {
             <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10, lineHeight: 1.5 }}>{o.details}</div>
           )}
         </Modal>
+        </div>
       )}
 
       <div className="toast-wrap" aria-live="polite">

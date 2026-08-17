@@ -72,6 +72,12 @@ export function GlobalStyles() {
          пункта»: короткое меню обрывалось белой полосой посередине экрана */
       .sidebar-wrapper { position: relative; flex-shrink: 0; height: 100%; }
 
+      /* Окно подтверждения из UiHost живёт в корне App, то есть РАНЬШЕ
+         остального дерева в DOM. При равном z-index побеждает то, что
+         ниже по документу — окно подтверждения уходило под открытую
+         карточку клиента. Поднимаем его над обычными модалками. */
+      .ui-confirm-layer .modal-backdrop { z-index: 400; }
+
       /* ── Плашки-сообщения (вместо alert) ── */
       .toast-wrap { position: fixed; right: 20px; bottom: 20px; z-index: 500; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
       .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; min-width: 260px; max-width: 380px;
