@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { T, hashColor, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
+import { toast } from '../lib/ui'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -381,7 +382,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       group_id: groupId || 0, marked_by: u?.user?.id || null,
     }, { onConflict: 'studio_id,date,direction_id,group_id' })
     setSavingWork(null)
-    if (error) { alert('Не удалось поставить пометку: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось поставить пометку «занятия не было»'); return }
     setNoWork(p => ({ ...p, [wkey]: true }))
     setSavedWork(p => ({ ...p, [wkey]: {} }))
     setWork(p => ({ ...p, [wkey]: {} }))
@@ -436,14 +437,15 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     if (attErr) {
       setAttendance(p => ({ ...p, [key]: prevVal }))
       markingRef.current.delete(key)
-      alert('Не удалось сохранить отметку: ' + attErr.message)
+      toast.fromError(attErr, 'Отметка не сохранена — галочка возвращена как была')
       return
     }
     // Модель A: visited_lessons = стартовое число + отметки. Меняем по дельте
     // (+1 при отметке, −1 при снятии), чтобы не терять стартовое значение,
     // введённое вручную или пришедшее из импорта.
     const { error: visErr } = await supabase.rpc('adjust_visited', { p_client_id: clientId, p_delta: newVal ? 1 : -1 })
-    if (visErr) alert('Отметка сохранена, но баланс занятий не пересчитан: ' + visErr.message)
+    // Отметка легла, а баланс — нет: это расхождение, о нём надо сказать вслух
+    if (visErr) toast.fromError(visErr, 'Отметка сохранена, но баланс занятий не пересчитан')
     markingRef.current.delete(key)
     dirtyRef.current = true  // обновим списки при закрытии, а не сейчас — иначе модалка закроется
   }

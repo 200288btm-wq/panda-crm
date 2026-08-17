@@ -8,6 +8,7 @@ import { createDuration, createAddress, createCategory } from '../lib/dictionari
 import { NumberInput } from '../components/SearchSelect'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { DIRECTION_TRACES, countTraces, setArchived } from '../lib/archive'
+import { toast, confirmAction } from '../lib/ui'
 
 // Цвета работают как метки: их различают боковым зрением на карточках
 // и в расписании. Поэтому подряд идут разные тона, а не оттенки одного.
@@ -161,7 +162,14 @@ function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, feature
           </div>
           {!isOnly && (
             <button type="button"
-              onClick={() => { if (confirm(`Удалить подгруппу «${group.name || 'без названия'}»?`)) onRemove() }}
+              onClick={async () => {
+                const ok = await confirmAction({
+                  title: 'Удалить подгруппу?',
+                  text: `Подгруппа «${group.name || 'без названия'}» будет убрана из направления. Изменение сохранится, когда вы нажмёте «Сохранить».`,
+                  confirmLabel: 'Удалить подгруппу', cancelLabel: 'Не удалять', danger: true,
+                })
+                if (ok) onRemove()
+              }}
               style={{ background:'none', border:'none', cursor:'pointer', color:T.red, fontSize:13, fontWeight:600, padding:'2px 6px' }}>
               🗑 Удалить
             </button>
@@ -291,12 +299,12 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     if (subgroupsVisible) {
       const empty = cleaned.findIndex(g => !g.name)
       if (empty !== -1) {
-        alert(`Пожалуйста, укажите название подгруппы №${empty + 1}`)
+        toast.error(`Укажите название подгруппы №${empty + 1}`)
         return
       }
     }
     if (!f.name || !f.name.trim()) {
-      alert('Укажите название направления')
+      toast.error('Укажите название направления')
       return
     }
     onSave({
@@ -715,15 +723,15 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
 
     if (showEdit) {
       const { error } = await supabase.from('directions').update(cleanDirData).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения направления: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось сохранить направление'); return }
     } else {
       const { data, error } = await supabase.from('directions').insert(dirDataWithStudio).select().single()
-      if (error) { alert('Ошибка создания направления: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось создать направление'); return }
       directionId = data.id
     }
 
     if (!directionId) {
-      alert('Не удалось получить ID направления')
+      toast.error('Не удалось получить номер направления — попробуйте ещё раз')
       return
     }
 
@@ -733,7 +741,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     const toDelete = existingForThis.filter(g => !incomingIds.has(g.id)).map(g => g.id)
     if (toDelete.length) {
       const { error } = await supabase.from('direction_groups').delete().in('id', toDelete)
-      if (error) { alert('Ошибка удаления подгрупп: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось удалить подгруппы'); return }
     }
 
     for (let i = 0; i < groupList.length; i++) {
@@ -748,13 +756,14 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       }
       if (g.id) {
         const { error } = await supabase.from('direction_groups').update(payload).eq('id', g.id)
-        if (error) { alert(`Ошибка обновления подгруппы «${g.name}»: ` + error.message); return }
+        if (error) { toast.fromError(error, `Не удалось сохранить подгруппу «${g.name}»`); return }
       } else {
         const { error } = await supabase.from('direction_groups').insert(payload)
-        if (error) { alert(`Ошибка создания подгруппы «${g.name}»: ` + error.message); return }
+        if (error) { toast.fromError(error, `Не удалось создать подгруппу «${g.name}»`); return }
       }
     }
 
+    toast.success(showEdit ? 'Направление сохранено' : 'Направление создано')
     setShowEdit(null)
     setShowAdd(false)
     await loadGroups()
@@ -779,8 +788,9 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     await supabase.from('teacher_rates').delete().eq('direction_id', id).eq('studio_id', studioId)
     const { error } = await supabase.from('directions').delete().eq('id', id).eq('studio_id', studioId)
     setBusy(false)
-    if (error) { alert(`Удалить «${name}» не получилось: ${error.message}`); return }
+    if (error) { toast.fromError(error, `Удалить «${name}» не получилось`); return }
     setDeleteAsk(null)
+    toast.success(`Направление «${name}» удалено`)
     await loadGroups()
     reload()
   }
@@ -789,8 +799,9 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     setBusy(true)
     const { error } = await setArchived('directions', id, studioId, archived)
     setBusy(false)
-    if (error) { alert('Ошибка: ' + error.message); return }
+    if (error) { toast.fromError(error, archived ? 'Не удалось отправить в архив' : 'Не удалось вернуть из архива'); return }
     setDeleteAsk(null)
+    toast.success(archived ? 'Направление отправлено в архив' : 'Направление возвращено из архива')
     reload()
   }
 

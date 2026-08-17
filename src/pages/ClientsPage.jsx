@@ -4,6 +4,7 @@ import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } fr
 import { Modal } from '../components/Modal'
 import { CLIENT_TRACES, countTraces } from '../lib/archive'
 import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
+import { toast, confirmAction } from '../lib/ui'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
@@ -339,9 +340,16 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             </div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={async () => {
-            if (!confirm('Снять заморозку?')) return
-            await supabase.from('subscription_freezes').delete().eq('id', activeFreeze.id)
+            const ok = await confirmAction({
+              title: 'Снять заморозку?',
+              text: 'С этого дня занятия снова будут списываться с баланса.',
+              confirmLabel: 'Снять заморозку', cancelLabel: 'Оставить',
+            })
+            if (!ok) return
+            const { error } = await supabase.from('subscription_freezes').delete().eq('id', activeFreeze.id)
+            if (error) { toast.fromError(error, 'Не удалось снять заморозку'); return }
             setFreezes(prev => prev.filter(f => f.id !== activeFreeze.id))
+            toast.success('Заморозка снята')
           }}>Снять</button>
         </div>
       ) : (
@@ -663,12 +671,14 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
     if (showEdit) {
       const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось сохранить карточку'); return }
+      toast.success('Карточка сохранена')
       setShowEdit(null)
     } else {
       cleaned.studio_id = studioId
       const { error } = await supabase.from('clients').insert(cleaned)
-      if (error) { alert('Ошибка создания: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось создать клиента'); return }
+      toast.success(`${cleaned.child_name || 'Клиент'} добавлен`)
       setShowAdd(false)
     }
     await reload()
@@ -687,7 +697,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     setBusy(true)
     const { error } = await supabase.from('clients').delete().eq('id', c.id).eq('studio_id', studioId)
     setBusy(false)
-    if (error) { alert(`Удалить «${c.child_name}» не получилось: ${error.message}`); return }
+    if (error) { toast.fromError(error, `Удалить «${c.child_name}» не получилось`); return }
+    toast.success(`«${c.child_name}» удалён`)
     setDeleteAsk(null)
     setShowDetail(null)
     await reload()
@@ -699,7 +710,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const { error } = await supabase.from('clients').update({ status: 'Неактивен' })
       .eq('id', c.id).eq('studio_id', studioId)
     setBusy(false)
-    if (error) { alert('Ошибка: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось сменить статус'); return }
+    toast.success(`«${c.child_name}» переведён в «Неактивен»`)
     setDeleteAsk(null)
     setShowDetail(null)
     await reload()
