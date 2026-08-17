@@ -100,7 +100,9 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       studio_id: studioId, sort_order: statuses.length
     })
     if (error) setStatusMsg({ type: 'error', text: error.message })
-    else { setNewStatus({ name: '', color: 'badge-gray' }); setStatusMsg({ type: 'success', text: 'Статус добавлен' }); loadStatuses() }
+    // Без reload() новый статус жил только на этом экране: вкладки на
+    // «Клиентах» читают clientStatuses из CRM и не знали о нём до F5
+    else { setNewStatus({ name: '', color: 'badge-gray' }); setStatusMsg({ type: 'success', text: 'Статус добавлен' }); loadStatuses(); reload && reload() }
     setTimeout(() => setStatusMsg(null), 2000)
   }
 
@@ -129,6 +131,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (error) { toast.fromError(error, `Не удалось удалить статус «${name}»`); return }
     toast.success(`Статус «${name}» удалён`)
     loadStatuses()
+    reload && reload()
   }
 
   const loadAll = async () => {

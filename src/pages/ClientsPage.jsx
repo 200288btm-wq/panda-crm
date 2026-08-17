@@ -607,12 +607,22 @@ function CommentToggle({ comment }) {
 }
 
 export default function ClientsPage({ clients, directions, payments, teachers, reload, isDirector, navigate, deepLink, setDeepLink, studioId, clientStatuses = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
-  const STATUSES_LIST = clientStatuses.length > 0
-    ? clientStatuses.map(s => s.name)
-    : ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание']
-  const STATUS_COLORS_MAP = clientStatuses.length > 0
-    ? Object.fromEntries(clientStatuses.map(s => [s.name, s.color]))
-    : STATUS_COLORS
+  // Вкладки статусов: справочник студии ПЛЮС статусы, которые реально стоят
+  // у клиентов. Импортированные и старые записи могут нести статус, которого
+  // в справочнике уже нет — без этого их вкладка пропадала, а сами клиенты
+  // висели только во «Всех». Жёсткий список остаётся лишь для совсем пустой
+  // студии: он из одностудийных времён и выглядит как «статусы чужой студии».
+  const DEFAULT_STATUSES = ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание']
+  const dictStatuses = clientStatuses.map(s => s.name)
+  const usedStatuses = [...new Set(clients.map(c => c.status).filter(Boolean))]
+  const STATUSES_LIST = dictStatuses.length || usedStatuses.length
+    ? [...dictStatuses, ...usedStatuses.filter(n => !dictStatuses.includes(n))]
+    : DEFAULT_STATUSES
+  const dictColors = Object.fromEntries(clientStatuses.map(s => [s.name, s.color]))
+  // Цвет: из справочника → из старой палитры → серый, чтобы плашка не осталась без класса
+  const STATUS_COLORS_MAP = new Proxy({}, {
+    get: (_, name) => dictColors[name] || STATUS_COLORS[name] || 'badge-gray',
+  })
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Все')
   const [dirFilter, setDirFilter] = useState('all')

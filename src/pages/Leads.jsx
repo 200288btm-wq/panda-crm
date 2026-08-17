@@ -88,13 +88,8 @@ function AddLeadModal({ onClose, onSaved, studioId }) {
           <label className="form-label">Возраст</label>
           <input className="form-input" style={inp} value={f.child_age} onChange={e => set('child_age', e.target.value)} placeholder="5 лет" />
         </div>
-        <div className="form-group">
-          <label className="form-label">Источник</label>
-          <select className="form-input" style={inp} value={f.source} onChange={e => set('source', e.target.value)}>
-            <option value="studio">🐼 Студия</option>
-            <option value="camp">🏕 Лагерь</option>
-          </select>
-        </div>
+        {/* Выбор источника скрыт вместе с фильтром — заявка, заведённая
+            руками, пишется как 'studio' */}
         <div className="form-group">
           <label className="form-label">Статус</label>
           <select className="form-input" style={inp} value={f.status} onChange={e => set('status', e.target.value)}>
@@ -358,20 +353,11 @@ export default function Leads({ directions = [], studioId, reload }) {
           при переносе это давало рваную вёрстку на телефоне. Теперь каждая
           группа переносится целиком и делит ширину поровну. */}
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
-        <div style={{ display:'flex', gap:8, flex:'1 1 240px', minWidth:0 }}>
-          {[
-            { key: 'all',    label: '📋 Все' },
-            { key: 'camp',   label: '🏕 Лагерь' },
-            { key: 'studio', label: '🐼 Студия' },
-          ].map(s => (
-            <button key={s.key}
-              className={filterSource === s.key ? 'btn btn-primary' : 'btn btn-secondary'}
-              style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }}
-              onClick={() => setFilterSource(s.key)}>
-              {s.label}
-            </button>
-          ))}
-        </div>
+        {/* Фильтр «Лагерь / Студия» скрыт: это наследие одностудийной версии,
+            где источники были зашиты под Академию Панды. Вернётся вместе с
+            формами приёма заявок — тогда фильтром станет название формы,
+            своё у каждой студии. Данные не трогаем: source по-прежнему
+            пишется, фильтрация по нему работает, скрыт только переключатель. */}
         <div style={{ display:'flex', gap:8, flex:'1 1 200px', minWidth:0, justifyContent:'flex-end' }}>
           <button className="btn btn-secondary" style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }} onClick={fetchLeads}>🔄 Обновить</button>
           <button className="btn btn-primary" style={{ padding:'6px 12px', fontSize:13, flex:'1 1 0', minWidth:0, whiteSpace:'nowrap' }} onClick={() => setShowAddModal(true)}>+ Заявка</button>
