@@ -464,6 +464,9 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
   const [loading, setLoading] = useState(false)
   const [amount, setAmount] = useState(0)
   const [note, setNote] = useState('')
+  // Дата фактической выплаты — она же дата расхода. По умолчанию сегодня,
+  // но выплату можно провести задним числом (баг 38)
+  const [payDate, setPayDate] = useState(today)
 
   const calculate = async () => {
     setLoading(true)
@@ -541,8 +544,8 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
     <Modal title={`💰 Выплата — ${teacher.name}`} onClose={onClose}
       footer={<>
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
-        <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, note, lessonsCount: calculated?.totalLessons || 0, items: calculated?.items || [] })}
-          disabled={!calculated || amount <= 0}>Создать выплату</button>
+        <button className="btn btn-primary" onClick={() => onSave({ amount, periodFrom, periodTo, payDate, note, lessonsCount: calculated?.totalLessons || 0, items: calculated?.items || [] })}
+          disabled={!calculated || amount <= 0 || !payDate}>Создать выплату</button>
       </>}>
       <div className="form-row">
         <div className="form-group">
@@ -584,9 +587,20 @@ function PayoutModal({ teacher, directions, studioId, onClose, onSave }) {
           </div>
         </div>
       )}
-      <div className="form-group">
-        <label className="form-label">Комментарий</label>
-        <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Зарплата за июнь" />
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Дата выплаты</label>
+          <input className="form-input" type="date" value={payDate} onChange={e => setPayDate(e.target.value)} />
+          {payDate && payDate !== today && (
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+              Расход встанет {ruDate(payDate)}, а не сегодняшним числом
+            </div>
+          )}
+        </div>
+        <div className="form-group">
+          <label className="form-label">Комментарий</label>
+          <input className="form-input" value={note} onChange={e => setNote(e.target.value)} placeholder="Зарплата за июнь" />
+        </div>
       </div>
     </Modal>
   )
@@ -1320,7 +1334,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     return true
   }
 
-  const savePayout = async ({ amount, periodFrom, periodTo, note, lessonsCount, items }) => {
+  const savePayout = async ({ amount, periodFrom, periodTo, payDate, note, lessonsCount, items }) => {
     const { data: payout, error } = await supabase.from('teacher_payouts').insert({
       teacher_id: showPayout.id,
       studio_id: studioId,
@@ -1347,7 +1361,10 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
     await supabase.from('expenses').insert({
       studio_id: studioId,
-      expense_date: todayLocal(),
+      // Дата ухода денег из кассы. Период, ЗА который платим, лежит
+      // в teacher_payouts.period_from/period_to и виден в «Финансах»
+      // при переключении на «по периоду начисления» (баг 38)
+      expense_date: payDate || todayLocal(),
       expense_type: 'Зарплата',
       category: 'Разовый',
       amount,
