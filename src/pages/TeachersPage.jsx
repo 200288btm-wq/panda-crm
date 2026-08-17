@@ -4,6 +4,7 @@ import { T, fmt, hashColor, todayLocal, ruDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { TEACHER_TRACES, countTraces, setArchived } from '../lib/archive'
+import { toast } from '../lib/ui'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
 const STATUSES_T = ['Активен', 'В поиске', 'Ожидание', 'Уволен']
@@ -622,8 +623,9 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
     // Каскад в БД сам снимет привязки занятий (lesson_payments) и расход (expenses)
     const { error } = await supabase.from('teacher_payouts').delete().eq('id', payout.id)
     setCancelling(false)
-    if (error) { alert('Ошибка отмены: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось отменить выплату'); return }
     setCancelPayout(null)
+    toast.success('Выплата отменена')
     // Раньше история только сбрасывалась и перечитывалась при следующем
     // открытии: в раскрытой карточке отменённая выплата оставалась на
     // экране. Перечитываем сразу.
@@ -1227,15 +1229,15 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       contract_date: f.contract_date || null,
       salary_amount: +f.salary_amount || 0,
     }
-    if (!cleaned.name?.trim()) { alert('Пожалуйста, укажите ФИО педагога'); return }
+    if (!cleaned.name?.trim()) { toast.error('Укажите ФИО педагога'); return }
 
     let teacherId = showEdit?.id
     if (showEdit) {
       const { error } = await supabase.from('teachers').update(cleaned).eq('id', showEdit.id)
-      if (error) { alert('Ошибка: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось сохранить педагога'); return }
     } else {
       const { data, error } = await supabase.from('teachers').insert({ ...cleaned, studio_id: studioId }).select().single()
-      if (error) { alert('Ошибка: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось создать педагога'); return }
       teacherId = data.id
     }
 
@@ -1300,8 +1302,9 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     await supabase.from('teacher_rates').delete().eq('teacher_id', id).eq('studio_id', studioId)
     const { error } = await supabase.from('teachers').delete().eq('id', id).eq('studio_id', studioId)
     setBusy(false)
-    if (error) { alert(`Удалить «${name}» не получилось: ${error.message}`); return }
+    if (error) { toast.fromError(error, `Удалить «${name}» не получилось`); return }
     setDeleteAsk(null)
+    toast.success(`«${name}» удалён`)
     reload()
   }
 
@@ -1309,8 +1312,9 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     setBusy(true)
     const { error } = await setArchived('teachers', id, studioId, archived)
     setBusy(false)
-    if (error) { alert('Ошибка: ' + error.message); return }
+    if (error) { toast.fromError(error, archived ? 'Не удалось отправить в архив' : 'Не удалось вернуть из архива'); return }
     setDeleteAsk(null)
+    toast.success(archived ? 'Педагог отправлен в архив' : 'Педагог возвращён из архива')
     reload()
   }
 
@@ -1323,7 +1327,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       paid_at: when,
       lessons_count: lesson.hours === null ? 1 : 0, note: 'Разовая оплата занятия',
     }).select().single()
-    if (error) { alert('Ошибка: ' + error.message); return false }
+    if (error) { toast.fromError(error, 'Не удалось провести выплату'); return false }
 
     const { error: linkErr } = await supabase.from('lesson_payments').insert({
       studio_id: studioId, teacher_id: teacher.id, payout_id: payout.id,
@@ -1333,7 +1337,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     if (linkErr) {
       // Откатываем выплату, если привязка не легла (например, занятие уже оплачено)
       await supabase.from('teacher_payouts').delete().eq('id', payout.id)
-      alert('Не удалось отметить занятие оплаченным: ' + linkErr.message)
+      toast.fromError(linkErr, 'Занятие не отмечено оплаченным — возможно, оно уже оплачено. Выплата отменена')
       return false
     }
 
@@ -1343,6 +1347,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       comment: `${teacher.name}: разовая оплата занятия ${ruDate(lesson.date)}`,
       payout_id: payout.id,
     })
+    toast.success(`Занятие оплачено · ${fmt(lesson.amount)}`)
     // Без этого выплата ложилась в базу, но список в раскрытой карточке
     // оставался прежним: он кэшируется до первого открытия
     setRefreshKey(k => k + 1)
@@ -1360,7 +1365,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       paid_at: payDate || todayLocal(),
       lessons_count: lessonsCount, note,
     }).select().single()
-    if (error) { alert('Ошибка: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось создать выплату'); return }
 
     // Помечаем занятия оплаченными этой выплатой
     if (items && items.length > 0) {
@@ -1390,6 +1395,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       comment: `${showPayout.name}: ${note || 'выплата'}`,
       payout_id: payout.id,
     })
+    toast.success(`Выплата ${fmt(amount)} проведена`)
     setShowPayout(null)
     setRefreshKey(k => k + 1)
     reload()

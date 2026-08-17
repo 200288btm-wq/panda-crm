@@ -72,6 +72,22 @@ export function GlobalStyles() {
          пункта»: короткое меню обрывалось белой полосой посередине экрана */
       .sidebar-wrapper { position: relative; flex-shrink: 0; height: 100%; }
 
+      /* ── Плашки-сообщения (вместо alert) ── */
+      .toast-wrap { position: fixed; right: 20px; bottom: 20px; z-index: 500; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+      .toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; min-width: 260px; max-width: 380px;
+        background: white; border: 1px solid ${T.border}; border-left-width: 4px; border-radius: 12px;
+        padding: 11px 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.14); cursor: pointer;
+        animation: toast-in 0.18s ease-out; }
+      .toast-success { border-left-color: ${T.green}; }
+      .toast-error { border-left-color: ${T.red}; }
+      .toast-info { border-left-color: ${T.orange}; }
+      .toast-icon { font-size: 15px; line-height: 1.3; flex-shrink: 0; }
+      .toast-body { min-width: 0; flex: 1; }
+      .toast-text { font-size: 13px; font-weight: 600; color: ${T.ink}; line-height: 1.45; word-break: break-word; }
+      .toast-details { font-size: 11px; color: ${T.muted}; margin-top: 3px; line-height: 1.4; word-break: break-word; }
+      .toast-close { background: none; border: none; color: ${T.muted}; cursor: pointer; font-size: 12px; padding: 0 2px; line-height: 1; flex-shrink: 0; font-family: inherit; }
+      @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
       /* ── Main ── */
       .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
       .topbar { background: ${T.white}; border-bottom: 1px solid ${T.border}; padding: 0 16px; height: 52px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
@@ -291,6 +307,10 @@ export function GlobalStyles() {
         .mobile-nav-icon { font-size: 22px; line-height: 1; }
         .mobile-nav-label { font-size: 10px; white-space: nowrap; }
         .mobile-nav-badge { position: absolute; top: 4px; right: calc(50% - 18px); background: ${T.orange}; color: white; border-radius: 99px; font-size: 9px; font-weight: 700; padding: 1px 5px; }
+
+        /* Над нижним меню, чтобы плашка его не перекрывала */
+        .toast-wrap { left: 10px; right: 10px; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); align-items: stretch; }
+        .toast { min-width: 0; max-width: none; }
 
         .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
         .form-row { grid-template-columns: 1fr; gap: 0; }

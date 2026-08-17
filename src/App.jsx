@@ -5,6 +5,7 @@ import CRM from './pages/CRM'
 import BookingPage from './pages/BookingPage'
 import OnboardingPage from './pages/OnboardingPage'
 import { GlobalStyles, T } from './styles.jsx'
+import UiHost from './components/UiHost'
 
 function SetPasswordPage({ onDone }) {
   const [password, setPassword] = useState('')
@@ -274,6 +275,8 @@ export default function App() {
   return (
     <>
       <GlobalStyles />
+      {/* Плашки и окна подтверждения — вместо нативных alert/confirm */}
+      <UiHost />
       {needPassword
         ? <SetPasswordPage onDone={() => setNeedPassword(false)} />
         : !session
