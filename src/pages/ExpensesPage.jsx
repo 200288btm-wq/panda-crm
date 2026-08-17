@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { NumberInput } from '../components/SearchSelect'
+import { toast } from '../lib/ui'
 
 const DEFAULT_ICONS = { 'Аренда': '🏠', 'Материалы': '🎨', 'Транспорт': '🚗', 'Подписки': '💻', 'Зарплата сотрудникам': '👥', 'Прочее': '📦' }
 
@@ -139,10 +140,15 @@ export default function ExpensesPage({ expenses, directions, reload, studioId })
     if (mode === 'payout') {
       const { error } = await supabase.from('teacher_payouts').delete().eq('id', row.payout_id)
       setDeleting(false)
-      if (error) { alert('Ошибка отмены выплаты: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось отменить выплату'); return }
+      toast.success('Выплата отменена, расход убран')
     } else {
-      await supabase.from('expenses').delete().eq('id', row.id)
+      // Раньше ошибка удаления расхода не проверялась вовсе: строка
+      // пропадала с экрана, а в базе могла остаться
+      const { error } = await supabase.from('expenses').delete().eq('id', row.id)
       setDeleting(false)
+      if (error) { toast.fromError(error, 'Не удалось удалить расход'); return }
+      toast.success('Расход удалён')
     }
     setConfirmDel(null)
     reload()

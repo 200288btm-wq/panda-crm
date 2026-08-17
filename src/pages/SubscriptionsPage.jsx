@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { toast, confirmAction } from '../lib/ui'
 
 // Fallback на случай, если таблица subscription_periods ещё не создана
 const DEFAULT_PERIODS = ['Месяц', 'Пока не закончатся занятия', 'Не ограничен']
@@ -292,8 +293,15 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   }
 
   const del = async (id, name) => {
-    if (!confirm(`Удалить абонемент «${name}»?`)) return
-    await supabase.from('subscriptions').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить абонемент «${name}»?`,
+      text: 'Уже оформленные клиентам оплаты останутся, пропадёт только вариант выбора.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('subscriptions').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить «${name}»`); return }
+    toast.success(`Абонемент «${name}» удалён`)
     reload()
   }
 

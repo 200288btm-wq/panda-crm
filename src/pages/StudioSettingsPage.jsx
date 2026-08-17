@@ -10,6 +10,7 @@ import { Modal } from '../components/Modal'
 import ImportPreviewModal from '../components/ImportPreviewModal'
 import { parseDate, dateToRu } from '../lib/importParse'
 import { buildClientsPlan, applyClientsPlan, CLIENT_SELECT } from '../lib/importClients'
+import { toast, confirmAction } from '../lib/ui'
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -110,13 +111,23 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       .eq('studio_id', studioId)
       .eq('status', name)
 
-    if (count > 0) {
-      const ok = confirm(`У ${count} клиент${count === 1 ? 'а' : 'ов'} установлен статус «${name}».\n\nПосле удаления статус пропадёт из списка, но у клиентов останется. Рекомендуем сначала сменить статус этим клиентам.\n\nВсё равно удалить?`)
-      if (!ok) return
-    } else {
-      if (!confirm(`Удалить статус «${name}»?`)) return
-    }
-    await supabase.from('client_statuses').delete().eq('id', id)
+    const ok = count > 0
+      ? await confirmAction({
+          title: `Удалить статус «${name}»?`,
+          text: `Статус установлен у ${count} клиент${count === 1 ? 'а' : 'ов'}. После удаления он пропадёт из списка выбора, но у клиентов останется.`,
+          details: 'Лучше сначала сменить статус этим клиентам.',
+          confirmLabel: 'Всё равно удалить', cancelLabel: 'Не удалять', danger: true,
+        })
+      : await confirmAction({
+          title: `Удалить статус «${name}»?`,
+          confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+        })
+    if (!ok) return
+    // Раньше результат удаления не проверялся вовсе: при отказе базы
+    // список просто перечитывался, и статус молча оставался на месте
+    const { error } = await supabase.from('client_statuses').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить статус «${name}»`); return }
+    toast.success(`Статус «${name}» удалён`)
     loadStatuses()
   }
 
@@ -271,11 +282,18 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
   const deleteDuration = async (id, name) => {
     const used = directions.filter(d => d.duration === name)
-    const warn = used.length
-      ? `Длительность «${name}» указана у ${used.length} направлений (${used.map(d => d.name).join(', ')}). У них она останется, но выбрать её заново будет нельзя. Удалить?`
-      : `Удалить длительность «${name}»?`
-    if (!confirm(warn)) return
-    await supabase.from('lesson_durations').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить длительность «${name}»?`,
+      text: used.length
+        ? `Указана у ${used.length} направлений. У них она останется, но выбрать её заново будет нельзя.`
+        : 'Длительность не используется ни в одном направлении.',
+      details: used.length ? used.map(d => d.name).join(', ') : null,
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('lesson_durations').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить длительность «${name}»`); return }
+    toast.success(`Длительность «${name}» удалена`)
     loadAll()
   }
 
@@ -307,8 +325,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const deleteCategory = async (id, name) => {
-    if (!confirm(`Удалить категорию «${name}»?`)) return
-    await supabase.from('price_categories').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить категорию «${name}»?`,
+      text: 'Она пропадёт из выбора при заведении абонементов.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('price_categories').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить категорию «${name}»`); return }
+    toast.success(`Категория «${name}» удалена`)
     loadAll()
   }
 
@@ -359,8 +384,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const deletePeriod = async (id, label) => {
-    if (!confirm(`Удалить период «${label}»?`)) return
-    await supabase.from('subscription_periods').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить период «${label}»?`,
+      text: 'У заведённых абонементов срок останется прежним, выбрать этот период заново будет нельзя.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('subscription_periods').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить период «${label}»`); return }
+    toast.success(`Период «${label}» удалён`)
     loadAll()
   }
 
@@ -387,8 +419,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const deleteExpenseType = async (id, name) => {
-    if (!confirm(`Удалить тип расхода «${name}»?`)) return
-    await supabase.from('expense_types').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить тип расхода «${name}»?`,
+      text: 'Уже записанные расходы этого типа останутся в финансах.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('expense_types').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить тип «${name}»`); return }
+    toast.success(`Тип расхода «${name}» удалён`)
     loadAll()
   }
 
@@ -409,8 +448,15 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const deleteAddr = async (id, name) => {
-    if (!confirm(`Удалить адрес «${name}»?`)) return
-    await supabase.from('addresses').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: `Удалить адрес «${name}»?`,
+      text: 'Подгруппы, привязанные к этому адресу, останутся, но потеряют привязку.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('addresses').delete().eq('id', id)
+    if (error) { toast.fromError(error, `Не удалось удалить адрес «${name}»`); return }
+    toast.success(`Адрес «${name}» удалён`)
     loadAll()
   }
 

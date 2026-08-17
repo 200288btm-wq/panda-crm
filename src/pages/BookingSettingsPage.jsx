@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
+import { toast } from '../lib/ui'
 
 const DAYS_RU = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб']
 
@@ -191,7 +192,8 @@ export default function BookingSettingsPage({ directions, studioId }) {
                     const ext = file.name.split('.').pop()
                     const path = `booking-cover/cover.${ext}`
                     const { error } = await supabase.storage.from('panda-media').upload(path, file, { upsert: true })
-                    if (error) { alert('Ошибка загрузки: ' + error.message); return }
+                    if (error) { toast.fromError(error, 'Не удалось загрузить файл'); return }
+                    toast.success('Обложка загружена')
                     const { data } = supabase.storage.from('panda-media').getPublicUrl(path)
                     set('cover_url', data.publicUrl + '?t=' + Date.now())
                   }} />

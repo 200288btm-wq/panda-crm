@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T, ROLES, ROLE_COLORS, hashColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+// Только toast: имя confirmAction здесь уже занято локальным состоянием
+import { toast } from '../lib/ui'
 
 // Генерация случайного кода приглашения
 function generateCode() {
@@ -211,7 +213,8 @@ export default function StaffPage({ staffList, reload, studioId, currentUserId }
     const { error } = await supabase.from('staff').update({
       name: f.name, role: f.role, phone: f.phone, email: f.email, is_active: f.is_active,
     }).eq('id', showEdit.id)
-    if (error) { alert('Ошибка сохранения: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось сохранить сотрудника'); return }
+    toast.success('Сотрудник сохранён')
     setShowEdit(null); reload()
   }
 

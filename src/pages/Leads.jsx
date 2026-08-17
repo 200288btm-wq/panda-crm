@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { toast, confirmAction } from '../lib/ui'
 
 const STATUS = {
   new:       { label: 'Новая',        bg: '#EFF6FF', color: '#1D4ED8' },
@@ -37,7 +38,7 @@ function AddLeadModal({ onClose, onSaved }) {
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
   const save = async () => {
-    if (!f.parent_phone.trim()) { alert('Укажите телефон'); return }
+    if (!f.parent_phone.trim()) { toast.error('Укажите телефон'); return }
     setSaving(true)
     const { error } = await supabase.from('leads').insert({
       parent_name: f.parent_name.trim() || null,
@@ -52,7 +53,8 @@ function AddLeadModal({ onClose, onSaved }) {
       studio_id: studioId,
     })
     setSaving(false)
-    if (error) { alert('Ошибка: ' + error.message); return }
+    if (error) { toast.fromError(error, 'Не удалось сохранить заявку'); return }
+    toast.success('Заявка добавлена')
     onSaved()
     onClose()
   }
@@ -270,9 +272,16 @@ export default function Leads({ directions = [], studioId, reload }) {
   }
 
   async function deleteLead(id) {
-    if (!confirm('Удалить заявку?')) return
-    await supabase.from('leads').delete().eq('id', id)
+    const ok = await confirmAction({
+      title: 'Удалить заявку?',
+      text: 'Заявка исчезнет насовсем. Если нужно просто убрать её из списка — отправьте в архив, оттуда её можно вернуть.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
+    const { error } = await supabase.from('leads').delete().eq('id', id)
+    if (error) { toast.fromError(error, 'Не удалось удалить заявку'); return }
     setLeads(prev => prev.filter(l => l.id !== id))
+    toast.success('Заявка удалена')
   }
 
   // Архив, а не удаление: статус заявки сохраняется, поэтому
@@ -280,8 +289,9 @@ export default function Leads({ directions = [], studioId, reload }) {
   async function setArchived(id, archived) {
     const archived_at = archived ? new Date().toISOString() : null
     const { error } = await supabase.from('leads').update({ archived_at }).eq('id', id)
-    if (error) { alert('Не удалось: ' + error.message); return }
+    if (error) { toast.fromError(error, archived ? 'Не удалось отправить в архив' : 'Не удалось вернуть из архива'); return }
     setLeads(prev => prev.map(l => l.id === id ? { ...l, archived_at } : l))
+    toast.success(archived ? 'Заявка в архиве' : 'Заявка возвращена')
   }
 
   const inArchive = filterStatus === 'archived'

@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { T, ADDRESS_COLORS, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { createAddress } from '../lib/dictionaries'
+import { toast, confirmAction } from '../lib/ui'
 
 // Палитра цветов для адресов — отличается от палитры направлений,
 // чтобы при переключении календаря на режим «по адресам» цвета читались иначе
@@ -32,7 +33,7 @@ function AddressModal({ address, onClose, onSave }) {
 
   const save = () => {
     if (!f.name.trim()) {
-      alert('Пожалуйста, укажите название адреса')
+      toast.error('Укажите короткое название адреса')
       return
     }
     onSave({ name: f.name.trim(), address: f.address.trim() || null, color: f.color })
@@ -72,20 +73,29 @@ export default function AddressesPage({ addresses = [], reload, isAdmin, studioI
   const save = async (f) => {
     if (showEdit) {
       const { error } = await supabase.from('addresses').update(f).eq('id', showEdit.id)
-      if (error) { alert('Ошибка сохранения: ' + error.message); return }
+      if (error) { toast.fromError(error, 'Не удалось сохранить адрес'); return }
+      toast.success('Адрес сохранён')
       setShowEdit(null)
     } else {
       const { error } = await createAddress(studioId, f)
-      if (error) { alert('Ошибка создания: ' + error); return }
+      // createAddress отдаёт текст ошибки строкой, не объектом
+      if (error) { toast.error('Не удалось создать адрес', String(error)); return }
+      toast.success(`Адрес «${f.name}» добавлен`)
       setShowAdd(false)
     }
     reload()
   }
 
   const del = async (id, name) => {
-    if (!confirm(`Удалить адрес «${name}»?\n\nПодгруппы, привязанные к этому адресу, останутся, но потеряют привязку.`)) return
+    const ok = await confirmAction({
+      title: `Удалить адрес «${name}»?`,
+      text: 'Подгруппы, привязанные к этому адресу, останутся, но потеряют привязку.',
+      confirmLabel: 'Удалить', cancelLabel: 'Отмена', danger: true,
+    })
+    if (!ok) return
     const { error } = await supabase.from('addresses').delete().eq('id', id)
-    if (error) { alert('Ошибка удаления: ' + error.message); return }
+    if (error) { toast.fromError(error, `Не удалось удалить адрес «${name}»`); return }
+    toast.success(`Адрес «${name}» удалён`)
     reload()
   }
 
