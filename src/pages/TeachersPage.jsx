@@ -611,6 +611,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [justPaid, setJustPaid] = useState(new Set())  // занятия, оплаченные прямо сейчас — до перезагрузки
   const [confirmPay, setConfirmPay] = useState(null)   // занятие, ждущее подтверждения оплаты
   const [payingOne, setPayingOne] = useState(false)
+  const [payOneDate, setPayOneDate] = useState(todayLocal())  // дата разовой выплаты
   const [cancelPayout, setCancelPayout] = useState(null)  // выплата, ждущая подтверждения отмены
   const [cancelling, setCancelling] = useState(false)
   const [selectedPayout, setSelectedPayout] = useState(null)  // подсвечиваем занятия этой выплаты
@@ -714,7 +715,9 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
 
   // Когда именно прошла выплата — чтобы показать это прямо в строке занятия
   const payoutDateById = {}
-  payouts.forEach(p => { payoutDateById[p.id] = p.created_at })
+  // paid_at — дата, когда деньги отданы; created_at остаётся запасным
+  // для выплат, заведённых до появления колонки
+  payouts.forEach(p => { payoutDateById[p.id] = p.paid_at || p.created_at })
 
   // История занятий с признаком оплаты — прямо из движка расчёта
   const lessonHistory = earn ? earn.items.map(i => {
@@ -888,7 +891,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         )}
                         {!paid && l.amount > 0 && onPayOne && (
                           <button className="btn btn-outline btn-sm" style={{ fontSize: 11, padding: '2px 10px' }}
-                            onClick={() => setConfirmPay({ ...l, _lkey: lkey })}>Оплатить</button>
+                            onClick={() => { setPayOneDate(todayLocal()); setConfirmPay({ ...l, _lkey: lkey }) }}>Оплатить</button>
                         )}
                       </div>
                     )})}
@@ -923,7 +926,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                           {active && <div style={{ fontSize: 11, color: T.greenDark, fontWeight: 600, marginTop: 2 }}>↑ занятия этой выплаты подсвечены выше</div>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ fontSize: 11, color: T.muted }}>{ruDate(p.created_at)}</div>
+                          <div style={{ fontSize: 11, color: T.muted }}>{ruDate(p.paid_at || p.created_at)}</div>
                           <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#e05a5a', padding: '2px 8px' }}
                             onClick={(e) => { e.stopPropagation(); setCancelPayout(p) }}>Отменить</button>
                         </div>
@@ -963,10 +966,10 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
         <Modal title="Оплата занятия" onClose={() => setConfirmPay(null)}
           footer={<>
             <button className="btn btn-ghost" onClick={() => setConfirmPay(null)} disabled={payingOne}>Отмена</button>
-            <button className="btn btn-primary" disabled={payingOne}
+            <button className="btn btn-primary" disabled={payingOne || !payOneDate}
               onClick={async () => {
                 setPayingOne(true)
-                const ok = await onPayOne(teacher, confirmPay)
+                const ok = await onPayOne(teacher, confirmPay, payOneDate)
                 setPayingOne(false)
                 if (ok) {
                   setJustPaid(prev => new Set(prev).add(confirmPay._lkey))
@@ -995,6 +998,17 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 8, marginTop: 8, borderTop: `1px solid ${T.border}` }}>
               <span style={{ fontSize: 14, fontWeight: 700 }}>К оплате</span>
               <span style={{ fontFamily: 'Nunito,sans-serif', fontSize: 18, fontWeight: 800, color: T.greenDark }}>{fmt(confirmPay.amount)}</span>
+            </div>
+          </div>
+          <div className="form-group" style={{ marginTop: 14 }}>
+            <label className="form-label">Дата выплаты</label>
+            <input className="form-input" type="date" value={payOneDate}
+              onChange={e => setPayOneDate(e.target.value)} />
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+              {payOneDate === todayLocal()
+                ? 'Расход встанет сегодняшним числом'
+                : `Расход встанет ${ruDate(payOneDate)}`}
+              {' · '}начислено за {ruDate(confirmPay.date)}
             </div>
           </div>
         </Modal>
@@ -1301,10 +1315,12 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   }
 
   // Разовая оплата одного занятия из истории — без выбора периода
-  const payOneLesson = async (teacher, lesson) => {
+  const payOneLesson = async (teacher, lesson, payDate) => {
+    const when = payDate || todayLocal()
     const { data: payout, error } = await supabase.from('teacher_payouts').insert({
       teacher_id: teacher.id, studio_id: studioId,
       amount: lesson.amount, period_from: lesson.date, period_to: lesson.date,
+      paid_at: when,
       lessons_count: lesson.hours === null ? 1 : 0, note: 'Разовая оплата занятия',
     }).select().single()
     if (error) { alert('Ошибка: ' + error.message); return false }
@@ -1322,7 +1338,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
     }
 
     await supabase.from('expenses').insert({
-      studio_id: studioId, expense_date: todayLocal(),
+      studio_id: studioId, expense_date: when,
       expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
       comment: `${teacher.name}: разовая оплата занятия ${ruDate(lesson.date)}`,
       payout_id: payout.id,
@@ -1339,6 +1355,9 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       teacher_id: showPayout.id,
       studio_id: studioId,
       amount, period_from: periodFrom, period_to: periodTo,
+      // Когда деньги реально отданы. Раньше в истории показывался created_at —
+      // момент создания записи, то есть всегда «сегодня» (баг 38)
+      paid_at: payDate || todayLocal(),
       lessons_count: lessonsCount, note,
     }).select().single()
     if (error) { alert('Ошибка: ' + error.message); return }
