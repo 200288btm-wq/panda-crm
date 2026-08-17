@@ -28,7 +28,7 @@ export function GlobalStyles() {
       .app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 
       /* ── Sidebar ── */
-      .sidebar { width: 230px; min-width: 230px; background: ${T.white}; border-right: 1px solid ${T.border}; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; transition: width 0.25s ease, min-width 0.25s ease; z-index: 100; flex-shrink: 0; }
+      .sidebar { width: 230px; min-width: 230px; height: 100%; background: ${T.white}; border-right: 1px solid ${T.border}; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; transition: width 0.25s ease, min-width 0.25s ease; z-index: 100; flex-shrink: 0; }
       .sidebar.collapsed { width: 56px; min-width: 56px; }
       .sidebar-logo { padding: 14px 14px 10px; border-bottom: 1px solid ${T.border}; overflow: hidden; white-space: nowrap; }
       .logo-row { display: flex; align-items: center; gap: 10px; }
@@ -68,7 +68,9 @@ export function GlobalStyles() {
       .user-avatar-btn:active { transform: scale(0.95); }
       .sidebar-toggle { position: absolute; top: 50%; transform: translateY(-50%); right: -14px; width: 28px; height: 28px; background: white; border: 1.5px solid ${T.border}; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 110; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.2s; }
       .sidebar-toggle:hover { background: ${T.greenBg}; border-color: ${T.green}; }
-      .sidebar-wrapper { position: relative; flex-shrink: 0; }
+      /* height: 100% — панель тянется на всю высоту сама, а не «до последнего
+         пункта»: короткое меню обрывалось белой полосой посередине экрана */
+      .sidebar-wrapper { position: relative; flex-shrink: 0; height: 100%; }
 
       /* ── Main ── */
       .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
