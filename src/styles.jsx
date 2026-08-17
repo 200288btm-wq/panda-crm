@@ -47,6 +47,22 @@ export function GlobalStyles() {
       .sidebar.collapsed .nav-label-text { opacity: 0; width: 0; }
       .nav-badge { margin-left: auto; background: ${T.orange}; color: white; border-radius: 99px; font-size: 10px; font-weight: 700; padding: 1px 7px; transition: opacity 0.2s; }
       .sidebar.collapsed .nav-badge { opacity: 0; }
+      /* Разделитель вместо заголовка секции: группировка видна, строка не тратится */
+      .nav-divider { height: 1px; background: ${T.border}; margin: 8px 16px; }
+      .sidebar.collapsed .nav-divider { margin: 8px 10px; }
+      /* Раскрывающаяся группа («Финансы») */
+      .nav-chevron { margin-left: auto; font-size: 10px; color: ${T.muted}; transition: opacity 0.2s, transform 0.15s; }
+      .sidebar.collapsed .nav-chevron { opacity: 0; }
+      .nav-item.group-open { color: ${T.ink}; }
+      .nav-sub { padding-left: 46px; font-size: 13px; font-weight: 500; }
+      .nav-sub.active { font-weight: 700; }
+      /* Шестерёнка в шапке — «настраивается один раз» живёт здесь, не в меню */
+      .topbar-icon-btn { width: 36px; height: 36px; border-radius: 50%; border: none; background: ${T.cream};
+        cursor: pointer; font-size: 16px; display: inline-flex; align-items: center; justify-content: center;
+        transition: transform 0.15s, background 0.15s; flex-shrink: 0; }
+      .topbar-icon-btn:hover { transform: scale(1.05); background: ${T.greenBg}; }
+      .topbar-icon-btn:active { transform: scale(0.95); }
+      .topbar-icon-btn.active { background: ${T.greenBg}; box-shadow: inset 0 0 0 1.5px ${T.green}; }
       .user-avatar-btn { transition: transform 0.15s, box-shadow 0.15s; }
       .user-avatar-btn:hover { transform: scale(1.05); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
       .user-avatar-btn:active { transform: scale(0.95); }
