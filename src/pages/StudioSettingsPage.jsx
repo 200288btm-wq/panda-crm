@@ -113,14 +113,17 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
     if (data) setStatuses(data)
   }
 
+  // Возвращает true, если статус реально сохранён — по этому признаку
+  // форма заведения закрывается. На ошибке она остаётся открытой
+  // вместе с введённым, чтобы было что поправить.
   const addStatus = async () => {
     const name = newStatus.name.trim()
-    if (!name) { setStatusMsg({ type: 'error', text: 'Введите название' }); return }
+    if (!name) { setStatusMsg({ type: 'error', text: 'Введите название' }); return false }
     // Дубль по названию: два одинаковых статуса неотличимы для клиента
     // и разъезжаются во вкладках. Введённое не стираем, чтобы поправить
     if (statuses.some(s => s.name.toLowerCase() === name.toLowerCase())) {
       setStatusMsg({ type: 'error', text: `Статус «${name}» уже есть в списке` })
-      return
+      return false
     }
     const { error } = await supabase.from('client_statuses').insert({
       name, color: newStatus.color,
@@ -128,15 +131,17 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       in_payments: newStatus.in_payments, in_list: newStatus.in_list,
       studio_id: studioId, sort_order: statuses.length
     })
-    if (error) setStatusMsg({ type: 'error', text: error.message })
+    if (error) {
+      setStatusMsg({ type: 'error', text: error.message })
+      setTimeout(() => setStatusMsg(null), 2000)
+      return false
+    }
     // Без reload() новый статус жил только на этом экране: вкладки на
     // «Клиентах» читают clientStatuses из CRM и не знали о нём до F5
-    else {
-      setNewStatus({ name: '', color: 'badge-gray', in_schedule: true, in_stats: true, in_payments: true, in_list: true })
-      setStatusMsg({ type: 'success', text: 'Статус добавлен' })
-      loadStatuses(); reload && reload()
-    }
-    setTimeout(() => setStatusMsg(null), 2000)
+    setNewStatus({ name: '', color: 'badge-gray', in_schedule: true, in_stats: true, in_payments: true, in_list: true })
+    loadStatuses(); reload && reload()
+    toast.success(`Статус «${name}» добавлен`)
+    return true
   }
 
   // Переименование кастомного статуса. Каскад на clients.status делает
@@ -1273,6 +1278,14 @@ function StatusRow({ item, onRename, onDelete, onFlag, narrow, T }) {
 }
 
 function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, renameStatus, setStatusFlag, narrow, T }) {
+  const [adding, setAdding] = useState(false)
+  // Закрываем форму только при удачном сохранении: на ошибке (дубль
+  // названия) она должна остаться открытой вместе с введённым
+  const submit = async () => { const ok = await addStatus(); if (ok) setAdding(false) }
+  const cancel = () => {
+    setAdding(false)
+    setNewStatus({ name: '', color: 'badge-gray', in_schedule: true, in_stats: true, in_payments: true, in_list: true })
+  }
   const COLOR_OPTIONS = [
     { value: 'badge-blue',   label: 'Синий',      color: '#3b82f6' },
     { value: 'badge-green',  label: 'Зелёный',    color: '#22c55e' },
@@ -1313,6 +1326,14 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
           ))}
           {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
         </div>
+        {/* Форма заведения раскрывается кнопкой. Развёрнутая она занимала
+            больше места, чем сам справочник, хотя новый статус заводят
+            от силы раз в год */}
+        {!adding && (
+          <button className="btn btn-outline" onClick={() => setAdding(true)}>+ Новый статус</button>
+        )}
+
+        {adding && (
         <div style={{ background: T.greenBg, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.green}33` }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: T.ink, marginBottom: 12 }}>+ Новый статус</div>
           <div className="form-group" style={{ marginBottom: 10 }}>
@@ -1320,7 +1341,7 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
             <input className="form-input" value={newStatus.name}
               onChange={e => setNewStatus(s => ({ ...s, name: e.target.value }))}
               placeholder="Например: VIP, На паузе..."
-              onKeyDown={e => e.key === 'Enter' && addStatus()} />
+              onKeyDown={e => e.key === 'Enter' && submit()} />
           </div>
           <div className="form-group" style={{ marginBottom: 12 }}>
             <label className="form-label">Цвет</label>
@@ -1352,13 +1373,17 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
           <div style={{ marginBottom: 12 }}>
             <span className={`badge ${newStatus.color}`}>{newStatus.name || 'Предпросмотр'}</span>
           </div>
-          <button className="btn btn-primary" onClick={addStatus} disabled={!newStatus.name.trim()}>+ Добавить статус</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={submit} disabled={!newStatus.name.trim()}>+ Добавить статус</button>
+            <button className="btn btn-ghost" onClick={cancel}>Отмена</button>
+          </div>
           {statusMsg && (
             <div style={{ fontSize: 12, marginTop: 8, color: statusMsg.type === 'error' ? '#e05a5a' : T.greenDark }}>
               {statusMsg.type === 'error' ? '⚠️' : '✅'} {statusMsg.text}
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   )
