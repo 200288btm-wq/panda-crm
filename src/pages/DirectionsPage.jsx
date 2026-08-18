@@ -8,6 +8,7 @@ import { createDuration, createAddress, createCategory } from '../lib/dictionari
 import { NumberInput } from '../components/SearchSelect'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { DIRECTION_TRACES, countTraces, setArchived } from '../lib/archive'
+import { statusIndex, inStats } from '../lib/clientStatus'
 import { toast, confirmAction } from '../lib/ui'
 
 // Цвета работают как метки: их различают боковым зрением на карточках
@@ -635,10 +636,13 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], reload, isAdmin, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], clientStatuses=[], reload, isAdmin, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
+  // Сколько детей числится в направлении — по галочке in_stats
+  // справочника, а не по названию статуса
+  const statusIdx = useMemo(() => statusIndex(clientStatuses), [clientStatuses])
   const [directionGroups, setDirectionGroups] = useState([])
   const [priceCategories, setPriceCategories] = useState([])
   const [durations, setDurations] = useState([])
@@ -866,7 +870,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
         {(localDirs || directions).filter(d => !d.archived_at).map(d => {
-          const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&c.status==='Активен').length
+          const cnt = clients.filter(c=>(c.direction_ids||[]).includes(d.id)&&inStats(statusIdx, c.status)).length
           const color = d.color||DIRECTION_COLORS[0]
           const auto = calcAutoPrice(d, subscriptions)
           const subgroups = groupsByDirection[d.id] || []

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { T, fmt } from '../styles.jsx'
 import { calcRealBalance } from '../lib/balance'
+import { statusIndex, inStats, systemStatusName } from '../lib/clientStatus'
 
 // Чек-лист «Начало работы» — помогает настроить новую студию.
 // Галочки загораются автоматически, когда в студии появляются данные.
@@ -72,20 +73,28 @@ function SetupChecklist({ directions = [], teachers = [], clientStatuses = [], c
 }
 
 export default function Dashboard({ clients, payments, expenses, directions, teachers = [], clientStatuses = [], studioSettings, studioId, isDirector, navigate, otherIncome = [] }) {
-  const active = clients.filter(c => c.status === 'Активен').length
+  // Кто считается «активным» — решает галочка in_stats в справочнике,
+  // а не название статуса. «Временно отсутствует» сюда входит: место в
+  // группе за ребёнком держат, и долг за ним виден.
+  const statusIdx = useMemo(() => statusIndex(clientStatuses), [clientStatuses])
+  const countsInStats = (c) => inStats(statusIdx, c.status)
+
+  const active = clients.filter(countsInStats).length
   const subsIncome = payments.reduce((s, p) => s + (p.amount || 0), 0)
   const extraIncome = (otherIncome || []).reduce((s, r) => s + (+r.amount || 0), 0)
   const income = subsIncome + extraIncome
   const totalExp = expenses.reduce((s, e) => s + (e.amount || 0), 0)
   const profit = income - totalExp
   const avg = active ? Math.round(income / active) : 0
-  const newC = clients.filter(c => c.status === 'Новый').length
+  // «Новых» считаем по роли статуса: студия вольна назвать его иначе
+  const newStatusName = systemStatusName(clientStatuses, 'new')
+  const newC = clients.filter(c => c.status === newStatusName).length
   // Реальный баланс = (начальные paid_lessons + занятия из ДЕЙСТВУЮЩИХ оплат) − visited_lessons.
   // Считается общим модулем lib/balance.js — тем же, что в списке клиентов:
   // раньше здесь фильтра по expires_at не было и сгоревшие абонементы
   // продолжали закрывать долг (баг 35).
   const debtors = clients
-    .filter(c => c.status === 'Активен')
+    .filter(countsInStats)
     .map(c => {
       const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
       return { ...c, realBalance: bal.left, totalPaid, totalVisited }
@@ -128,7 +137,7 @@ export default function Dashboard({ clients, payments, expenses, directions, tea
         <div className="card card-pad">
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14, marginBottom: 14 }}>📊 Заполненность групп</div>
           {directions.map(d => {
-            const cnt = clients.filter(c => (c.direction_ids || []).includes(d.id) && c.status === 'Активен').length
+            const cnt = clients.filter(c => (c.direction_ids || []).includes(d.id) && countsInStats(c)).length
             const capacity = d.max_capacity || 0
             const pct = capacity > 0 ? Math.min(Math.round(cnt / capacity * 100), 100) : (active > 0 ? Math.round(cnt / active * 100) : 0)
             const color = d.color || T.green

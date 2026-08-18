@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 import { Modal } from '../components/Modal'
+import { systemStatusName } from '../lib/clientStatus'
 import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
 import PaymentsPage from './PaymentsPage'
@@ -164,7 +165,15 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
       supabase.from('client_statuses').select('*').eq('studio_id', sid).order('sort_order'),
       supabase.from('other_income').select('*').eq('studio_id', sid).order('income_date', { ascending: false }),
     ])
-    if (c.data) { setClients(c.data); setNewCount(c.data.filter(x => x.status === 'Новый').length) }
+    // Счётчик у «Клиентов» считается по РОЛИ статуса, а не по названию:
+    // студия может назвать «Новый» как угодно, а раньше подсчёт молча
+    // уезжал в ноль. Справочник приезжает этим же залпом, поэтому имя
+    // берём из него, а не из зашитой строки.
+    if (c.data) {
+      const newName = systemStatusName(cs.data, 'new')
+      setClients(c.data)
+      setNewCount(c.data.filter(x => x.status === newName).length)
+    }
     if (p.data) setPayments(p.data)
     if (e.data) setExpenses(e.data)
     if (d.data) setDirections(d.data)

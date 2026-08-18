@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, hashColor, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
 import { toast } from '../lib/ui'
+import { statusIndex, inSchedule } from '../lib/clientStatus'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -68,6 +69,12 @@ const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); ret
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
 // Get events for a specific date
+//
+// ⚠️ `clients` сюда приходит УЖЕ отфильтрованным по галочке in_schedule
+// справочника статусов (см. scheduleClients в CalendarPage). Внутри
+// статус не проверяется: раньше в четырёх ветках стояло сравнение с
+// «Активен», а пятая — запись на конкретное занятие — не проверяла
+// ничего, и ушедший ребёнок оставался в сетке.
 const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = [], enrollments = []) => {
   const dow = date.getDay()
   const ds = dateStr(date)
@@ -123,7 +130,6 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         } else if (d.enrollment_type === 'client_days') {
           // Клиент показывается только в свои дни и только в своей подгруппе
           students = clients.filter(c => {
-            if (c.status !== 'Активен') return false
             if (!(c.direction_ids||[]).includes(d.id)) return false
             const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
             if (!ws || !Array.isArray(ws.days)) return false
@@ -143,7 +149,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
             if (c) students.push({ ...c, _oneOff: true })
           })
         } else {
-          students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+          students = clients.filter(c => (c.direction_ids||[]).includes(d.id))
           // Фильтруем по подгруппе
           students = students.filter(c => {
             const clientGroups = (c.group_ids || []).map(String)
@@ -199,7 +205,6 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         students = clients.filter(c => enrolledIds.includes(c.id))
       } else if (d.enrollment_type === 'client_days') {
         students = clients.filter(c => {
-          if (c.status !== 'Активен') return false
           if (!(c.direction_ids||[]).includes(d.id)) return false
           const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
           if (!ws || !Array.isArray(ws.days)) return false
@@ -213,7 +218,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
           if (c) students.push({ ...c, _oneOff: true })
         })
       } else {
-        students = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен')
+        students = clients.filter(c => (c.direction_ids||[]).includes(d.id))
       }
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
@@ -952,7 +957,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, addresses = [], staff, role, reload, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+export default function CalendarPage({ directions, clients, teachers, addresses = [], clientStatuses = [], staff, role, reload, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
@@ -1025,7 +1030,16 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
   // Week dates
   const weekDates = view === 'week' ? Array.from({ length:7 }, (_,i) => addDays(startOfWeek(currentDate), i)) : [currentDate]
 
-  const activeClients = clients.filter(c => c.status === 'Активен')
+  // Кто вообще попадает в расписание — решает галочка in_schedule
+  // справочника статусов. Фильтруем ОДИН раз здесь и передаём готовый
+  // список вниз: и в сетку, и в модалку дня, и в фильтр «Все дети».
+  // Так ушедший ребёнок исчезает разом отовсюду, включая разовые
+  // записи на занятие, где проверки статуса не было вовсе.
+  const statusIdx = useMemo(() => statusIndex(clientStatuses), [clientStatuses])
+  const scheduleClients = useMemo(
+    () => clients.filter(c => inSchedule(statusIdx, c.status)),
+    [clients, statusIdx]
+  )
 
   const handleDayClick = (date) => {
     if (view === 'month') {
@@ -1068,7 +1082,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
         )}
         <select style={selectStyle} value={filterChild} onChange={e => setFilterChild(e.target.value)}>
           <option value="all">👨‍👧 Все дети</option>
-          {activeClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
+          {scheduleClients.map(c => <option key={c.id} value={String(c.id)}>{c.child_name}</option>)}
         </select>
         {addresses.length > 0 && features.addresses && (
           <select style={selectStyle} value={filterAddress} onChange={e => setFilterAddress(e.target.value)}>
@@ -1109,7 +1123,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
         {directions.filter(d => !d.archived_at).map(d => {
           const active = filterDirs.includes(String(d.id))
           const color = d.color || DEFAULT_COLOR
-          const cnt = clients.filter(c => (c.direction_ids||[]).includes(d.id) && c.status === 'Активен').length
+          const cnt = scheduleClients.filter(c => (c.direction_ids||[]).includes(d.id)).length
           const groups = d.groups || []
           return (
             <div key={d.id} style={{ display:'flex', flexDirection:'column' }}>
@@ -1154,7 +1168,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {view === 'month' && (
         <MonthView
           year={currentDate.getFullYear()} month={currentDate.getMonth()}
-          directions={directions} clients={clients} teachers={teachers}
+          directions={directions} clients={scheduleClients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
@@ -1165,7 +1179,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {(view === 'week' || view === 'day') && (
         <TimeGrid
           dates={view === 'week' ? weekDates : [currentDate]}
-          directions={directions} clients={clients} teachers={teachers}
+          directions={directions} clients={scheduleClients} teachers={teachers}
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
@@ -1179,9 +1193,9 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {selectedDay && (
         <DayModal
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, clients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
+          events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
           teachers={teachers}
-          clients={clients}
+          clients={scheduleClients}
           studioId={studioId}
           onClose={(changed) => {
             setSelectedDay(null)
