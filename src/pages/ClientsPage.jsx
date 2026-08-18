@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { CLIENT_TRACES, countTraces } from '../lib/archive'
 import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
 import { toast, confirmAction } from '../lib/ui'
+import { statusIndex, inList, inPayments, systemStatusName } from '../lib/clientStatus'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
@@ -36,11 +37,11 @@ const parseDaysFromSchedule = (schedule) => {
   return DAY_KEYS.filter(d => days.includes(d))
 }
 
-function ClientModal({ client, directions, onClose, onSave, statuses = ['Новый', 'Активен', 'Временно отсутствует', 'Неактивен', 'Негатив', 'Отказ', 'Ожидание'] }) {
+function ClientModal({ client, directions, onClose, onSave, statuses = [], defaultStatus = 'Новый' }) {
   const [f, setF] = useState(client ? {
     child_name: client.child_name || '',
     adult_name: client.adult_name || '',
-    status: client.status || 'Новый',
+    status: client.status || defaultStatus,
     contacts: client.contacts || [{ type: 'Телефон', val: '' }],
     start_date: client.start_date || '',
     source: client.source || '',
@@ -53,7 +54,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
     balance: client.balance || 0,
     discount: client.discount || 0,
     comment: client.comment || '',
-  } : { child_name: '', adult_name: '', status: 'Новый', contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
+  } : { child_name: '', adult_name: '', status: defaultStatus, contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
 
@@ -235,7 +236,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = ['Нов�
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onAddPayment, onEnroll, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onArchive, onRestore, isArchived = false, canPay = true, onAddPayment, onEnroll, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([])
@@ -288,15 +289,35 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
     <Modal title={`👤 ${client.child_name}`} onClose={onClose} large
       footer={<>
         <button className="btn btn-outline btn-sm" onClick={onEdit}>✏️ Редактировать</button>
-        {onAddPayment && (
+        {/* Оплату архивному не заводим: сначала вернуть из архива.
+            Кнопка не прячется молча — вместо неё стоит подсказка */}
+        {onAddPayment && canPay && (
           <button className="btn btn-primary btn-sm" onClick={() => onAddPayment(client)}>
             💳 + Оплата
           </button>
         )}
-        {onDelete && (
+        {onAddPayment && !canPay && (
+          <span style={{ fontSize: 11.5, color: T.muted, alignSelf: 'center', maxWidth: 230, lineHeight: 1.35 }}>
+            Чтобы завести оплату, верните клиента из архива
+          </span>
+        )}
+        {/* Архив — обычное действие карточки. Раньше единственный путь
+            сюда лежал через кнопку «Удалить», и им не воспользовались
+            ни разу: никто не станет удалять клиента, чтобы сохранить */}
+        {onArchive && !isArchived && (
+          <button className="btn btn-outline btn-sm" onClick={() => onArchive(client)} style={{ marginLeft:'auto' }}>
+            📦 В архив
+          </button>
+        )}
+        {onRestore && isArchived && (
+          <button className="btn btn-outline btn-sm" onClick={() => onRestore(client)} style={{ marginLeft:'auto' }}>
+            ↩️ Вернуть из архива
+          </button>
+        )}
+        {onDelete && isArchived && (
           <button className="btn btn-sm" onClick={() => onDelete(client)}
-            style={{ color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444433', marginLeft:'auto' }}>
-            🗑 Удалить клиента
+            style={{ color:'#EF4444', background:'#FEF2F2', border:'1px solid #EF444433' }}>
+            🗑 Удалить
           </button>
         )}
         <button className="btn btn-ghost btn-sm" onClick={onClose}>Закрыть</button>
@@ -652,21 +673,25 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     supabase.from('addresses').select('*').eq('studio_id', studioId)
       .then(({ data }) => setAddresses(data || []))
   }, [studioId])
-  // Архива у клиентов нет намеренно: роль архива играет статус.
-  // Но «Все» должно означать «все, с кем работаем», иначе список за пару
-  // лет зарастает ушедшими и перестаёт быть рабочим. Ушедшие видны на
-  // своей вкладке и находятся поиском по имени с любой вкладки.
-  const HIDDEN_STATUSES = ['Неактивен', 'Отказ', 'Негатив']
+  // Отдельного архива у клиентов нет намеренно: его роль играет статус.
+  // «Все» означает «все, с кем работаем», иначе список за пару лет
+  // зарастает ушедшими. Кого прятать — решает галочка in_list
+  // справочника, а не жёсткий список названий, как было раньше.
+  // Ушедшие видны на своей вкладке и находятся поиском с любой.
+  const statusIdx = useMemo(() => statusIndex(clientStatuses), [clientStatuses])
+  const archiveName = systemStatusName(clientStatuses, 'archive')
+  const activeName = systemStatusName(clientStatuses, 'active')
+  const newName = systemStatusName(clientStatuses, 'new')
   const filtered = clients.filter(c => {
     const q = search.toLowerCase()
     const match = !q || (c.child_name || '').toLowerCase().includes(q) || (c.adult_name || '').toLowerCase().includes(q)
     const st = statusFilter === 'Все'
-      ? (!HIDDEN_STATUSES.includes(c.status) || !!q)
+      ? (inList(statusIdx, c.status) || !!q)
       : c.status === statusFilter
     const dir = dirFilter === 'all' || (c.direction_ids || []).includes(+dirFilter)
     return match && st && dir
   })
-  const hiddenCount = clients.filter(c => HIDDEN_STATUSES.includes(c.status)).length
+  const hiddenCount = clients.filter(c => !inList(statusIdx, c.status)).length
   const save = async (f) => {
     const cleaned = {
       ...f,
@@ -693,9 +718,56 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
     await reload()
   }
-  // У клиента с посещениями и оплатами удаление уносило бы историю:
-  // отметки — основа начислений педагогам, оплаты — основа финансов.
-  // Такому клиенту ставится статус «Неактивен», он и прячет из списка.
+  // ── Архив ──────────────────────────────────────────────────────────
+  // Ушедший ребёнок уходит в архив, а не удаляется: отметки — основа
+  // начислений педагогам, оплаты — основа финансов.
+  //
+  // Перед архивом проверяем долг. В архиве клиент пропадает из списка
+  // должников и из напоминаний бота — незакрытый долг после этого
+  // никто уже не увидит. Поэтому не запрещаем, но говорим цену.
+  const archiveClient = async (c) => {
+    const { bal } = calcRealBalance(c, payments)
+    const debt = bal.left < 0 ? -bal.left : 0
+
+    const ok = debt > 0
+      ? await confirmAction({
+          title: `Отправить «${c.child_name}» в архив?`,
+          text: `За ребёнком числится ${debt} неоплаченн${debt === 1 ? 'ое занятие' : debt < 5 ? 'ых занятия' : 'ых занятий'}. В архиве он пропадёт из списка задолженностей и из напоминаний, и про этот долг никто не вспомнит.`,
+          details: 'Завести оплату можно будет только вернув клиента из архива. Лучше провести оплату сейчас.',
+          confirmLabel: 'Всё равно в архив', cancelLabel: 'Сначала оплатить', danger: true,
+        })
+      : await confirmAction({
+          title: `Отправить «${c.child_name}» в архив?`,
+          text: 'Клиент пропадёт из расписания, из расчётов и из общего списка. История посещений и оплат останется нетронутой.',
+          details: 'Вернуть можно в любой момент — на вкладке «Архив».',
+          confirmLabel: 'В архив', cancelLabel: 'Отмена',
+        })
+    if (!ok) return
+
+    setBusy(true)
+    const { error } = await supabase.from('clients').update({ status: archiveName })
+      .eq('id', c.id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { toast.fromError(error, 'Не удалось отправить в архив'); return }
+    toast.success(`«${c.child_name}» в архиве`)
+    setShowDetail(null)
+    await reload()
+  }
+
+  const restoreClient = async (c) => {
+    setBusy(true)
+    const { error } = await supabase.from('clients').update({ status: activeName })
+      .eq('id', c.id).eq('studio_id', studioId)
+    setBusy(false)
+    if (error) { toast.fromError(error, 'Не удалось вернуть из архива'); return }
+    toast.success(`«${c.child_name}» снова в статусе «${activeName}» — теперь можно завести оплату`)
+    setShowDetail(null)
+    await reload()
+  }
+
+  // Удаление доступно только из архива и только для записи без истории:
+  // те же правила, что у педагогов. Это путь для дублей и тестовых
+  // карточек, а не способ убрать ушедшего ребёнка.
   const deleteClient = async (c) => {
     setDeleteAsk({ client: c, loading: true })
     const traces = await countTraces(CLIENT_TRACES, c.id, studioId)
@@ -714,18 +786,6 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     await reload()
   }
 
-  const markInactive = async () => {
-    const c = deleteAsk.client
-    setBusy(true)
-    const { error } = await supabase.from('clients').update({ status: 'Неактивен' })
-      .eq('id', c.id).eq('studio_id', studioId)
-    setBusy(false)
-    if (error) { toast.fromError(error, 'Не удалось сменить статус'); return }
-    toast.success(`«${c.child_name}» переведён в «Неактивен»`)
-    setDeleteAsk(null)
-    setShowDetail(null)
-    await reload()
-  }
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -868,8 +928,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           </div>
         )}
       </div>
-      {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} statuses={STATUSES_LIST} />}
-      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} statuses={STATUSES_LIST} />}
+      {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} statuses={STATUSES_LIST} defaultStatus={newName} />}
+      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} statuses={STATUSES_LIST} defaultStatus={newName} />}
       {showDetail && (
         <ClientDetail
           client={showDetail}
@@ -881,6 +941,10 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           onEdit={() => { setShowEdit(showDetail); setShowDetail(null) }}
           onFreeze={(c) => setShowFreeze(c)}
           onDelete={isDirector ? deleteClient : null}
+          onArchive={archiveClient}
+          onRestore={restoreClient}
+          isArchived={showDetail.status === archiveName}
+          canPay={inPayments(statusIdx, showDetail.status)}
           onAddPayment={navigate ? (c) => { setShowDetail(null); navigate('payments', { clientId: c.id }) } : null}
           onEnroll={(data) => setEnrollModal(data)}
           features={features}
@@ -893,18 +957,15 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         return (
           <Modal title={hasHistory ? 'Клиент с историей' : 'Удалить клиента'} onClose={() => setDeleteAsk(null)}
             footer={<>
-              <button className="btn btn-ghost" onClick={() => setDeleteAsk(null)} disabled={busy}>Отмена</button>
-              {!loading && !failed && (hasHistory
-                ? (client.status !== 'Неактивен' && (
-                    <button className="btn btn-primary" onClick={markInactive} disabled={busy}>
-                      {busy ? 'Сохраняем…' : 'Пометить «Неактивен»'}
-                    </button>
-                  ))
-                : (
-                    <button className="btn btn-danger" onClick={doDeleteClient} disabled={busy}>
-                      {busy ? 'Удаляем…' : '🗑️ Удалить'}
-                    </button>
-                  )
+              <button className="btn btn-ghost" onClick={() => setDeleteAsk(null)} disabled={busy}>
+                {hasHistory ? 'Понятно' : 'Отмена'}
+              </button>
+              {/* Клиент с историей не удаляется вовсе — он уже в архиве,
+                  предлагать архив второй раз незачем */}
+              {!loading && !failed && !hasHistory && (
+                <button className="btn btn-danger" onClick={doDeleteClient} disabled={busy}>
+                  {busy ? 'Удаляем…' : '🗑️ Удалить навсегда'}
+                </button>
               )}
             </>}>
             {loading && <div style={{ fontSize: 14, color: T.muted }}>Смотрим, что числится за клиентом…</div>}
@@ -928,10 +989,13 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                   ))}
                 </div>
                 Удалить нельзя: отметки посещаемости — основа начислений
-                педагогам, а оплаты — основа финансовых отчётов.
-                {client.status === 'Неактивен'
-                  ? <div style={{ marginTop: 10, color: T.muted, fontSize: 13 }}>Клиент уже помечен «Неактивен» и скрыт из общего списка.</div>
-                  : <div style={{ marginTop: 10 }}>Для ушедших есть статус «Неактивен» — он убирает клиента из общего списка, оставляя историю нетронутой.</div>}
+                педагогам, а оплаты — основа финансовых отчётов. Удаление
+                переписало бы уже закрытые месяцы у преподавателей.
+                <div style={{ marginTop: 10, color: T.muted, fontSize: 13 }}>
+                  Клиент остаётся в архиве — он скрыт из общего списка, из расписания
+                  и из расчётов, а история цела. Удаление существует для дублей
+                  и тестовых карточек, за которыми ничего не числится.
+                </div>
               </div>
             )}
 

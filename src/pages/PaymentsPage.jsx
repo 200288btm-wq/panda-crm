@@ -3,10 +3,11 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { SearchSelect, NumberInput } from '../components/SearchSelect'
+import { statusIndex, inPayments } from '../lib/clientStatus'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
-function PaymentModal({ payment, clients, directions, subscriptions, onClose, onSave, preselectedClientId, studioId }) {
+function PaymentModal({ payment, clients, directions, subscriptions, clientStatuses = [], onClose, onSave, preselectedClientId, studioId }) {
   const [clientId, setClientId] = useState(payment?.client_id || preselectedClientId || '')
   const [subId, setSubId] = useState('')
   const [dirId, setDirId] = useState(payment?.direction_id || '')
@@ -40,7 +41,14 @@ function PaymentModal({ payment, clients, directions, subscriptions, onClose, on
 
   // Список для поиска: показываем имя ребёнка, родителя держим в hint —
   // по нему тоже можно искать, но в строке он не мозолит глаза.
+  // Кому вообще можно завести оплату — решает галочка in_payments
+  // справочника статусов. Архивный клиент сюда не попадает: чтобы
+  // принять от него деньги, его сначала возвращают из архива.
+  // Уже выбранный в редактируемой оплате остаётся в списке всегда,
+  // иначе при правке старого платежа поле опустело бы само.
+  const payStatusIdx = statusIndex(clientStatuses)
   const clientOptions = [...clients]
+    .filter(c => inPayments(payStatusIdx, c.status) || String(c.id) === String(payment?.client_id))
     .sort((a, b) => String(a.child_name || '').localeCompare(String(b.child_name || ''), 'ru'))
     .map(c => ({ value: c.id, label: c.child_name || '(без имени)', hint: c.adult_name || '' }))
 
@@ -277,7 +285,7 @@ const PAY_SHORT = {
   'Пробное занятие':     { label: 'ПРОБ',cls: 'badge-gray' },
 }
 
-export default function PaymentsPage({ payments, clients, directions, subscriptions = [], reload, deepLink, setDeepLink, studioId }) {
+export default function PaymentsPage({ payments, clients, directions, subscriptions = [], clientStatuses = [], reload, deepLink, setDeepLink, studioId }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [preselectedClientId, setPreselectedClientId] = useState(null)
@@ -494,9 +502,9 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       )}
 
       {showAdd && <PaymentModal clients={clients} directions={directions} subscriptions={subscriptions}
-        studioId={studioId} preselectedClientId={preselectedClientId}
+        clientStatuses={clientStatuses} studioId={studioId} preselectedClientId={preselectedClientId}
         onClose={() => { setShowAdd(false); setPreselectedClientId(null) }} onSave={save} />}
-      {showEdit && <PaymentModal payment={showEdit} clients={clients} directions={directions} subscriptions={subscriptions} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />}
+      {showEdit && <PaymentModal payment={showEdit} clients={clients} directions={directions} subscriptions={subscriptions} clientStatuses={clientStatuses} studioId={studioId} onClose={() => setShowEdit(null)} onSave={save} />}
     </div>
   )
 }

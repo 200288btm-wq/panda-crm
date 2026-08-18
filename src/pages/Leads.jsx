@@ -3,6 +3,7 @@ import { supabase } from '../supabase'
 import { T } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { toast, confirmAction } from '../lib/ui'
+import { systemStatusName } from '../lib/clientStatus'
 
 const STATUS = {
   new:       { label: 'Новая',        bg: '#EFF6FF', color: '#1D4ED8' },
@@ -118,14 +119,15 @@ function AddLeadModal({ onClose, onSaved, studioId }) {
 }
 
 // Модалка создания клиента из заявки
-function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) {
+function ConvertLeadModal({ lead, directions, clientStatuses = [], onClose, onConverted, studioId }) {
   const [form, setForm] = useState({
     child_name: lead.child_name || '',
     parent_name: lead.parent_name || '',
     parent_phone: lead.parent_phone || '',
     child_age: lead.child_age || '',
     direction_ids: [],
-    status: 'Активен',
+    // Статус берётся по РОЛИ справочника: студия вольна назвать его иначе
+    status: systemStatusName(clientStatuses, 'active'),
     comment: lead.notes || '',
   })
   const [saving, setSaving] = useState(false)
@@ -195,10 +197,15 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) 
       )}
       <div className="form-group">
         <label className="form-label">Статус</label>
+        {/* Раньше список был зашит и предлагал «Заморожен» — статуса
+            с таким названием нет ни в справочнике, ни где-либо ещё:
+            заявка создавала клиента со статусом-сиротой, который потом
+            не попадал ни в один подсчёт. Теперь список из справочника,
+            архив из него убран: заводить клиента сразу в архив незачем */}
         <select className="form-input" style={inp} value={form.status} onChange={e => set('status', e.target.value)}>
-          <option value="Активен">Активен</option>
-          <option value="Новый">Новый</option>
-          <option value="Заморожен">Заморожен</option>
+          {clientStatuses.filter(s => s.system_key !== 'archive').map(s => (
+            <option key={s.id} value={s.name}>{s.name}</option>
+          ))}
         </select>
       </div>
       {directions && directions.length > 0 && (
@@ -229,7 +236,7 @@ function ConvertLeadModal({ lead, directions, onClose, onConverted, studioId }) 
   )
 }
 
-export default function Leads({ directions = [], studioId, reload }) {
+export default function Leads({ directions = [], clientStatuses = [], studioId, reload }) {
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768)
@@ -497,7 +504,7 @@ export default function Leads({ directions = [], studioId, reload }) {
       {showAddModal && <AddLeadModal studioId={studioId} onClose={() => setShowAddModal(false)} onSaved={fetchLeads} />}
 
       {convertLead && (
-        <ConvertLeadModal lead={convertLead} directions={directions} studioId={studioId}
+        <ConvertLeadModal lead={convertLead} directions={directions} clientStatuses={clientStatuses} studioId={studioId}
           onClose={() => setConvertLead(null)}
           onConverted={() => { fetchLeads(); setConvertLead(null); reload && reload() }} />
       )}

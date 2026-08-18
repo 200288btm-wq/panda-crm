@@ -1646,7 +1646,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
             // ребёнок, только телефон = брат/сестра. Режим — «дополнить».
             const { data: exClients } = await supabase
               .from('clients').select(CLIENT_SELECT).eq('studio_id', studioId)
-            const plan = buildClientsPlan({ rows: sheetRows, existingClients: exClients, mode: 'fill' })
+            const plan = buildClientsPlan({ rows: sheetRows, existingClients: exClients, clientStatuses: statuses, mode: 'fill' })
             const res = await applyClientsPlan({ supabase, studioId, items: plan.items })
             totalInserted += res.inserted + res.updated
             if (res.inserted) importDetails['Клиенты'] = (importDetails['Клиенты']||0) + res.inserted
@@ -1748,7 +1748,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           .from('clients').select(CLIENT_SELECT).eq('studio_id', studioId)
         setPlanRows(rows)
         setPlanExisting(existingClients || [])
-        setImportPlan(buildClientsPlan({ rows, existingClients, mode: importMode }))
+        setImportPlan(buildClientsPlan({ rows, existingClients, clientStatuses: statuses, mode: importMode }))
         setImporting(null)
         return
       }
@@ -1925,7 +1925,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
   // ── Предпросмотр импорта клиентов ────────────────────────
   const changeImportMode = (m) => {
     setImportMode(m)
-    if (planRows) setImportPlan(buildClientsPlan({ rows: planRows, existingClients: planExisting, mode: m }))
+    if (planRows) setImportPlan(buildClientsPlan({ rows: planRows, existingClients: planExisting, clientStatuses: statuses, mode: m }))
   }
   const togglePlanItem = (id) => setImportPlan(p => ({
     ...p, items: p.items.map(i => i.id === id ? { ...i, selected: !i.selected } : i),

@@ -2,6 +2,7 @@
 // Ничего не пишет в базу — только считает. Запись — applyClientsPlan.
 
 import { parseDate, normPhone, phoneKey, normName, pick, asStr, asNum, isEmptyVal } from './importParse'
+import { systemStatusName } from './clientStatus'
 
 const LABELS = {
   adult_name: 'Родитель',
@@ -25,7 +26,11 @@ export const CLIENT_SELECT =
  *                         (пустая ячейка НИКОГДА не затирает базу)
  *             'skip'    — совпадения не трогаем (фильтруется на применении)
  */
-export function buildClientsPlan({ rows, existingClients, mode = 'fill' }) {
+export function buildClientsPlan({ rows, existingClients, clientStatuses = [], mode = 'fill' }) {
+  // Статус для строк, где колонка «Статус» пуста. Берётся по РОЛИ
+  // справочника: студия могла назвать «Новый» иначе, и зашитая строка
+  // завела бы клиентов со статусом-сиротой — вне всех подсчётов.
+  const defaultStatus = systemStatusName(clientStatuses, 'new')
   // «Пропустить» отсекается при применении; для расчёта ведём себя как «дополнить»,
   // чтобы список изменений не пугал тем, чего не произойдёт.
   const effMode = mode === 'skip' ? 'fill' : mode
@@ -162,7 +167,7 @@ export function buildClientsPlan({ rows, existingClients, mode = 'fill' }) {
             ...(phone ? [{ type: 'Телефон', val: phone }] : []),
             ...(email ? [{ type: 'Email', val: email }] : []),
           ],
-          status: vals.status || 'Новый',
+          status: vals.status || defaultStatus,
           paid_lessons: vals.paid_lessons || 0,
           visited_lessons: vals.visited_lessons || 0,
           discount: vals.discount || 0,
