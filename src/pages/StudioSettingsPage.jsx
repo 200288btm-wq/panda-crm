@@ -78,7 +78,13 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
 
   // Статусы клиентов
   const [statuses, setStatuses] = useState([])
-  const [newStatus, setNewStatus] = useState({ name: '', color: 'badge-gray' })
+  // Новый статус заводится сразу с поведением. По умолчанию — как у
+  // обычного занимающегося ребёнка; снимая галочки, студия описывает
+  // особый случай («Родственник» — только в расписании, без денег).
+  const [newStatus, setNewStatus] = useState({
+    name: '', color: 'badge-gray',
+    in_schedule: true, in_stats: true, in_payments: true, in_list: true,
+  })
   const [statusMsg, setStatusMsg] = useState(null)
   const [planInfo, setPlanInfo] = useState(null)
   const [addrMsg, setAddrMsg] = useState(null)
@@ -94,19 +100,67 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   }
 
   const addStatus = async () => {
-    if (!newStatus.name.trim()) { setStatusMsg({ type: 'error', text: 'Введите название' }); return }
+    const name = newStatus.name.trim()
+    if (!name) { setStatusMsg({ type: 'error', text: 'Введите название' }); return }
+    // Дубль по названию: два одинаковых статуса неотличимы для клиента
+    // и разъезжаются во вкладках. Введённое не стираем, чтобы поправить
+    if (statuses.some(s => s.name.toLowerCase() === name.toLowerCase())) {
+      setStatusMsg({ type: 'error', text: `Статус «${name}» уже есть в списке` })
+      return
+    }
     const { error } = await supabase.from('client_statuses').insert({
-      name: newStatus.name.trim(), color: newStatus.color,
+      name, color: newStatus.color,
+      in_schedule: newStatus.in_schedule, in_stats: newStatus.in_stats,
+      in_payments: newStatus.in_payments, in_list: newStatus.in_list,
       studio_id: studioId, sort_order: statuses.length
     })
     if (error) setStatusMsg({ type: 'error', text: error.message })
     // Без reload() новый статус жил только на этом экране: вкладки на
     // «Клиентах» читают clientStatuses из CRM и не знали о нём до F5
-    else { setNewStatus({ name: '', color: 'badge-gray' }); setStatusMsg({ type: 'success', text: 'Статус добавлен' }); loadStatuses(); reload && reload() }
+    else {
+      setNewStatus({ name: '', color: 'badge-gray', in_schedule: true, in_stats: true, in_payments: true, in_list: true })
+      setStatusMsg({ type: 'success', text: 'Статус добавлен' })
+      loadStatuses(); reload && reload()
+    }
     setTimeout(() => setStatusMsg(null), 2000)
   }
 
+  // Переименование кастомного статуса. Каскад на clients.status делает
+  // триггер в базе одной транзакцией — иначе справочник и клиенты
+  // разъехались бы, как это уже случилось с subscriptions.period.
+  // Системные статусы сюда не попадают: у них нет кнопки, а прямую
+  // попытку отбивает триггер.
+  const renameStatus = async (id, name) => {
+    const row = statuses.find(s => s.id === id)
+    if (!row || row.system_key) return
+    const clean = name.trim()
+    if (!clean || clean === row.name) return
+    if (statuses.some(s => s.id !== id && s.name.toLowerCase() === clean.toLowerCase())) {
+      toast.error(`Статус «${clean}» уже есть в списке`)
+      return
+    }
+    const { error } = await supabase.from('client_statuses')
+      .update({ name: clean }).eq('id', id).eq('studio_id', studioId)
+    if (error) { toast.fromError(error, `Не удалось переименовать «${row.name}»`); return }
+    toast.success(`Статус «${row.name}» переименован в «${clean}» — у клиентов тоже`)
+    loadStatuses(); reload && reload()
+  }
+
+  // Переключение одной галочки поведения у кастомного статуса
+  const setStatusFlag = async (id, field, value) => {
+    const row = statuses.find(s => s.id === id)
+    if (!row || row.system_key) return
+    const { error } = await supabase.from('client_statuses')
+      .update({ [field]: value }).eq('id', id).eq('studio_id', studioId)
+    if (error) { toast.fromError(error, 'Не удалось изменить настройку статуса'); return }
+    loadStatuses(); reload && reload()
+  }
+
   const deleteStatus = async (id, name) => {
+    // Системный статус удалить нельзя — на нём держатся подсчёты.
+    // Кнопки у него нет, это защита на случай прямого вызова
+    const row = statuses.find(s => s.id === id)
+    if (row && row.system_key) { toast.error(`Системный статус «${name}» удалить нельзя`); return }
     // Считаем клиентов с этим статусом
     const { count } = await supabase.from('clients')
       .select('id', { count: 'exact', head: true })
@@ -606,6 +660,8 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           statusMsg={statusMsg}
           addStatus={addStatus}
           deleteStatus={deleteStatus}
+          renameStatus={renameStatus}
+          setStatusFlag={setStatusFlag}
           T={T}
         />
 
@@ -1091,7 +1147,83 @@ function WebhookButton({ token, T }) {
   )
 }
 
-function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, T }) {
+// Четыре галочки поведения. Порядок — от самого заметного к самому
+// тихому: расписание видно каждый день, общий список — фон.
+const STATUS_FLAGS = [
+  { key: 'in_schedule', label: 'В расписании',   hint: 'Ребёнок появляется в сетке занятий, его можно отметить' },
+  { key: 'in_stats',    label: 'В расчётах',     hint: 'Считается активным: цифры дашборда, заполненность групп, задолженности' },
+  { key: 'in_payments', label: 'В оплатах',      hint: 'Доступен при заведении оплаты' },
+  { key: 'in_list',     label: 'В общем списке', hint: 'Виден на вкладке «Все» списка клиентов' },
+]
+
+const SYSTEM_NOTE = {
+  new:     'На эту роль опирается счётчик у «Клиентов» в меню; её же получает клиент, созданный из заявки.',
+  active:  'Основная роль: ребёнок ходит и платит.',
+  paused:  'Перерыв: в расписании нет, но долг за ним виден и оплату завести можно.',
+  archive: 'Ушедшие. Не участвует нигде — чтобы принять оплату, клиента надо вернуть из архива.',
+}
+
+function FlagBox({ on, disabled, label, hint, onChange, T }) {
+  return (
+    <label style={{
+      display: 'flex', alignItems: 'flex-start', gap: 7, flex: '1 1 190px',
+      cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.75 : 1,
+    }}>
+      <input type="checkbox" checked={!!on} disabled={disabled}
+        onChange={e => onChange && onChange(e.target.checked)}
+        style={{ marginTop: 2, width: 15, height: 15, flexShrink: 0, accentColor: T.green, cursor: disabled ? 'default' : 'pointer' }} />
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: T.ink }}>{label}</span>
+        <span style={{ display: 'block', fontSize: 11, color: T.muted, lineHeight: 1.35 }}>{hint}</span>
+      </span>
+    </label>
+  )
+}
+
+function StatusRow({ item, onRename, onDelete, onFlag, T }) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(item.name)
+  const sys = !!item.system_key
+  const save = () => { const v = name.trim(); if (v && v !== item.name) onRename(item.id, v); setEditing(false) }
+
+  return (
+    <div style={{ padding: '12px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {editing ? (
+          <input className="form-input" value={name} onChange={e => setName(e.target.value)}
+            onBlur={save}
+            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') { setName(item.name); setEditing(false) } }}
+            autoFocus style={{ flex: 1, padding: '4px 8px', fontSize: 13 }} />
+        ) : (
+          <span className={`badge ${item.color}`}>{item.name}</span>
+        )}
+        {sys && <span style={{ fontSize: 11, color: T.muted, fontWeight: 700 }}>🔒 системный</span>}
+        <div style={{ flex: 1 }} />
+        {!sys && !editing && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)} title="Переименовать">✏️</button>
+        )}
+        {!sys && (
+          <button className="btn btn-ghost btn-sm" onClick={() => onDelete(item.id, item.name)} style={{ color: '#e05a5a' }}>🗑️</button>
+        )}
+      </div>
+
+      {sys && (
+        <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.45, marginTop: 6 }}>
+          {SYSTEM_NOTE[item.system_key]} Переименовать, удалить и изменить поведение нельзя — на нём держатся подсчёты.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
+        {STATUS_FLAGS.map(f => (
+          <FlagBox key={f.key} on={item[f.key]} disabled={sys} label={f.label} hint={f.hint} T={T}
+            onChange={v => onFlag(item.id, f.key, v)} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, renameStatus, setStatusFlag, T }) {
   const COLOR_OPTIONS = [
     { value: 'badge-blue',   label: 'Синий',      color: '#3b82f6' },
     { value: 'badge-green',  label: 'Зелёный',    color: '#22c55e' },
@@ -1105,15 +1237,15 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
       <div>
         <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>👤 Статусы клиентов</div>
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
-          Статусы используются для сегментации клиентов. Вы можете добавить свои или удалить ненужные.
+          Статус решает не только как клиент подписан, но и <b>где он участвует</b>: появляется ли
+          в расписании, считается ли в цифрах на главной, можно ли завести ему оплату.
+          Четыре статуса системные — на них держатся подсчёты, поэтому их нельзя удалить
+          или переименовать. Свои можно заводить сколько угодно и настраивать как нужно.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
           {statuses.map(s => (
-            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
-              <span className={`badge ${s.color}`}>{s.name}</span>
-              <div style={{ flex: 1 }} />
-              <button className="btn btn-ghost btn-sm" onClick={() => deleteStatus(s.id, s.name)} style={{ color: '#e05a5a' }}>🗑️</button>
-            </div>
+            <StatusRow key={s.id} item={s} T={T}
+              onRename={renameStatus} onDelete={deleteStatus} onFlag={setStatusFlag} />
           ))}
           {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
         </div>
@@ -1138,6 +1270,19 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
                   {c.label}
                 </button>
               ))}
+            </div>
+          </div>
+          <div className="form-group" style={{ marginBottom: 12 }}>
+            <label className="form-label">Где участвует</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, background: 'white', borderRadius: 10, padding: '10px 12px', border: `1px solid ${T.border}` }}>
+              {STATUS_FLAGS.map(f => (
+                <FlagBox key={f.key} on={newStatus[f.key]} label={f.label} hint={f.hint} T={T}
+                  onChange={v => setNewStatus(s => ({ ...s, [f.key]: v }))} />
+              ))}
+            </div>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6, lineHeight: 1.45 }}>
+              Например, «Родственник» — только в расписании: ходит на занятия, но не платит,
+              и долгов по нему на главной не будет.
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
