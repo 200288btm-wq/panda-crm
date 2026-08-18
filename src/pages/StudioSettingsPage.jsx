@@ -11,6 +11,19 @@ import ImportPreviewModal from '../components/ImportPreviewModal'
 import { parseDate, dateToRu } from '../lib/importParse'
 import { buildClientsPlan, applyClientsPlan, CLIENT_SELECT } from '../lib/importClients'
 import { toast, confirmAction } from '../lib/ui'
+import { describeFlags } from '../lib/clientStatus'
+
+// Узкий экран. Нужен там, где раскладка не сводится к CSS: карточка
+// статуса на телефоне сворачивается, на десктопе показана целиком.
+function useIsNarrow(bp = 768) {
+  const [narrow, setNarrow] = useState(() => window.innerWidth <= bp)
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth <= bp)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [bp])
+  return narrow
+}
 
 const TABS = [
   { id: 'main',       label: 'Основное' },
@@ -38,6 +51,7 @@ const Msg = ({ msg }) => msg ? (
 ) : null
 
 export default function StudioSettingsPage({ studio, studioId, directions = [], staffList = [], reload, clientStatuses: initialStatuses = [], clients = [], payments = [], expenses = [], teachers = [], subscriptions = [], features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+  const isNarrow = useIsNarrow()
   const [tab, setTab] = useState(() => {
     // Вкладка могла быть удалена или переименована — тогда открываем первую
     const saved = localStorage.getItem('settingsTab')
@@ -616,8 +630,28 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {tab === 'staff' && <StaffPage staffList={staffList} reload={reload || loadAll} studioId={studioId} />}
 
       {/* ── Финансы ── */}
+      {/* Ширина секции зависит от того, насколько сложна запись внутри.
+          У статуса это название, три кнопки и четыре галочки с
+          пояснениями — в колонке 260px они вставали друг под другом и
+          справочник вытягивался тонкой лентой вниз. Поэтому статусы
+          идут отдельной секцией во всю ширину, карточками в ряд, а
+          остальные четыре справочника — простые списки «название +
+          корзина» — делят ширину между собой. */}
       {tab === 'finance' && <>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, alignItems: 'start' }}>
+        <StatusesTab
+          statuses={statuses}
+          newStatus={newStatus}
+          setNewStatus={setNewStatus}
+          statusMsg={statusMsg}
+          addStatus={addStatus}
+          deleteStatus={deleteStatus}
+          renameStatus={renameStatus}
+          setStatusFlag={setStatusFlag}
+          narrow={isNarrow}
+          T={T}
+        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
         <Section title="Длительность занятий" icon="⏱">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
             Варианты для выбора в направлении. Количество часов используется при расчёте оплаты педагогам, поэтому указывайте его даже для названий вроде «Полдня».
@@ -652,18 +686,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           </div>
           <Msg msg={durMsg} />
         </Section>
-
-        <StatusesTab
-          statuses={statuses}
-          newStatus={newStatus}
-          setNewStatus={setNewStatus}
-          statusMsg={statusMsg}
-          addStatus={addStatus}
-          deleteStatus={deleteStatus}
-          renameStatus={renameStatus}
-          setStatusFlag={setStatusFlag}
-          T={T}
-        />
 
         {/* Справочник целиком прячется вместе с функцией. Раньше он
             оставался на месте с предупреждением — по правилу «настройку
@@ -1150,45 +1172,62 @@ function WebhookButton({ token, T }) {
 // Четыре галочки поведения. Порядок — от самого заметного к самому
 // тихому: расписание видно каждый день, общий список — фон.
 const STATUS_FLAGS = [
-  { key: 'in_schedule', label: 'В расписании',   hint: 'Ребёнок появляется в сетке занятий, его можно отметить' },
-  { key: 'in_stats',    label: 'В расчётах',     hint: 'Считается активным: цифры дашборда, заполненность групп, задолженности' },
-  { key: 'in_payments', label: 'В оплатах',      hint: 'Доступен при заведении оплаты' },
-  { key: 'in_list',     label: 'В общем списке', hint: 'Виден на вкладке «Все» списка клиентов' },
+  { key: 'in_schedule', label: 'В расписании',   hint: 'ребёнок появляется в сетке занятий, его можно отметить' },
+  { key: 'in_stats',    label: 'В расчётах',     hint: 'считается активным: цифры дашборда, заполненность групп, задолженности' },
+  { key: 'in_payments', label: 'В оплатах',      hint: 'доступен при заведении оплаты' },
+  { key: 'in_list',     label: 'В общем списке', hint: 'виден на вкладке «Все» списка клиентов' },
 ]
 
 const SYSTEM_NOTE = {
-  new:     'На эту роль опирается счётчик у «Клиентов» в меню; её же получает клиент, созданный из заявки.',
+  new:     'Счётчик у «Клиентов» в меню; её же получает клиент из заявки.',
   active:  'Основная роль: ребёнок ходит и платит.',
-  paused:  'Перерыв: в расписании нет, но долг за ним виден и оплату завести можно.',
-  archive: 'Ушедшие. Не участвует нигде — чтобы принять оплату, клиента надо вернуть из архива.',
+  paused:  'Перерыв: в расписании нет, но долг виден и оплату завести можно.',
+  archive: 'Ушедшие. Чтобы принять оплату, клиента надо вернуть из архива.',
 }
 
+// В карточке статуса галочки идут без пояснений: расшифровка одна на
+// весь справочник и стоит в шапке. Иначе один и тот же текст
+// повторяется в каждой из семи карточек и глушит сами названия.
+// В форме заведения нового статуса пояснения нужны — там человек
+// видит эти галочки впервые.
 function FlagBox({ on, disabled, label, hint, onChange, T }) {
   return (
     <label style={{
-      display: 'flex', alignItems: 'flex-start', gap: 7, flex: '1 1 190px',
-      cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.75 : 1,
+      display: 'flex', alignItems: hint ? 'flex-start' : 'center', gap: 7,
+      ...(hint ? { flex: '1 1 190px' } : null),
+      cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.7 : 1,
     }}>
       <input type="checkbox" checked={!!on} disabled={disabled}
         onChange={e => onChange && onChange(e.target.checked)}
-        style={{ marginTop: 2, width: 15, height: 15, flexShrink: 0, accentColor: T.green, cursor: disabled ? 'default' : 'pointer' }} />
-      <span style={{ minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: T.ink }}>{label}</span>
-        <span style={{ display: 'block', fontSize: 11, color: T.muted, lineHeight: 1.35 }}>{hint}</span>
-      </span>
+        style={{ marginTop: hint ? 2 : 0, width: 15, height: 15, flexShrink: 0, accentColor: T.green, cursor: disabled ? 'default' : 'pointer' }} />
+      {hint ? (
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 12.5, fontWeight: 700, color: T.ink }}>{label}</span>
+          <span style={{ display: 'block', fontSize: 11, color: T.muted, lineHeight: 1.35 }}>{hint}</span>
+        </span>
+      ) : (
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: T.ink }}>{label}</span>
+      )}
     </label>
   )
 }
 
-function StatusRow({ item, onRename, onDelete, onFlag, T }) {
+function StatusRow({ item, onRename, onDelete, onFlag, narrow, T }) {
   const [editing, setEditing] = useState(false)
+  const [open, setOpen] = useState(false)
   const [name, setName] = useState(item.name)
   const sys = !!item.system_key
   const save = () => { const v = name.trim(); if (v && v !== item.name) onRename(item.id, v); setEditing(false) }
 
+  // На телефоне карточка свёрнута до плашки и строки «где участвует»:
+  // семь развёрнутых карточек — это больше экрана прокрутки в разделе,
+  // куда заходят раз в жизни. На десктопе места хватает, там всё видно
+  // сразу и сворачивать нечего.
+  const showFlags = !narrow || open
+
   return (
-    <div style={{ padding: '12px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', padding: '12px 14px', background: T.cream, borderRadius: 10, border: `1px solid ${T.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {editing ? (
           <input className="form-input" value={name} onChange={e => setName(e.target.value)}
             onBlur={save}
@@ -1197,7 +1236,7 @@ function StatusRow({ item, onRename, onDelete, onFlag, T }) {
         ) : (
           <span className={`badge ${item.color}`}>{item.name}</span>
         )}
-        {sys && <span style={{ fontSize: 11, color: T.muted, fontWeight: 700 }}>🔒 системный</span>}
+        {sys && <span style={{ fontSize: 11, color: T.muted, fontWeight: 700, whiteSpace: 'nowrap' }}>🔒</span>}
         <div style={{ flex: 1 }} />
         {!sys && !editing && (
           <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)} title="Переименовать">✏️</button>
@@ -1205,25 +1244,35 @@ function StatusRow({ item, onRename, onDelete, onFlag, T }) {
         {!sys && (
           <button className="btn btn-ghost btn-sm" onClick={() => onDelete(item.id, item.name)} style={{ color: '#e05a5a' }}>🗑️</button>
         )}
+        {narrow && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setOpen(v => !v)}
+            title={open ? 'Свернуть' : 'Настроить'}>{open ? '▲' : '▼'}</button>
+        )}
       </div>
 
-      {sys && (
-        <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.45, marginTop: 6 }}>
-          {SYSTEM_NOTE[item.system_key]} Переименовать, удалить и изменить поведение нельзя — на нём держатся подсчёты.
+      {narrow && !open && (
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: 6 }}>{describeFlags(item)}</div>
+      )}
+
+      {showFlags && sys && (
+        <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.4, marginTop: 5 }}>
+          {SYSTEM_NOTE[item.system_key]}
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
-        {STATUS_FLAGS.map(f => (
-          <FlagBox key={f.key} on={item[f.key]} disabled={sys} label={f.label} hint={f.hint} T={T}
-            onChange={v => onFlag(item.id, f.key, v)} />
-        ))}
-      </div>
+      {showFlags && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 10 }}>
+          {STATUS_FLAGS.map(f => (
+            <FlagBox key={f.key} on={item[f.key]} disabled={sys} label={f.label} T={T}
+              onChange={v => onFlag(item.id, f.key, v)} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, renameStatus, setStatusFlag, T }) {
+function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, renameStatus, setStatusFlag, narrow, T }) {
   const COLOR_OPTIONS = [
     { value: 'badge-blue',   label: 'Синий',      color: '#3b82f6' },
     { value: 'badge-green',  label: 'Зелёный',    color: '#22c55e' },
@@ -1236,15 +1285,30 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
     <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', marginBottom: 16, border: `1px solid ${T.border}` }}>
       <div>
         <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 6 }}>👤 Статусы клиентов</div>
-        <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
-          Статус решает не только как клиент подписан, но и <b>где он участвует</b>: появляется ли
-          в расписании, считается ли в цифрах на главной, можно ли завести ему оплату.
-          Четыре статуса системные — на них держатся подсчёты, поэтому их нельзя удалить
-          или переименовать. Свои можно заводить сколько угодно и настраивать как нужно.
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 12, lineHeight: 1.5, maxWidth: 820 }}>
+          Статус решает не только как клиент подписан, но и <b>где он участвует</b>. Четыре статуса
+          системные — на них держатся подсчёты, поэтому их нельзя удалить, переименовать
+          или перенастроить. Свои можно заводить сколько угодно.
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+
+        {/* Расшифровка галочек — одна на весь справочник */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px', background: T.card,
+          border: `1px solid ${T.border}`, borderRadius: 10, padding: '10px 14px', marginBottom: 14 }}>
+          {STATUS_FLAGS.map(f => (
+            <span key={f.key} style={{ fontSize: 11.5, color: T.muted }}>
+              <b style={{ color: T.ink }}>{f.label}</b> — {f.hint}
+            </span>
+          ))}
+        </div>
+        {/* Карточки в ряд: сетка сама считает, сколько влезет, и на
+            телефоне схлопывается в одну колонку без отдельного кода */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(270px, 1fr))',
+          gap: 10, marginBottom: 16,
+        }}>
           {statuses.map(s => (
-            <StatusRow key={s.id} item={s} T={T}
+            <StatusRow key={s.id} item={s} T={T} narrow={narrow}
               onRename={renameStatus} onDelete={deleteStatus} onFlag={setStatusFlag} />
           ))}
           {!statuses.length && <div style={{ fontSize: 13, color: T.muted }}>Статусов нет</div>}
