@@ -248,6 +248,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [enrollSearch, setEnrollSearch] = useState('')
   const [enrolling2, setEnrolling2] = useState(false)
   const [localEnrollments, setLocalEnrollments] = useState([])
+  const [confirms, setConfirms] = useState({})   // «клиент_направление_подгруппа» → confirmed | declined
   const [work, setWork] = useState({})        // ключ → { teacher_id: часы } — текущее состояние в интерфейсе
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
   const [lastWork, setLastWork] = useState({})   // состав с прошлого занятия — для подстановки
@@ -268,6 +269,23 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     supabase.from('enrollments').select('*')
       .eq('studio_id', studioId).eq('date', ds).eq('status', 'enrolled')
       .then(({ data }) => { if (data) setLocalEnrollments(data) })
+  }, [ds, studioId])
+
+  // Ответы родителей на напоминание бота. Ключ тот же, что у занятия:
+  // клиент + направление + подгруппа — в базе занятия нет, оно рисуется
+  // из расписания. Подтверждение это ПРОГНОЗ, а не посещение: отметка
+  // ставится отдельно и живёт в attendance.
+  useEffect(() => {
+    if (!studioId) return
+    supabase.from('lesson_confirmations')
+      .select('client_id, direction_id, group_id, status')
+      .eq('studio_id', studioId).eq('lesson_date', ds)
+      .then(({ data, error }) => {
+        if (error) { setConfirms({}); return }
+        const m = {}
+        ;(data || []).forEach(r => { m[`${r.client_id}_${r.direction_id}_${r.group_id || 0}`] = r.status })
+        setConfirms(m)
+      })
   }, [ds, studioId])
 
   // Пересчитываем events с учётом localEnrollments
@@ -514,6 +532,22 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                   🕐 {ev.time} · ⏱ {ev.duration}
                   {(ev.teachersList || []).length > 0 && ` · 👩‍🏫 ${ev.teachersList.map(t => t.name).join(', ')}`}
                 </div>
+                {/* Ответы на напоминание бота. Молчунов считаем «придёт»,
+                    поэтому строка появляется, только если кто-то ответил —
+                    иначе она висела бы «✅0 ❌0» и читалась как тревога */}
+                {(() => {
+                  const marks = ev.students.map(s => confirms[`${s.id}_${ev.dirId}_${ev.groupId || 0}`])
+                  const yes = marks.filter(m => m === 'confirmed').length
+                  const no = marks.filter(m => m === 'declined').length
+                  if (!yes && !no) return null
+                  return (
+                    <div style={{ fontSize:12, color:T.muted, marginTop:2 }}>
+                      {yes > 0 && <span style={{ color:T.greenDark, fontWeight:700 }}>✅ {yes} подтвердил{yes === 1 ? '' : 'и'}</span>}
+                      {yes > 0 && no > 0 && ' · '}
+                      {no > 0 && <span style={{ color:T.red, fontWeight:700 }}>❌ {no} не придёт</span>}
+                    </div>
+                  )
+                })()}
               </div>
               {isCalendar ? (
                 <span className={`badge ${maxSlot > 0 && ev.students.length >= maxSlot ? 'badge-red' : ev.students.length > 0 ? 'badge-green' : 'badge-gray'}`}>
@@ -622,13 +656,19 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
             {ev.students.map(s => {
               const key = `${s.id}_${ev.dirId}_${ev.groupId || 0}`
               const present = attendance[key]
+              // Родитель предупредил, что не придут. Ребёнка НЕ убираем:
+              // педагог должен видеть, кого не будет, а если тот всё же
+              // придёт — отметить его надо в один клик, без возни
+              const cf = confirms[key]
               return (
-                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}` }}>
+                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}`, opacity: cf === 'declined' && !present ? 0.55 : 1 }}>
                   <div className="avatar" style={{ background:hashColor(s.child_name), width:30, height:30, fontSize:12 }}>{(s.child_name||'?')[0]}</div>
                   <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:700, fontSize:13 }}>
-                      {s.child_name}
-                      {s._oneOff && <span style={{ marginLeft:6, background:'#e0e7ff', color:'#4338ca', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>разово</span>}
+                    <div style={{ fontWeight:700, fontSize:13, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+                      <span style={{ textDecoration: cf === 'declined' && !present ? 'line-through' : 'none' }}>{s.child_name}</span>
+                      {cf === 'confirmed' && <span title="Родитель подтвердил в боте" style={{ fontSize:11 }}>✅</span>}
+                      {cf === 'declined' && <span title="Родитель предупредил, что не придут" style={{ fontSize:11 }}>❌</span>}
+                      {s._oneOff && <span style={{ background:'#e0e7ff', color:'#4338ca', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>разово</span>}
                     </div>
                     <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
                   </div>
