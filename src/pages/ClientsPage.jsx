@@ -9,6 +9,33 @@ import { statusIndex, inList, inPayments, systemStatusName } from '../lib/client
 
 const DEFAULT_COLOR = '#7BAF8E'
 
+// ── Сортировка списка клиентов ───────────────────────────────────────
+// Контакт и комментарий не сортируются: по ним не ищут порядок.
+const SORT_FIELDS = [
+  { key: 'child',    label: 'Ребёнок' },
+  { key: 'age',      label: 'Возраст' },
+  { key: 'adult',    label: 'Взрослый' },
+  { key: 'status',   label: 'Статус' },
+  { key: 'dirs',     label: 'Направления' },
+  { key: 'discount', label: 'Скидка' },
+  { key: 'lessons',  label: 'Занятия' },
+]
+
+// Заголовок таблицы объявлен на уровне модуля, а не внутри страницы:
+// компонент, созданный внутри другого компонента, пересоздаётся на
+// каждый рендер, и React размонтирует поддерево (см. LEARNINGS).
+function SortTh({ sortKey, sort, onSort, children }) {
+  if (!sortKey) return <th>{children}</th>
+  const on = sort.key === sortKey
+  return (
+    <th onClick={() => onSort(sortKey)} title="Сортировать"
+      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+      {children}
+      <span style={{ opacity: on ? 1 : 0.25 }}>{on ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span>
+    </th>
+  )
+}
+
 // calcBalance / calcRealBalance переехали в lib/balance.js — тот же расчёт
 // теперь у дашборда (баг 35)
 
@@ -389,7 +416,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           )}
         </div>
       )}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 0, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginBottom: 0, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <div
             style={{ background: T.greenBg, borderRadius: 12, padding: '12px 14px', cursor: 'pointer', transition: 'background 0.15s', marginBottom: payExpanded ? 8 : 16 }}
@@ -485,7 +512,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
           )}
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10, marginBottom: 16 }}>
         <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px' }}>
           <div style={{ fontSize: 10, color: T.muted, fontWeight: 700, marginBottom: 4 }}>📌 Источник</div>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 14 }}>{client.source || '—'}</div>
@@ -691,6 +718,65 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const dir = dirFilter === 'all' || (c.direction_ids || []).includes(+dirFilter)
     return match && st && dir
   })
+
+  // ── Сортировка ─────────────────────────────────────────────────────
+  // sort.key = null означает порядок по умолчанию: как пришло из базы,
+  // то есть новые сверху. Третий клик по заголовку возвращает сюда.
+  const [sort, setSort] = useState({ key: null, dir: 'asc' })
+  const toggleSort = (key) => setSort(s =>
+    s.key !== key ? { key, dir: 'asc' }
+      : s.dir === 'asc' ? { key, dir: 'desc' }
+        : { key: null, dir: 'asc' })
+
+  // Статусы сортируются в порядке справочника, а не по алфавиту:
+  // «Активен, Архив, Временно отсутствует, Новый» — бессмыслица
+  const statusOrder = useMemo(() => {
+    const m = new Map()
+    clientStatuses.forEach((s, i) => m.set(s.name, i))
+    return m
+  }, [clientStatuses])
+
+  const sortValue = (c, key) => {
+    switch (key) {
+      case 'child': return c.child_name || ''
+      case 'adult': return c.adult_name || ''
+      // По вычисленному возрасту, а не по дате: колонка называется
+      // «Возраст», значит ↑ — младшие сверху. Без даты рождения → null
+      case 'age': return calcAge(c.birthday)
+      case 'status': {
+        const i = statusOrder.get(c.status)
+        // Статус не из справочника (импорт) — в конец списка статусов
+        return i === undefined ? 9999 : i
+      }
+      // У клиента направлений может быть несколько — берём первое
+      case 'dirs': {
+        const ids = c.direction_ids || []
+        const first = directions.find(d => ids.includes(d.id))
+        return first ? first.name : null
+      }
+      case 'discount': return +c.discount || 0
+      case 'lessons': return calcRealBalance(c, payments).bal.left
+      default: return null
+    }
+  }
+
+  const sorted = useMemo(() => {
+    if (!sort.key) return filtered
+    const k = sort.key
+    const sign = sort.dir === 'asc' ? 1 : -1
+    const isEmpty = v => v === null || v === undefined || v === ''
+    return [...filtered].sort((a, b) => {
+      const va = sortValue(a, k), vb = sortValue(b, k)
+      // Пустые всегда внизу, в обе стороны. Иначе «сначала младшие»
+      // выносит наверх всех, у кого не заполнена дата рождения
+      if (isEmpty(va) && isEmpty(vb)) return 0
+      if (isEmpty(va)) return 1
+      if (isEmpty(vb)) return -1
+      if (typeof va === 'string') return sign * va.localeCompare(vb, 'ru')
+      return sign * (va - vb)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, sort, statusOrder, directions, payments])
   const hiddenCount = clients.filter(c => !inList(statusIdx, c.status)).length
   const save = async (f) => {
     const cleaned = {
@@ -797,6 +883,26 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           <option value="all">Все направления</option>
           {directions.filter(d => !d.archived_at).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
+        {/* На телефоне таблицы нет и кликать по заголовкам негде, а
+            сортировка там нужнее: карточки высокие, список длинный.
+            Поле и направление — раздельно, чтобы не плодить в списке
+            по два пункта на каждую колонку */}
+        {isMobile && (
+          <>
+            <select className="form-input" style={{ width: 'auto', padding: '8px 12px' }}
+              value={sort.key || ''}
+              onChange={e => setSort({ key: e.target.value || null, dir: 'asc' })}>
+              <option value="">↕ Сначала новые</option>
+              {SORT_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+            </select>
+            {sort.key && (
+              <button className="btn btn-outline" title={sort.dir === 'asc' ? 'По возрастанию' : 'По убыванию'}
+                onClick={() => setSort(s => ({ ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' }))}>
+                {sort.dir === 'asc' ? '↑' : '↓'}
+              </button>
+            )}
+          </>
+        )}
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setShowAdd(true)}>+ Новый клиент</button>
       </div>
       <div className="tabs" style={{ marginBottom: 14 }}>
@@ -809,9 +915,14 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       )}
       <div className="table-wrap" style={{ display: isMobile ? 'none' : 'block' }}>
         <table>
-          <thead><tr><th>Ребёнок</th><th>Возраст</th><th>Взрослый</th><th>Статус</th><th>Направления</th><th>Скидка</th><th>Занятия</th><th>Контакт</th><th>Комментарий</th></tr></thead>
+          <thead><tr>
+            {SORT_FIELDS.map(f => (
+              <SortTh key={f.key} sortKey={f.key} sort={sort} onSort={toggleSort}>{f.label}</SortTh>
+            ))}
+            <th>Контакт</th><th>Комментарий</th>
+          </tr></thead>
           <tbody>
-            {filtered.map(c => {
+            {sorted.map(c => {
               const age = calcAge(c.birthday)
               const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
               return (
@@ -857,12 +968,12 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                 </tr>
               )
             })}
-            {!filtered.length && <tr><td colSpan={9}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
+            {!sorted.length && <tr><td colSpan={9}><div className="empty"><div className="empty-icon">👤</div><div className="empty-text">Клиентов не найдено</div></div></td></tr>}
           </tbody>
         </table>
       </div>
       <div className="show-mobile" style={{ display: isMobile ? 'flex' : 'none', flexDirection: 'column', gap: 10 }}>
-        {filtered.map(c => {
+        {sorted.map(c => {
           const age = calcAge(c.birthday)
           const { totalPaid, totalVisited, bal } = calcRealBalance(c, payments)
           const dirs = directions.filter(d => (c.direction_ids || []).includes(d.id))
@@ -880,7 +991,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
                 </div>
                 <span className={`badge ${STATUS_COLORS_MAP[c.status]}`}>{c.status}</span>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px', marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '4px 12px', marginBottom: 10 }}>
                 {c.adult_name && (
                   <div>
                     <div style={{ fontSize: 10, color: T.muted, fontWeight: 600 }}>Родитель</div>
@@ -921,7 +1032,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
             </div>
           )
         })}
-        {!filtered.length && (
+        {!sorted.length && (
           <div className="card" style={{ textAlign: 'center', padding: '40px 0' }}>
             <div style={{ fontSize: 36, marginBottom: 8 }}>👤</div>
             <div style={{ color: T.muted }}>Клиентов не найдено</div>
