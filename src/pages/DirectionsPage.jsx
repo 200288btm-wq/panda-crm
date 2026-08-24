@@ -83,16 +83,37 @@ const calcAutoPrice = (direction, subscriptions) => {
   }
 }
 
-function ScheduleBuilder({ slots, onChange, compact }) {
+// Редактор расписания.
+//
+// Главное правило: в одной подгруппе на один день не больше ОДНОГО
+// времени. Занятие в 17:00 и занятие в 18:00 — это разные дети,
+// возможно разный педагог и разный адрес, то есть разные подгруппы.
+//
+// Раньше кнопка «+» добавляла второй слот в тот же день, и календарь
+// показывал только первый: у «Академии Панды» так потерялось 97 занятий
+// в неделю из 151. Теперь «+» заводит отдельную подгруппу.
+function ScheduleBuilder({ slots, onChange, compact, onSplitOut }) {
   const activeDays = [...new Set(slots.map(s => s.day))]
   const toggleDay = (key) => {
     const ds = slots.filter(s => s.day === key)
     if (ds.length) onChange(slots.filter(s => s.day !== key))
     else onChange([...slots, { day: key, time: '10:00', id: Date.now()+Math.random() }])
   }
-  const addSlot = (key) => onChange([...slots, { day: key, time: '10:00', id: Date.now()+Math.random() }])
+  // Без onSplitOut (старые вызовы) ведём себя как раньше
+  const addSlot = (key) => {
+    if (onSplitOut) { onSplitOut({ day: key, time: '10:00' }); return }
+    onChange([...slots, { day: key, time: '10:00', id: Date.now()+Math.random() }])
+  }
+  // Слот уезжает в новую подгруппу: сначала убираем у себя, потом просим
+  // родителя завести. Так локальное состояние не расходится с родительским
+  const splitSlot = (slot) => {
+    onChange(slots.filter(s => s.id !== slot.id))
+    onSplitOut && onSplitOut(slot)
+  }
   const updateTime = (id, time) => onChange(slots.map(s => s.id === id ? {...s,time} : s))
   const removeSlot = (id) => onChange(slots.filter(s => s.id !== id))
+  // Дни, где указано больше одного времени — наследство до разреза
+  const crowded = [...new Set(slots.map(s => s.day))].filter(d => slots.filter(s => s.day === d).length > 1)
 
   const daySize = compact ? 32 : 42
   const dayFontSize = compact ? 12 : 14
@@ -116,7 +137,18 @@ function ScheduleBuilder({ slots, onChange, compact }) {
                   <div key={slot.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:5 }}>
                     <div style={{ width:30, height:30, borderRadius:8, background: idx===0?T.green:T.greenLight, color:'white', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:12, flexShrink:0 }}>{d.key}</div>
                     <input type="time" value={slot.time} onChange={e => updateTime(slot.id, e.target.value)} style={{ padding:'6px 8px', borderRadius:8, border:`1.5px solid ${T.border}`, fontFamily:'Nunito Sans,sans-serif', fontSize:13, background:'white', outline:'none', color:T.ink, width:100 }} />
-                    {idx === daySlots.length-1 && <button type="button" onClick={() => addSlot(d.key)} style={{ width:24, height:24, borderRadius:6, background:T.greenBg, border:`1.5px solid ${T.green}`, color:T.greenDark, cursor:'pointer', fontWeight:800, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>+</button>}
+                    {idx === daySlots.length-1 && (
+                      <button type="button" onClick={() => addSlot(d.key)}
+                        title={onSplitOut ? 'Ещё одно занятие в этот день — заведём отдельную подгруппу' : 'Добавить время'}
+                        style={{ width:24, height:24, borderRadius:6, background:T.greenBg, border:`1.5px solid ${T.green}`, color:T.greenDark, cursor:'pointer', fontWeight:800, fontSize:14, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>+</button>
+                    )}
+                    {/* Лишние времена этого дня можно вынести по одному */}
+                    {idx > 0 && onSplitOut && (
+                      <button type="button" onClick={() => splitSlot(slot)}
+                        style={{ padding:'3px 8px', borderRadius:7, background:'#fff4e6', border:'1px solid #f0c893', color:'#c47a00', cursor:'pointer', fontSize:11, fontWeight:700, whiteSpace:'nowrap', flexShrink:0 }}>
+                        ↗ в свою подгруппу
+                      </button>
+                    )}
                     <button type="button" onClick={() => removeSlot(slot.id)} style={{ marginLeft:'auto', background:'none', border:'none', cursor:'pointer', color:T.muted, fontSize:14, padding:'4px', flexShrink:0 }}>✕</button>
                   </div>
                 ))}
@@ -126,6 +158,18 @@ function ScheduleBuilder({ slots, onChange, compact }) {
         </div>
       )}
       {!slots.length && <div style={{ fontSize:12, color:T.muted }}>Выберите дни недели выше</div>}
+
+      {/* Предупреждение для расписаний, заведённых до разреза подгрупп.
+          Молчать нельзя: занятие с двумя временами выглядит нормально,
+          а в календаре видно только первое */}
+      {onSplitOut && crowded.length > 0 && (
+        <div style={{ marginTop:8, background:'#fff4e6', border:'1px solid #f0c893', borderRadius:10, padding:'9px 11px', fontSize:11.5, color:'#8a5a00', lineHeight:1.45 }}>
+          <b>В календаре будет видно только первое время.</b> В этой подгруппе на {crowded.join(', ')} указано
+          несколько занятий, а подгруппа — это одно занятие: свои дни, своё время, свой педагог.
+          Нажмите «↗ в свою подгруппу» у лишних, и они станут отдельными.
+        </div>
+      )}
+
       {slots.length > 0 && <div style={{ marginTop:6, fontSize:11, color:T.greenDark, fontWeight:600 }}>📅 {slotsToStr(slots)}</div>}
     </div>
   )
@@ -140,7 +184,7 @@ function ColorPicker({ value, onChange }) {
 }
 
 // Блок одной подгруппы внутри модалки направления
-function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false, studioId, onAddressCreated }) {
+function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, features = {}, hideSubgroupLabel = false, studioId, onAddressCreated, onSplitOut }) {
   // Локально храним slots, чтобы не парсить каждый рендер
   const [slots, setSlots] = useState(() => parseSlots(group.schedule || ''))
 
@@ -216,7 +260,8 @@ function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, feature
       )}
       <div className="form-group" style={{ marginBottom:0 }}>
         <label className="form-label">{hideSubgroupLabel ? 'Расписание направления' : 'Расписание подгруппы'}</label>
-        <ScheduleBuilder slots={slots} compact onChange={handleSlots} />
+        <ScheduleBuilder slots={slots} compact onChange={handleSlots}
+          onSplitOut={onSplitOut ? (slot => onSplitOut(group, slot)) : undefined} />
       </div>
     </div>
   )
@@ -280,6 +325,21 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   }
   const addGroup = () => {
     setGroups(prev => [...prev, { _key: `new-${Date.now()}-${Math.random()}`, name: '', teacher_id: null, address_id: null, schedule: '' }])
+  }
+  // Занятие в другое время — отдельная подгруппа. Заводим её сразу
+  // заполненной: тот же педагог и адрес, что у исходной, название по
+  // времени. Человеку остаётся поправить, если нужно, а не собирать
+  // с нуля — иначе правило «одно время = одна подгруппа» будет
+  // ощущаться наказанием за попытку добавить занятие.
+  const splitOut = (fromGroup, slot) => {
+    setGroups(prev => [...prev, {
+      _key: `new-${Date.now()}-${Math.random()}`,
+      name: slot.time,
+      teacher_id: fromGroup?.teacher_id || null,
+      address_id: fromGroup?.address_id || null,
+      schedule: `${slot.day} ${slot.time}`,
+    }])
+    toast.info(`Занятие ${slot.day} ${slot.time} вынесено в отдельную подгруппу — проверьте педагога и адрес`)
   }
   const removeGroup = (idx) => {
     setGroups(prev => prev.filter((_, i) => i !== idx))
@@ -490,7 +550,8 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
                   onChange={ng => updateGroup(idx, ng)}
                   onRemove={() => removeGroup(idx)} features={features}
                   hideSubgroupLabel={!multi}
-                  studioId={studioId} onAddressCreated={onAddressCreated} />
+                  studioId={studioId} onAddressCreated={onAddressCreated}
+                  onSplitOut={splitOut} />
               ))}
             </>
           )

@@ -1164,7 +1164,12 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           const active = filterDirs.includes(String(d.id))
           const color = d.color || DEFAULT_COLOR
           const cnt = scheduleClients.filter(c => (c.direction_ids||[]).includes(d.id)).length
-          const groups = d.groups || []
+          // По порядку сортировки, затем по названию: подгруппы теперь
+          // называются временем, и «10:00» должно идти раньше «19:00»,
+          // а не так, как их вернула база
+          const groups = [...(d.groups || [])].sort((a, b) =>
+            (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+            String(a.name || '').localeCompare(String(b.name || ''), 'ru'))
           return (
             <div key={d.id} style={{ display:'flex', flexDirection:'column' }}>
               <button onClick={() => toggleDir(d.id)}
