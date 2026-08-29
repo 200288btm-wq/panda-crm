@@ -20,12 +20,35 @@ const isHourly = (dir) => dir?.payment_type === 'per_hour'
 // ставкам: поменяла ставку после выплаты — и закрытый месяц снова показывал
 // долг или переплату. Оплаченное занятие считается по факту, а не по прайсу.
 function calcEarnings({ work = [], attendance = [], rates = [], directions = [], teacherId, paidWorkLogIds = new Set(), paidLegacyKeys = new Set(), paidAmountByWorkLog = {}, paidAmountByLegacy = {} }) {
-  // Сколько учеников было на занятии — нужно для ставки «по кол-ву учеников»
-  const students = {}
+  // Сколько учеников было на занятии — нужно для ставки «по кол-ву учеников».
+  //
+  // Считаем ДВА разреза, потому что отметки бывают двух поколений (баг 60):
+  //   • со своей подгруппой — тогда «Утро» и «Вечер» одного дня это разные
+  //     занятия, и учеников нельзя складывать в кучу: порог min_students
+  //     сработал бы там, где не должен, и обе подгруппы пошли бы по полной ставке;
+  //   • без подгруппы (сделаны до 12.08.2026 либо обнулены удалением подгруппы,
+  //     см. баг 44) — другого разбиения нет, остаётся считать по направлению за день.
+  const studentsByGroup = {}   // дата_направление_подгруппа
+  const studentsByDir = {}     // дата_направление
+  const hasGroupMarks = {}     // в этот день по этому направлению отметки знают подгруппу
   attendance.forEach(a => {
-    const k = `${a.date}_${a.direction_id}`
-    students[k] = (students[k] || 0) + 1
+    const kDir = `${a.date}_${a.direction_id}`
+    const gid = +(a.group_id || 0)
+    studentsByDir[kDir] = (studentsByDir[kDir] || 0) + 1
+    if (gid) {
+      studentsByGroup[`${kDir}_${gid}`] = (studentsByGroup[`${kDir}_${gid}`] || 0) + 1
+      hasGroupMarks[kDir] = true
+    }
   })
+
+  // Правило перекрытия то же, что у coveredDir/coveredGroup ниже: если отметки
+  // дня уже знают подгруппы, доверяем этому разбиению — и подгруппа без отметок
+  // честно получает ноль учеников, а не чужих из соседнего времени.
+  const countStudents = (date, dirId, groupId) => {
+    const kDir = `${date}_${dirId}`
+    if (hasGroupMarks[kDir]) return studentsByGroup[`${kDir}_${+(groupId || 0)}`] || 0
+    return studentsByDir[kDir] || 0
+  }
 
   const byDir = {}
   const items = []  // отдельные занятия/доли — для окраски и пометки оплаты
@@ -43,9 +66,9 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0))
     || rates.find(r => r.direction_id === dirId && +r.group_id === 0)
 
-  const lessonRate = (rate, key) => {
+  const lessonRate = (rate, date, dirId, groupId) => {
     if (rate?.rate_type === 'by_students') {
-      const cnt = students[key] || 0
+      const cnt = countStudents(date, dirId, groupId)
       return (rate.min_students > 0 && cnt >= rate.min_students)
         ? (rate.rate_full || 0)
         : (rate.rate_part || 0)
@@ -60,7 +83,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const isPaid = paidWorkLogIds.has(w.id)
     const calc = hourly
       ? (+w.hours || 0) * (rate?.rate_hour || 0)
-      : lessonRate(rate, `${w.date}_${w.direction_id}`)
+      : lessonRate(rate, w.date, w.direction_id, w.group_id)
     // Оплаченное — по зафиксированной сумме, остальное — по текущей ставке
     const amount = isPaid && paidAmountByWorkLog[w.id] != null
       ? +paidAmountByWorkLog[w.id]
@@ -100,7 +123,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const isPaid = paidLegacyKeys.has(legacyKey)
     const amount = isPaid && paidAmountByLegacy[legacyKey] != null
       ? +paidAmountByLegacy[legacyKey]
-      : lessonRate(rateFor(a.direction_id, gid), k)
+      : lessonRate(rateFor(a.direction_id, gid), a.date, a.direction_id, gid)
     add(a.direction_id, { lessons: 1, amount })
     items.push({
       workLogId: null, date: a.date, directionId: a.direction_id, groupId: gid,
