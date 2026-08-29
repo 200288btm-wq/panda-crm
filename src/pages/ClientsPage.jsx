@@ -76,12 +76,13 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
     sex: client.sex || 'М',
     direction_ids: client.direction_ids || [],
     weekly_schedule: client.weekly_schedule || {},
+    group_ids: client.group_ids || [],
     paid_lessons: client.paid_lessons || 0,
     visited_lessons: client.visited_lessons || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
     comment: client.comment || '',
-  } : { child_name: '', adult_name: '', status: defaultStatus, contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
+  } : { child_name: '', adult_name: '', status: defaultStatus, contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, group_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
 
@@ -89,6 +90,22 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
   const clientDayDirs = directions.filter(d =>
     (f.direction_ids || []).includes(d.id) && d.enrollment_type === 'client_days'
   )
+
+  // Направления группового формата, где есть из чего выбирать.
+  // Одна подгруппа = обычное расписание направления, выбирать нечего.
+  const groupDirs = directions.filter(d =>
+    (f.direction_ids || []).includes(d.id)
+    && d.enrollment_type !== 'client_days'
+    && d.enrollment_type !== 'calendar'
+    && (d.groups || []).length > 1
+  )
+
+  // Отметить или снять подгруппу. Подгруппы разных направлений живут
+  // в одном массиве clients.group_ids — так же, как у педагогов
+  const toggleClientGroup = (gid) => {
+    const ids = (f.group_ids || []).map(Number)
+    set('group_ids', ids.includes(+gid) ? ids.filter(x => x !== +gid) : [...ids, +gid])
+  }
 
   // Установить/снять день для направления
   const toggleClientDay = (dirId, day, groupId = null) => {
@@ -170,6 +187,44 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
           })}
         </div>
       </div>
+
+      {/* Подгруппы для направлений группового формата.
+          Без этого ребёнок числится во всех временах направления сразу (баг 83) */}
+      {groupDirs.map(d => {
+        const color = d.color || DEFAULT_COLOR
+        const groups = d.groups || []
+        const chosen = (f.group_ids || []).map(Number)
+        const mine = chosen.filter(id => groups.some(g => +g.id === id))
+        return (
+          <div key={`g${d.id}`} style={{ background: color + '11', borderRadius: 12, padding: '12px 14px', marginBottom: 12, border: `1.5px solid ${color}44` }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color, marginBottom: 4 }}>
+              📍 Подгруппы — {d.name}
+            </div>
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 8 }}>
+              {mine.length === 0
+                ? 'Не отмечено ни одной — ребёнок будет во всех временах этого направления'
+                : 'Ребёнок появится в расписании только в отмеченных'}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {groups.map(g => {
+                const on = chosen.includes(+g.id)
+                return (
+                  <label key={g.id} onClick={() => toggleClientGroup(g.id)} style={{
+                    display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px',
+                    borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                    background: on ? color + '22' : '#f5f5f0',
+                    border: `2px solid ${on ? color : T.border}`,
+                    color: on ? color : T.muted, fontWeight: 700, fontSize: 12,
+                  }}>
+                    <span>{g.name}</span>
+                    {g.schedule && <span style={{ fontSize: 10, fontWeight: 600, opacity: .8 }}>{g.schedule}</span>}
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
 
       {/* Дни посещения для направлений формата "по дням клиента" */}
       {clientDayDirs.map(d => {
@@ -536,6 +591,22 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         {!cDirs.length && <span style={{ fontSize: 13, color: T.muted }}>нет направлений</span>}
       </div>
 
+      {/* Подгруппы группового формата — чтобы было видно, в какие времена ходит,
+          не открывая карточку на редактирование (баг 83) */}
+      {cDirs.filter(d => d.enrollment_type !== 'client_days' && d.enrollment_type !== 'calendar'
+        && (d.groups || []).length > 1).map(d => {
+        const chosen = (client.group_ids || []).map(Number)
+        const mine = (d.groups || []).filter(g => chosen.includes(+g.id))
+        if (mine.length === 0) return null
+        const color = d.color || DEFAULT_COLOR
+        return (
+          <div key={`vg${d.id}`} style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
+            <span style={{ fontWeight: 700, color }}>{d.name}:</span>{' '}
+            {mine.map(g => g.schedule ? `${g.name} (${g.schedule})` : g.name).join(' · ')}
+          </div>
+        )
+      })}
+
       {/* Дни посещения для формата "по дням клиента" */}
       {clientDayDirs.map(d => {
         const ws = (client.weekly_schedule || {})[d.id]
@@ -787,6 +858,11 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       discount: +f.discount || 0,
       direction_ids: f.direction_ids || [],
       weekly_schedule: f.weekly_schedule || {},
+      // Подгруппы: оставляем только те, что принадлежат выбранным направлениям —
+      // иначе снятое направление оставило бы за собой висячие id
+      group_ids: (f.group_ids || []).map(Number).filter(gid =>
+        directions.some(d => (f.direction_ids || []).includes(d.id)
+          && (d.groups || []).some(g => +g.id === gid))),
       birthday: f.birthday || null,
       start_date: f.start_date || null,
     }

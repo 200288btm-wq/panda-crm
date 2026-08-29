@@ -149,7 +149,20 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
             if (c) students.push({ ...c, _oneOff: true })
           })
         } else {
-          students = clients.filter(c => (c.direction_ids||[]).includes(d.id))
+          // Групповой формат. Раньше сюда попадали ВСЕ ученики направления,
+          // из-за чего после разреза подгрупп по времени ребёнок оказывался
+          // в каждом времени сразу (баг 83). Теперь смотрим на clients.group_ids.
+          //
+          // Правило то же, что у педагогов (teachers.group_ids):
+          // подгруппы этого направления не отмечены — ученик виден во всех,
+          // отмечены — только в своих. Ученик, у которого отмечены подгруппы
+          // ДРУГИХ направлений, по этому направлению остаётся во всех.
+          const dirGroupIds = dirGroups.map(g => +g.id)
+          students = clients.filter(c => {
+            if (!(c.direction_ids||[]).includes(d.id)) return false
+            const mine = (c.group_ids || []).map(Number).filter(id => dirGroupIds.includes(id))
+            return mine.length === 0 || mine.includes(+group.id)
+          })
           // Фильтруем по подгруппе
           students = students.filter(c => {
             const clientGroups = (c.group_ids || []).map(String)
