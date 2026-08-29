@@ -1243,7 +1243,19 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
 
     // Ставки по направлениям. Тип ставки определяется форматом оплаты направления
     if (f.salary_type === 'per_lesson' && rates.length > 0) {
-      await supabase.from('teacher_rates').delete().eq('teacher_id', teacherId)
+      // Прежние ставки держим в памяти: delete и insert идут разными запросами,
+      // и если второй упадёт после первого, педагог останется вообще без ставок,
+      // а занятия молча пойдут по нулю (баг 61)
+      const { data: prevRates } = await supabase.from('teacher_rates')
+        .select('*').eq('teacher_id', teacherId)
+
+      const { error: delErr } = await supabase.from('teacher_rates')
+        .delete().eq('teacher_id', teacherId)
+      if (delErr) {
+        toast.fromError(delErr, 'Педагог сохранён, но ставки обновить не удалось — остались прежние')
+        setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
+        return
+      }
       const toInsert = rates
         .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
         // Ставка по подгруппе имеет смысл, только пока эта подгруппа
@@ -1275,7 +1287,19 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
             min_students: +r.min_students || 0,
           }
         })
-      if (toInsert.length > 0) await supabase.from('teacher_rates').insert(toInsert)
+      if (toInsert.length > 0) {
+        const { error: insErr } = await supabase.from('teacher_rates').insert(toInsert)
+        if (insErr) {
+          // Возвращаем прежние ставки, иначе начисления уедут в ноль
+          if (prevRates && prevRates.length > 0) {
+            const restore = prevRates.map(({ id, created_at, ...r }) => r)
+            await supabase.from('teacher_rates').insert(restore)
+          }
+          toast.fromError(insErr, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
+          setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
+          return
+        }
+      }
     }
 
     setShowAdd(false)
@@ -1341,13 +1365,18 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       return false
     }
 
-    await supabase.from('expenses').insert({
+    const { error: expErr } = await supabase.from('expenses').insert({
       studio_id: studioId, expense_date: when,
       expense_type: 'Зарплата', category: 'Разовый', amount: lesson.amount,
       comment: `${teacher.name}: разовая оплата занятия ${ruDate(lesson.date)}`,
       payout_id: payout.id,
     })
-    toast.success(`Занятие оплачено · ${fmt(lesson.amount)}`)
+    if (expErr) {
+      toast.error('Занятие оплачено, но расход в кассу не записан — внесите его вручную в «Расходах»')
+      console.warn('expenses:', expErr.message)
+    } else {
+      toast.success(`Занятие оплачено · ${fmt(lesson.amount)}`)
+    }
     // Без этого выплата ложилась в базу, но список в раскрытой карточке
     // оставался прежним: он кэшируется до первого открытия
     setRefreshKey(k => k + 1)
@@ -1380,10 +1409,17 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         amount: i.amount,
       }))
       const { error: linkErr } = await supabase.from('lesson_payments').insert(links)
-      if (linkErr) console.warn('lesson_payments:', linkErr.message)
+      if (linkErr) {
+        // Откатываем выплату целиком: иначе занятия остались бы неоплаченными
+        // и попали бы в следующую выплату повторно — двойная оплата педагогу (баг 61).
+        // Так же поступает payOneLesson
+        await supabase.from('teacher_payouts').delete().eq('id', payout.id)
+        toast.fromError(linkErr, 'Занятия не отмечены оплаченными — выплата отменена. Возможно, часть из них уже оплачена')
+        return
+      }
     }
 
-    await supabase.from('expenses').insert({
+    const { error: expErr } = await supabase.from('expenses').insert({
       studio_id: studioId,
       // Дата ухода денег из кассы. Период, ЗА который платим, лежит
       // в teacher_payouts.period_from/period_to и виден в «Финансах»
@@ -1395,7 +1431,14 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       comment: `${showPayout.name}: ${note || 'выплата'}`,
       payout_id: payout.id,
     })
-    toast.success(`Выплата ${fmt(amount)} проведена`)
+    // Выплату не откатываем: занятия уже помечены оплаченными, а деньги, скорее всего,
+    // отданы. Но молчать нельзя — без расхода «Финансы» занизят затраты студии (баг 61)
+    if (expErr) {
+      toast.error('Выплата проведена, но расход в кассу не записан — внесите его вручную в «Расходах»')
+      console.warn('expenses:', expErr.message)
+    } else {
+      toast.success(`Выплата ${fmt(amount)} проведена`)
+    }
     setShowPayout(null)
     setRefreshKey(k => k + 1)
     reload()
