@@ -1118,9 +1118,37 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           // Только то, что сейчас в расписании: убранная подгруппа
           // занятий больше не даёт, требовать под неё ставку не за что
           const groups = liveGroups(dir)
-          // Одна подгруппа = обычное направление, ставка на неё общая
-          if (groups.length < 2) return
           const common = byKey[`${t.id}_${dirId}_0`]
+
+          // Меньше двух действующих подгрупп — направление считается
+          // по общей ставке, других вариантов нет. Раньше эта ветка
+          // просто выходила и молчала, поэтому направление без ставки
+          // вообще не попадало в предупреждения.
+          //
+          // Больнее всего это стало после появления архива подгрупп:
+          // ставки были заведены ПО ПОДГРУППАМ, подгруппы убрали —
+          // и занятия молча пошли по нулю. Ставка направления ставки
+          // подгрупп не наследует, и наследовать не должна: они разные,
+          // и «догадаться», какую поднять, нельзя.
+          if (groups.length < 2) {
+            if (paying(common, hourly)) return
+            // Были ли у педагога ставки по убранным подгруппам этого
+            // направления — от этого зависит текст: одно дело ставку
+            // забыли задать, другое — она была и перестала применяться
+            const hadArchivedRates = (dir.groups || []).some(
+              g => g.archived_at && paying(byKey[`${t.id}_${dirId}_${g.id}`], hourly)
+            )
+            problems.push({
+              key: `teacher_rate_missing:${t.id}:0`,
+              teacherId: t.id, teacherName: t.name,
+              dirName: dir.name, groupName: null,
+              note: hadArchivedRates
+                ? 'ставки были заданы по подгруппам, а их убрали из расписания — ставка направления их не наследует'
+                : null,
+            })
+            return
+          }
+
           if (paying(common, hourly)) return   // общая ставка закрывает всё
           const mine = (t.group_ids || []).length
             ? groups.filter(g => (t.group_ids || []).includes(g.id))
@@ -1335,10 +1363,21 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       // они считаются заново из журнала и отметок, и пропавшая ставка
       // задним числом пересчитала бы прошлые занятия по ставке
       // направления или в ноль.
+      //
+      // Дубли исключаем явно: у teacher_rates есть ограничение
+      // teacher_rates_teacher_direction_group_uniq, а чипы педагога
+      // архивную подгруппу сохраняют (это сделано нарочно, чтобы
+      // после возврата подгруппы связь была на месте). Из-за этого
+      // строка по архивной подгруппе может прийти и из редактора,
+      // и отсюда — и вставка падала бы с «Такая запись уже есть».
+      const alreadyGoing = new Set(
+        toInsert.map(r => `${r.direction_id}_${+(r.group_id || 0)}`)
+      )
       const keptArchived = (prevRates || [])
         .filter(r => {
           const gid = +(r.group_id || 0)
           if (!gid) return false
+          if (alreadyGoing.has(`${r.direction_id}_${gid}`)) return false
           const g = findGroup(directions.find(d => d.id === r.direction_id), gid)
           return !!g?.archived_at
         })
@@ -1516,6 +1555,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
                   onClick={() => dismissAlert(a.key)} style={{ color: '#c47a00' }}>✕</button>
                 <span>
                   <b>{a.teacherName}</b> — {a.dirName}{a.groupName ? ` · ${a.groupName}` : ''}
+                  {a.note && <span style={{ display: 'block', fontSize: 11, opacity: .85 }}>{a.note}</span>}
                 </span>
                 <button className="btn btn-outline btn-sm" style={{ marginLeft: 'auto' }}
                   onClick={() => setShowEdit(teachers.find(t => t.id === a.teacherId))}>
