@@ -76,3 +76,6 @@ VALUES ('ВСТАВЬ-СЮДА-UUID', 'Татьяна', 'Директор', true
 - **База данных**: Supabase (PostgreSQL)
 - **Авторизация**: Supabase Auth
 - **Хостинг**: Vercel
+
+  
+
