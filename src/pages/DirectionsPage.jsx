@@ -267,7 +267,7 @@ function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, feature
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, onRestoreGroup, features = {}, studioId, onDurationCreated, onAddressCreated, onCategoryCreated }) {
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {}, studioId, onDurationCreated, onAddressCreated, onCategoryCreated }) {
   // Существующие подгруппы для редактируемого направления.
   // Архивные в редактор не попадают: их время из расписания уже убрано,
   // и показывать их как строку, которую можно править, — врать.
@@ -314,6 +314,32 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     }
     return [{ _key: `new-${Date.now()}`, name: '', teacher_id: null, address_id: null, schedule: '' }]
   })
+
+  // Подгруппы, которые в этом окне вернули из архива. Возврат — такое же
+  // изменение расписания, как и уборка: применяется по «Сохранить»,
+  // а не в момент нажатия. Иначе получается ровно та путаница, когда
+  // окно закрыли без сохранения, а подгруппа вернулась.
+  const [restoredIds, setRestoredIds] = useState([])
+  const shownArchived = archivedGroups.filter(g => !restoredIds.includes(g.id))
+
+  const restoreHere = async (g) => {
+    const label = (g.name || '').trim() || 'без названия'
+    const ok = await confirmAction({
+      title: 'Вернуть подгруппу в расписание?',
+      text: `Время «${label}» снова начнёт появляться в расписании — с сегодняшнего дня, прошлые даты не изменятся. Вернётся, когда вы нажмёте «Сохранить». Проверьте потом, кто в неё записан: пока подгруппы не было, детей и педагогов могли перевести на другое время.`,
+      confirmLabel: 'Вернуть', cancelLabel: 'Не возвращать',
+    })
+    if (!ok) return
+    setRestoredIds(prev => [...prev, g.id])
+    setGroups(prev => prev.some(x => x.id === g.id) ? prev : [...prev, {
+      _key: `existing-${g.id}`,
+      id: g.id,
+      name: g.name || '',
+      teacher_id: g.teacher_id || null,
+      address_id: g.address_id || null,
+      schedule: g.schedule || '',
+    }])
+  }
 
   const set = (k,v) => setF(p => ({...p, [k]:v}))
 
@@ -588,7 +614,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       {/* Архив подгрупп. Показываем прямо здесь, а не в отдельном разделе:
           человек убирает время из расписания и тут же, в этом же окне,
           должен видеть, что оно не пропало и его можно вернуть. */}
-      {archivedGroups.length > 0 && (
+      {shownArchived.length > 0 && (
         <div style={{ marginTop: 14, background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1.5px dashed ${T.border}` }}>
           <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:8 }}>
             🗄 Убраны из расписания
@@ -599,7 +625,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
             в календаре показывают их как раньше.
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {archivedGroups.map(g => (
+            {shownArchived.map(g => (
               <div key={g.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'white', borderRadius:9, padding:'7px 10px', border:`1px solid ${T.border}` }}>
                 <div style={{ minWidth:0 }}>
                   <div style={{ fontWeight:700, fontSize:13, color:T.ink }}>
@@ -610,7 +636,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
                     {g.archived_at ? ` · убрана ${ruDate(g.archived_at)}` : ''}
                   </div>
                 </div>
-                <button type="button" onClick={() => onRestoreGroup && onRestoreGroup(g)}
+                <button type="button" onClick={() => restoreHere(g)}
                   style={{ background:'none', border:`1.5px solid ${T.border}`, borderRadius:8, cursor:'pointer', color:T.greenDark, fontSize:12, fontWeight:700, padding:'5px 10px', whiteSpace:'nowrap' }}>
                   ↩ Вернуть
                 </button>
@@ -961,6 +987,12 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
         sort_order: i,
       }
       if (g.id) {
+        // Подгруппа есть в расписании — значит она не в архиве. Если её
+        // вернули из архива в этом же окне, снятие метки едет тем же
+        // запросом, что и остальные поля: возврат применяется по
+        // «Сохранить», как и уборка, а не в момент нажатия кнопки.
+        const wasArchived = directionGroups.some(x => x.id === g.id && x.archived_at)
+        if (wasArchived) { payload.archived_at = null; payload.archived_by = null }
         const { error } = await supabase.from('direction_groups').update(payload).eq('id', g.id)
         if (error) { toast.fromError(error, `Не удалось сохранить подгруппу «${g.name}»`); return }
       } else {
@@ -997,28 +1029,6 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     if (error) { toast.fromError(error, `Удалить «${name}» не получилось`); return }
     setDeleteAsk(null)
     toast.success(`Направление «${name}» удалено`)
-    await loadGroups()
-    reload()
-  }
-
-  // Вернуть подгруппу в расписание. Само по себе это безопасно: время
-  // снова начинает рисовать занятия с сегодняшнего дня, прошлое
-  // не меняется. Но дети и педагоги, отвязанные вручную за время
-  // отсутствия подгруппы, сами не вернутся — об этом говорим прямо.
-  const restoreGroup = async (g) => {
-    const label = (g?.name || '').trim() || 'без названия'
-    const ok = await confirmAction({
-      title: 'Вернуть подгруппу в расписание?',
-      text: `Время «${label}» снова начнёт появляться в расписании — с сегодняшнего дня. Прошлые даты не изменятся. Проверьте после этого, кто в неё записан: пока подгруппы не было, детей и педагогов могли перевести на другое время.`,
-      confirmLabel: 'Вернуть', cancelLabel: 'Не возвращать',
-    })
-    if (!ok) return
-    const { error } = await supabase
-      .from('direction_groups')
-      .update({ archived_at: null, archived_by: null })
-      .eq('id', g.id)
-    if (error) { toast.fromError(error, `Не удалось вернуть подгруппу «${label}»`); return }
-    toast.success(`Подгруппа «${label}» вернулась в расписание`)
     await loadGroups()
     reload()
   }
@@ -1369,7 +1379,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
 
       {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features}
         studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} onRestoreGroup={restoreGroup} features={features}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features}
         studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
     </div>
   )
