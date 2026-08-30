@@ -347,9 +347,23 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
               const chosen = chosenGroups(d)
               // Ставку заводим на каждую отмеченную подгруппу; если не
               // отмечено ни одной — одна ставка на всё направление (0)
-              const targets = chosen.length
+              const base = chosen.length
                 ? chosen.map(g => ({ gid: g.id, label: g.name }))
                 : [{ gid: 0, label: null }]
+
+              // Ставка живой подгруппы, которую редактор иначе бы не показал.
+              // Так бывает, когда подгрупп было несколько, часть убрали
+              // из расписания и осталась одна: чипов больше нет (одна
+              // подгруппа = обычное расписание направления), а строка
+              // ставки по ней в базе есть — и расчёт берёт именно её,
+              // а не ставку направления. Не показать её значило бы
+              // спрятать ту ставку, по которой реально считаются деньги.
+              const hidden = liveGroups(d)
+                .filter(g => !base.some(t => +t.gid === +g.id))
+                .filter(g => getRateForDir(d.id, g.id))
+                .map(g => ({ gid: g.id, label: g.name, extra: true }))
+
+              const targets = [...base, ...hidden]
 
               return (
                 <div key={d.id} style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1px solid ${T.border}` }}>
@@ -384,7 +398,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                     </div>
                   )}
 
-                  {targets.map(({ gid, label }) => {
+                  {targets.map(({ gid, label, extra }) => {
                     // rate_type мог приехать пустым (старые строки, импорт).
                     // Расчёт такую строку считает как «фикс» — кнопки должны
                     // говорить то же самое, а не стоять обе неподсвеченными.
@@ -399,6 +413,13 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                         : undefined}>
                         {label && (
                           <div style={{ fontWeight: 700, fontSize: 12, color: T.greenDark, marginBottom: 8 }}>📍 {label}</div>
+                        )}
+                        {extra && (
+                          <div style={{ fontSize: 11, color: '#c47a00', marginBottom: 8, lineHeight: 1.5 }}>
+                            Занятия этого времени считаются по этой ставке, а не по ставке направления.
+                            Строка осталась с тех пор, когда подгрупп было несколько. Обнулите её,
+                            если хотите, чтобы применялась ставка направления.
+                          </div>
                         )}
 
                         {hourly ? (
@@ -1425,26 +1446,36 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       // задним числом пересчитала бы прошлые занятия по ставке
       // направления или в ноль.
       //
+      // Правило простое: сохранение карточки меняет только то, что
+      // человек в ней видел. Всё, чего редактор не показывал, едет
+      // обратно как было. Иначе «удалить все и вставить заново»
+      // превращается в тихое удаление ставок, которых на экране
+      // не было, — а начисления считаются заново по текущим ставкам,
+      // и пропавшая строка переписала бы прошлое.
+      //
+      // Под это правило попадают две ситуации:
+      //   — ставка убранной из расписания подгруппы;
+      //   — ставка живой подгруппы, которую редактор не предложил
+      //     (так бывает, когда из нескольких подгрупп осталась одна).
+      //
       // Дубли исключаем явно: у teacher_rates есть ограничение
-      // teacher_rates_teacher_direction_group_uniq, а чипы педагога
-      // архивную подгруппу сохраняют (это сделано нарочно, чтобы
-      // после возврата подгруппы связь была на месте). Из-за этого
-      // строка по архивной подгруппе может прийти и из редактора,
-      // и отсюда — и вставка падала бы с «Такая запись уже есть».
+      // teacher_rates_teacher_direction_group_uniq, а одна и та же
+      // строка может прийти и из редактора, и отсюда.
       const alreadyGoing = new Set(
         toInsert.map(r => `${r.direction_id}_${+(r.group_id || 0)}`)
       )
-      const keptArchived = (prevRates || [])
+      const keptOutsideEditor = (prevRates || [])
         .filter(r => {
           const gid = +(r.group_id || 0)
           if (!gid) return false
           if (alreadyGoing.has(`${r.direction_id}_${gid}`)) return false
-          const g = findGroup(directions.find(d => d.id === r.direction_id), gid)
-          return !!g?.archived_at
+          // Подгруппы, которой больше нет вообще, ставку не держим:
+          // она ссылалась бы в пустоту
+          return !!findGroup(directions.find(d => d.id === r.direction_id), gid)
         })
         .map(({ id, created_at, ...r }) => r)
 
-      const allToInsert = [...toInsert, ...keptArchived]
+      const allToInsert = [...toInsert, ...keptOutsideEditor]
       if (allToInsert.length > 0) {
         const { error: insErr } = await supabase.from('teacher_rates').insert(allToInsert)
         if (insErr) {
