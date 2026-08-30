@@ -1139,7 +1139,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
               g => g.archived_at && paying(byKey[`${t.id}_${dirId}_${g.id}`], hourly)
             )
             problems.push({
-              key: `teacher_rate_missing:${t.id}:0`,
+              key: `teacher_rate_missing:${t.id}:${dirId}:0`,
               teacherId: t.id, teacherName: t.name,
               dirName: dir.name, groupName: null,
               note: hadArchivedRates
@@ -1157,7 +1157,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           // Проблема тут одна, а не по строке на каждую подгруппу
           if (!mine) {
             problems.push({
-              key: `teacher_rate_missing:${t.id}:0`,
+              key: `teacher_rate_missing:${t.id}:${dirId}:0`,
               teacherId: t.id, teacherName: t.name,
               dirName: dir.name, groupName: null,
             })
@@ -1166,7 +1166,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           mine.forEach(g => {
             if (paying(byKey[`${t.id}_${dirId}_${g.id}`], hourly)) return
             problems.push({
-              key: `teacher_rate_missing:${t.id}:${g.id}`,
+              key: `teacher_rate_missing:${t.id}:${dirId}:${g.id}`,
               teacherId: t.id, teacherName: t.name,
               dirName: dir.name, groupName: g.name || 'без названия',
             })
@@ -1174,6 +1174,24 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         })
       })
       setRateAlerts(problems)
+
+      // Скрытие живёт ровно столько, сколько живёт проблема. Как только
+      // ставку задали, запись о скрытии убирается — и если ставку потом
+      // снова уберут, предупреждение придёт заново, а не останется
+      // спрятанным навсегда. Крестик означает «не показывай сейчас»,
+      // а не «молчи об этом до конца времён»: молчание про нулевые
+      // начисления — ровно то, чего мы избегаем.
+      // Чужие типы уведомлений не трогаем — только свой префикс.
+      if (uid) {
+        const live = new Set(problems.map(p => p.key))
+        const stale = (dis || [])
+          .map(d => d.alert_key)
+          .filter(k => k.startsWith('teacher_rate_missing:') && !live.has(k))
+        if (stale.length) {
+          await supabase.from('alert_dismissals').delete()
+            .eq('studio_id', studioId).eq('user_id', uid).in('alert_key', stale)
+        }
+      }
     }
     loadAlerts()
     return () => { cancelled = true }
