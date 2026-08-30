@@ -936,18 +936,37 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   // остаться подписанной
                   const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
                   const old = !!r.archived_at || !!grp?.archived_at
+                  // Ставка направления работает как запасная: она берётся
+                  // только для тех времён, у которых своей ставки нет.
+                  // Если своя есть у каждого, направление не применяется
+                  // ни к одному занятию — и стоять в списке молча, наравне
+                  // с работающими, оно не должно: непонятно, по какой
+                  // из двух цифр считают сегодня.
+                  let spare = null
+                  if (!r.archived_at && +(r.group_id || 0) === 0 && dir) {
+                    const live = liveGroups(dir)
+                    const own = (g) => rates.some(x =>
+                      x.direction_id === dir.id && +(x.group_id || 0) === +g.id && !x.archived_at)
+                    const uncovered = live.filter(g => !own(g))
+                    if (live.length > 0 && uncovered.length === 0) {
+                      spare = 'запасная — у всех времён свои ставки'
+                    } else if (live.length > 0 && uncovered.length < live.length) {
+                      spare = 'для времён без своей ставки'
+                    }
+                  }
+
                   const why = r.archived_at
                     ? 'считается по ставке направления'
-                    : (grp?.archived_at ? 'время убрано из расписания' : null)
+                    : (grp?.archived_at ? 'время убрано из расписания' : spare)
                   return (
                     <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 13, opacity: old ? .75 : 1 }}>
                       <span style={{ color: T.ink }}>
                         {dir?.name || '—'}
                         {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
                         {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
-                        {old && why && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>— {why}</span>}
+                        {why && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>— {why}</span>}
                       </span>
-                      <span style={{ color: old ? T.muted : T.greenDark, fontWeight: 700, whiteSpace: 'nowrap' }}>{rateLabel(r)}</span>
+                      <span style={{ color: (old || spare === 'запасная — у всех времён свои ставки') ? T.muted : T.greenDark, fontWeight: 700, whiteSpace: 'nowrap' }}>{rateLabel(r)}</span>
                     </div>
                   )
                 }
