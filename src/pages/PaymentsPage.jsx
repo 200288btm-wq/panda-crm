@@ -4,6 +4,7 @@ import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { SearchSelect, NumberInput } from '../components/SearchSelect'
 import { statusIndex, inPayments } from '../lib/clientStatus'
+import { liveGroups } from '../lib/groups'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
@@ -173,8 +174,12 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
         {/* Group */}
         <div className="form-group"><label className="form-label">Группа</label>
           <select className="form-input" value={groupName} onChange={e => setGroupName(e.target.value)}>
-            {dir?.groups?.length
-              ? dir.groups.map(g => <option key={g.id || g.name || g} value={g.name || g}>{g.name || g}</option>)
+            {/* Новая оплата заводится на действующее время, поэтому
+                убранные из расписания подгруппы в выборе не нужны.
+                В уже заведённых оплатах имя группы хранится текстом
+                и остаётся на месте. */}
+            {liveGroups(dir).length
+              ? liveGroups(dir).map(g => <option key={g.id || g.name || g} value={g.name || g}>{g.name || g}</option>)
               : <option value="Группа 1">Группа 1</option>
             }
           </select>

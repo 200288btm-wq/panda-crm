@@ -6,6 +6,7 @@ import { CLIENT_TRACES, countTraces } from '../lib/archive'
 import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
 import { toast, confirmAction } from '../lib/ui'
 import { statusIndex, inList, inPayments, systemStatusName } from '../lib/clientStatus'
+import { liveGroups, findGroup } from '../lib/groups'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
@@ -97,7 +98,7 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
     (f.direction_ids || []).includes(d.id)
     && d.enrollment_type !== 'client_days'
     && d.enrollment_type !== 'calendar'
-    && (d.groups || []).length > 1
+    && liveGroups(d).length > 1
   )
 
   // Отметить или снять подгруппу. Подгруппы разных направлений живут
@@ -192,9 +193,17 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
           Без этого ребёнок числится во всех временах направления сразу (баг 83) */}
       {groupDirs.map(d => {
         const color = d.color || DEFAULT_COLOR
-        const groups = d.groups || []
+        // Выбирать можно только из тех времён, что сейчас в расписании.
+        // Запись ребёнка в убранную подгруппу при этом не стирается —
+        // она показана ниже отдельной строкой, чтобы человек видел,
+        // почему ребёнок не появляется в сетке.
+        const groups = liveGroups(d)
         const chosen = (f.group_ids || []).map(Number)
         const mine = chosen.filter(id => groups.some(g => +g.id === id))
+        const archivedMine = chosen
+          .filter(id => !groups.some(g => +g.id === id))
+          .map(id => findGroup(d, id))
+          .filter(g => g && g.archived_at)
         return (
           <div key={`g${d.id}`} style={{ background: color + '11', borderRadius: 12, padding: '12px 14px', marginBottom: 12, border: `1.5px solid ${color}44` }}>
             <div style={{ fontWeight: 700, fontSize: 13, color, marginBottom: 4 }}>
@@ -222,17 +231,26 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
                 )
               })}
             </div>
+            {archivedMine.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+                🗄 Записан во время, убранное из расписания:{' '}
+                <b>{archivedMine.map(g => (g.name || '').trim() || 'без названия').join(', ')}</b>.
+                Занятий по нему больше нет — отметьте другое время.
+              </div>
+            )}
           </div>
         )
       })}
 
       {/* Дни посещения для направлений формата "по дням клиента" */}
       {clientDayDirs.map(d => {
-        const groups = d.groups || []
+        const groups = liveGroups(d)
         const ws = (f.weekly_schedule || {})[d.id] || { days: [], group_id: null }
         const color = d.color || DEFAULT_COLOR
-        // Расписание: из подгруппы если выбрана, иначе из направления
-        const selectedGroup = groups.find(g => g.id === ws.group_id)
+        // Расписание: из подгруппы если выбрана, иначе из направления.
+        // Ищем среди всех, включая убранные: если ребёнок записан
+        // в убранное время, его расписание надо показать, а не потерять.
+        const selectedGroup = findGroup(d, ws.group_id)
         const scheduleSource = selectedGroup ? selectedGroup.schedule : d.schedule
         const availableDays = parseDaysFromSchedule(scheduleSource)
 
@@ -602,7 +620,13 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         return (
           <div key={`vg${d.id}`} style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
             <span style={{ fontWeight: 700, color }}>{d.name}:</span>{' '}
-            {mine.map(g => g.schedule ? `${g.name} (${g.schedule})` : g.name).join(' · ')}
+            {/* Убранные времена показываем тоже: иначе непонятно, почему
+                ребёнок не появляется в расписании. Список здесь читают,
+                а не выбирают из него, поэтому фильтровать нечего. */}
+            {mine.map(g => {
+              const label = g.schedule ? `${g.name} (${g.schedule})` : g.name
+              return g.archived_at ? `🗄 ${label} — убрано из расписания` : label
+            }).join(' · ')}
           </div>
         )
       })}

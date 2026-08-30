@@ -12,6 +12,7 @@ import { parseDate, dateToRu } from '../lib/importParse'
 import { buildClientsPlan, applyClientsPlan, CLIENT_SELECT } from '../lib/importClients'
 import { toast, confirmAction } from '../lib/ui'
 import { describeFlags } from '../lib/clientStatus'
+import { liveGroups } from '../lib/groups'
 
 // Узкий экран. Нужен там, где раскладка не сводится к CSS: карточка
 // статуса на телефоне сворачивается, на десктопе показана целиком.
@@ -236,9 +237,11 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
   const featureUsage = (() => {
     // Подгруппой считается только реальное разделение: >1 группы у направления.
     // Одна группа = обычное расписание направления, это не подгруппы.
-    const subDirs = (directions || []).filter(d => (d.groups || []).length > 1)
-    const subCount = subDirs.reduce((s, d) => s + (d.groups || []).length, 0)
-    const dirGroups = (directions || []).flatMap(d => (d.groups || []).map(g => ({ ...g, direction_id: d.id })))
+    // Считаем действующие: убранные из расписания подгруппы занятий
+    // не дают, и пугать ими человека при выключении функции незачем
+    const subDirs = (directions || []).filter(d => liveGroups(d).length > 1)
+    const subCount = subDirs.reduce((s, d) => s + liveGroups(d).length, 0)
+    const dirGroups = (directions || []).flatMap(d => liveGroups(d).map(g => ({ ...g, direction_id: d.id })))
 
     const activeTeachers = (teachers || []).filter(t => t.status !== 'Уволен')
     const teacherDirIds = new Set()

@@ -5,6 +5,7 @@ import { Modal } from '../components/Modal'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { TEACHER_TRACES, countTraces, setArchived } from '../lib/archive'
 import { toast } from '../lib/ui'
+import { liveGroups, findGroup } from '../lib/groups'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
 const STATUSES_T = ['Активен', 'В поиске', 'Ожидание', 'Уволен']
@@ -199,8 +200,11 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   // Настоящие подгруппы — те, которых больше одной. Одна подгруппа —
   // это обычное расписание направления, служебная «Основная»;
   // показывать её как выбор было бы шумом.
+  // Убранные из расписания сюда не входят: закреплять педагога
+  // за временем, которого больше нет, незачем. Уже закреплённое
+  // не стирается — см. save(), там чистятся только снятые направления.
   const realGroups = (d) => {
-    const gs = (d.groups || []).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+    const gs = liveGroups(d).slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
     return gs.length > 1 ? gs : []
   }
 
@@ -753,8 +757,11 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
       dirName: dir?.name || 'Направление удалено', color: dir?.color,
       // Название подгруппы — чтобы в истории было видно, какое из двух
       // занятий в один день чем оплачено
+      // Ищем среди всех, включая убранные из расписания: история
+      // выплат обязана оставаться подписанной, иначе прошлое
+      // становится безымянным
       groupName: +(i.groupId || 0)
-        ? ((dir?.groups || []).find(g => g.id === +i.groupId)?.name || null)
+        ? (findGroup(dir, i.groupId)?.name || null)
         : null,
       hours: i.hours, amount: i.amount, paid: i.paid, fromLog: i.fromLog,
       directionId: i.directionId, groupId: +(i.groupId || 0), payoutId: payoutId || null,
@@ -848,9 +855,9 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {rates.map(r => {
                       const dir = directions.find(d => d.id === r.direction_id)
-                      const grp = +(r.group_id || 0)
-                        ? (dir?.groups || []).find(g => g.id === +r.group_id)
-                        : null
+                      // Тоже среди всех: ставка убранной подгруппы
+                      // сохраняется и должна быть подписана
+                      const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
                       return (
                         <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                           <span style={{ color: T.ink }}>
@@ -1108,7 +1115,9 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
           const dir = directions.find(d => d.id === dirId)
           if (!dir) return
           const hourly = isHourly(dir)
-          const groups = dir.groups || []
+          // Только то, что сейчас в расписании: убранная подгруппа
+          // занятий больше не даёт, требовать под неё ставку не за что
+          const groups = liveGroups(dir)
           // Одна подгруппа = обычное направление, ставка на неё общая
           if (groups.length < 2) return
           const common = byKey[`${t.id}_${dirId}_0`]
@@ -1236,7 +1245,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const archivedTeachers = teachers.filter(t => t.archived_at)
 
   const save = async (f, rates) => {
-    // Подгруппы снятых направлений в списке оставаться не должны
+    // Подгруппы снятых направлений в списке оставаться не должны.
+    // Убранные из расписания — должны: подгруппа существует, просто
+    // её сейчас нет в сетке. Снять её здесь значило бы, что после
+    // возврата подгруппы педагог к ней уже не привязан, а понять,
+    // почему так вышло, будет невозможно.
     const liveGroupIds = new Set(
       directions
         .filter(d => (f.direction_ids || []).includes(d.id))
@@ -1290,7 +1303,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         .filter(r => {
           const gid = +(r.group_id || 0)
           if (gid) return cleanGroupIds.includes(gid)
-          const groups = directions.find(d => d.id === r.direction_id)?.groups || []
+          // Только действующие подгруппы: если из двух одна убрана,
+          // выбирать больше не из чего, чипов в карточке нет — и ставка
+          // «на всё направление» должна остаться, иначе занятия педагога
+          // молча посчитаются в ноль
+          const groups = liveGroups(directions.find(d => d.id === r.direction_id))
           const hasChosen = groups.length > 1 && groups.some(g => cleanGroupIds.includes(g.id))
           return !hasChosen
         })
@@ -1310,8 +1327,26 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
             min_students: +r.min_students || 0,
           }
         })
-      if (toInsert.length > 0) {
-        const { error: insErr } = await supabase.from('teacher_rates').insert(toInsert)
+
+      // Ставки убранных из расписания подгрупп редактор не показывает,
+      // а сохранение работает как «удалить все и вставить заново» —
+      // без этого шага они бы молча исчезли при первом же сохранении
+      // карточки. А это не косметика: начисления нигде не хранятся,
+      // они считаются заново из журнала и отметок, и пропавшая ставка
+      // задним числом пересчитала бы прошлые занятия по ставке
+      // направления или в ноль.
+      const keptArchived = (prevRates || [])
+        .filter(r => {
+          const gid = +(r.group_id || 0)
+          if (!gid) return false
+          const g = findGroup(directions.find(d => d.id === r.direction_id), gid)
+          return !!g?.archived_at
+        })
+        .map(({ id, created_at, ...r }) => r)
+
+      const allToInsert = [...toInsert, ...keptArchived]
+      if (allToInsert.length > 0) {
+        const { error: insErr } = await supabase.from('teacher_rates').insert(allToInsert)
         if (insErr) {
           // Возвращаем прежние ставки, иначе начисления уедут в ноль
           if (prevRates && prevRates.length > 0) {

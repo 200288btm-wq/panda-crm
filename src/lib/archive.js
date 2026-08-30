@@ -33,6 +33,22 @@ export const CLIENT_TRACES = [
   { table: 'payments',   column: 'client_id', label: 'оплат' },
 ]
 
+// Подгруппа = занятие, поэтому истории за ней числится не меньше, чем
+// за направлением. Ставки (teacher_rates) сюда не входят намеренно:
+// ставка — справочник, а не история, и удаляется вместе с подгруппой.
+//
+// Тот же список продублирован проверкой в базе
+// (block_delete_group_with_history). Здесь она нужна, чтобы человек
+// увидел понятное объяснение ДО попытки удаления, а не ошибку после.
+export const GROUP_TRACES = [
+  { table: 'attendance',           column: 'group_id', label: 'отметок посещаемости' },
+  { table: 'teacher_work_log',     column: 'group_id', label: 'занятий в журнале педагога' },
+  { table: 'lesson_payments',      column: 'group_id', label: 'оплаченных занятий' },
+  { table: 'enrollments',          column: 'group_id', label: 'записей детей' },
+  { table: 'lesson_confirmations', column: 'group_id', label: 'подтверждений занятий' },
+  { table: 'lesson_no_work',       column: 'group_id', label: 'пометок «никто не работал»' },
+]
+
 /**
  * Сколько истории числится за записью.
  * @returns {{ total: number, details: Array<{label: string, count: number}>, errors: string[] }}

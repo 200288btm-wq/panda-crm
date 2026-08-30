@@ -5,6 +5,7 @@ import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
 import { toast } from '../lib/ui'
 import { statusIndex, inSchedule } from '../lib/clientStatus'
+import { groupsOnDate, liveGroups } from '../lib/groups'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -95,7 +96,11 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       if (!child || !(child.direction_ids||[]).includes(d.id)) return
     }
 
-    const dirGroups = (d.groups || [])
+    // Подгруппы, существовавшие в этот день. Убранная из расписания
+    // подгруппа гаснет ровно с даты, когда её убрали, — так же, как
+    // архивное направление строкой выше. Иначе отметки, уже
+    // проставленные за прошлые дни, стало бы негде посмотреть.
+    const dirGroups = groupsOnDate(d, ds)
     const relevantFilterGroups = filterGroups.filter(gid => dirGroups.some(g => String(g.id) === gid))
 
     // Если у направления есть подгруппы — обрабатываем каждую с её расписанием
@@ -1180,7 +1185,10 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           // По порядку сортировки, затем по названию: подгруппы теперь
           // называются временем, и «10:00» должно идти раньше «19:00»,
           // а не так, как их вернула база
-          const groups = [...(d.groups || [])].sort((a, b) =>
+          // Фильтр предлагает только то, что сейчас в расписании.
+          // Убранная подгруппа остаётся видимой на прошлых датах,
+          // но отдельной кнопкой фильтра больше не торчит.
+          const groups = liveGroups(d).slice().sort((a, b) =>
             (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
             String(a.name || '').localeCompare(String(b.name || ''), 'ru'))
           return (

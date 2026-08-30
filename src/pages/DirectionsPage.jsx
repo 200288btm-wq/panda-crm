@@ -1,13 +1,13 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles.jsx'
+import { T, fmt, ruDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { QuickAdd } from '../components/QuickAdd'
 import { Hint } from '../components/Hint'
 import { createDuration, createAddress, createCategory } from '../lib/dictionaries'
 import { NumberInput } from '../components/SearchSelect'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
-import { DIRECTION_TRACES, countTraces, setArchived } from '../lib/archive'
+import { DIRECTION_TRACES, GROUP_TRACES, countTraces, setArchived } from '../lib/archive'
 import { statusIndex, inStats } from '../lib/clientStatus'
 import { toast, confirmAction } from '../lib/ui'
 
@@ -209,9 +209,9 @@ function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, feature
             <button type="button"
               onClick={async () => {
                 const ok = await confirmAction({
-                  title: 'Удалить подгруппу?',
-                  text: `Подгруппа «${group.name || 'без названия'}» будет убрана из направления. Изменение сохранится, когда вы нажмёте «Сохранить».`,
-                  confirmLabel: 'Удалить подгруппу', cancelLabel: 'Не удалять', danger: true,
+                  title: 'Убрать подгруппу из расписания?',
+                  text: `Подгруппа «${group.name || 'без названия'}» вместе со своим временем перестанет появляться в расписании, в карточках клиентов и педагогов. Если по ней уже были занятия, отметки или выплаты — она уйдёт в архив, а вся история останется на месте и никуда не денется; вернуть её можно тут же, внизу окна. Если истории нет — просто удалится. Изменение сохранится, когда вы нажмёте «Сохранить».`,
+                  confirmLabel: 'Убрать из расписания', cancelLabel: 'Оставить', danger: true,
                 })
                 if (ok) onRemove()
               }}
@@ -267,10 +267,16 @@ function GroupBlock({ group, addresses, onChange, onRemove, isOnly, idx, feature
   )
 }
 
-function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, features = {}, studioId, onDurationCreated, onAddressCreated, onCategoryCreated }) {
-  // Существующие подгруппы для редактируемого направления
+function DirectionModal({ direction, directionGroups, teachers, addresses, subscriptions, priceCategories = [], durations = [], onClose, onSave, onRestoreGroup, features = {}, studioId, onDurationCreated, onAddressCreated, onCategoryCreated }) {
+  // Существующие подгруппы для редактируемого направления.
+  // Архивные в редактор не попадают: их время из расписания уже убрано,
+  // и показывать их как строку, которую можно править, — врать.
+  // Они видны отдельным списком под расписанием, откуда их возвращают.
   const existingGroups = direction
-    ? directionGroups.filter(g => g.direction_id === direction.id)
+    ? directionGroups.filter(g => g.direction_id === direction.id && !g.archived_at)
+    : []
+  const archivedGroups = direction
+    ? directionGroups.filter(g => g.direction_id === direction.id && g.archived_at)
     : []
   // Педагоги направления — источник правды теперь карточка педагога
   const directionTeachers = direction
@@ -297,7 +303,10 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
       return existingGroups.map((g) => ({
         _key: `existing-${g.id}`,
         id: g.id,
-        name: (g.name === 'Основная' && (direction.groups || []).length === 1) ? '' : (g.name || ''),
+        // Служебное имя «Основная» прячем, когда действующая подгруппа
+        // одна: это просто расписание направления. Считаем по живым —
+        // убранные в расписании больше не участвуют.
+        name: (g.name === 'Основная' && existingGroups.length === 1) ? '' : (g.name || ''),
         teacher_id: g.teacher_id || null,
         address_id: g.address_id || null,
         schedule: g.schedule || '',
@@ -576,6 +585,41 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
         })()}
       </div>
 
+      {/* Архив подгрупп. Показываем прямо здесь, а не в отдельном разделе:
+          человек убирает время из расписания и тут же, в этом же окне,
+          должен видеть, что оно не пропало и его можно вернуть. */}
+      {archivedGroups.length > 0 && (
+        <div style={{ marginTop: 14, background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1.5px dashed ${T.border}` }}>
+          <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:12, color:T.muted, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:8 }}>
+            🗄 Убраны из расписания
+          </div>
+          <div style={{ fontSize:12, color:T.muted, marginBottom:10, lineHeight:1.5 }}>
+            Эти времена больше не появляются в расписании и в карточках, но занятия,
+            отметки и выплаты по ним сохранены и продолжают считаться. Прошлые даты
+            в календаре показывают их как раньше.
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {archivedGroups.map(g => (
+              <div key={g.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, background:'white', borderRadius:9, padding:'7px 10px', border:`1px solid ${T.border}` }}>
+                <div style={{ minWidth:0 }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:T.ink }}>
+                    {(g.name || '').trim() || 'без названия'}
+                  </div>
+                  <div style={{ fontSize:11, color:T.muted }}>
+                    {g.schedule || 'без расписания'}
+                    {g.archived_at ? ` · убрана ${ruDate(g.archived_at)}` : ''}
+                  </div>
+                </div>
+                <button type="button" onClick={() => onRestoreGroup && onRestoreGroup(g)}
+                  style={{ background:'none', border:`1.5px solid ${T.border}`, borderRadius:8, cursor:'pointer', color:T.greenDark, fontSize:12, fontWeight:700, padding:'5px 10px', whiteSpace:'nowrap' }}>
+                  ↩ Вернуть
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Кто ведёт — справка. Связь заводится в карточке педагога:
           там же задаётся ставка, без неё занятие посчитается в ноль. */}
       {features.teachers && (
@@ -818,13 +862,92 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
       return
     }
 
-    const existingForThis = directionGroups.filter(g => g.direction_id === directionId)
+    // Архивные в редактор не приходят, поэтому и в разницу попасть
+    // не должны: иначе сохранение направления «удаляло» бы их повторно.
+    const existingForThis = directionGroups.filter(g => g.direction_id === directionId && !g.archived_at)
     const incomingIds = new Set(groupList.filter(g => g.id).map(g => g.id))
 
-    const toDelete = existingForThis.filter(g => !incomingIds.has(g.id)).map(g => g.id)
-    if (toDelete.length) {
-      const { error } = await supabase.from('direction_groups').delete().in('id', toDelete)
-      if (error) { toast.fromError(error, 'Не удалось удалить подгруппы'); return }
+    const removed = existingForThis.filter(g => !incomingIds.has(g.id))
+    if (removed.length) {
+      // Подгруппа = занятие, поэтому за ней числится история занятий
+      // и денег. Опасность в том, что подгруппа исчезает не по кнопке
+      // «Удалить», а по сохранению направления, из которого убрали
+      // строку расписания: человек думает, что правит расписание.
+      //
+      // Поэтому решение принимается здесь, по факту истории:
+      //   история есть → в архив: расписание её больше не показывает,
+      //                  отметки, часы и выплаты остаются на месте
+      //   истории нет  → удаляем совсем, это просто лишняя строка
+      //
+      // База ту же границу держит жёстко (RESTRICT + проверка
+      // block_delete_group_with_history), так что ошибиться и снести
+      // историю нельзя даже мимо этого кода.
+      const toArchive = []
+      const toDelete = []
+      for (const g of removed) {
+        const label = (g.name || '').trim() || 'без названия'
+        const traces = await countTraces(GROUP_TRACES, g.id, studioId)
+        // Сбой проверки — не то же самое, что «истории нет».
+        // Молча удалить из-за обрыва связи — худший исход.
+        if (traces.errors.length) {
+          toast.error(
+            `Не удалось проверить историю подгруппы «${label}» — направление не сохранено`,
+            traces.errors.join('; ')
+          )
+          return
+        }
+        ;(traces.total > 0 ? toArchive : toDelete).push({ id: g.id, name: label, traces })
+      }
+
+      if (toArchive.length) {
+        const { data: u } = await supabase.auth.getUser()
+        const { error: arcErr } = await supabase
+          .from('direction_groups')
+          .update({ archived_at: new Date().toISOString(), archived_by: u?.user?.id || null })
+          .in('id', toArchive.map(x => x.id))
+        if (arcErr) { toast.fromError(arcErr, 'Не удалось убрать подгруппы в архив'); return }
+      }
+
+      if (toDelete.length) {
+        const ids = toDelete.map(x => x.id)
+        // Ставка — справочник, а не история: сама по себе она удалению
+        // не мешает, но оставленная строка ссылалась бы в пустоту.
+        // Истории у этих подгрупп нет (проверено выше), поэтому снятие
+        // ставки ничего не пересчитывает. У архивных ставку не трогаем:
+        // по ней считалось прошлое.
+        const { error: rateErr } = await supabase
+          .from('teacher_rates').delete().in('group_id', ids).eq('studio_id', studioId)
+        if (rateErr) { toast.fromError(rateErr, 'Не удалось убрать ставки удалённых подгрупп'); return }
+
+        // Дети, записанные в эти подгруппы. Внешнего ключа у массива
+        // clients.group_ids нет, поэтому без явной чистки осталась бы
+        // ссылка на подгруппу, которой больше нет. У архивных ссылку
+        // сохраняем: подгруппа существует, просто больше не в расписании.
+        const { data: affected, error: cliErr } = await supabase
+          .from('clients').select('id, group_ids')
+          .eq('studio_id', studioId).overlaps('group_ids', ids)
+        if (cliErr) { toast.fromError(cliErr, 'Не удалось проверить записи детей в подгруппы'); return }
+        for (const c of affected || []) {
+          const left = (c.group_ids || []).map(Number).filter(id => !ids.includes(id))
+          const { error: updErr } = await supabase
+            .from('clients').update({ group_ids: left }).eq('id', c.id).eq('studio_id', studioId)
+          if (updErr) { toast.fromError(updErr, 'Не удалось обновить записи детей в подгруппы'); return }
+        }
+
+        const { error } = await supabase.from('direction_groups').delete().in('id', ids)
+        if (error) { toast.fromError(error, 'Не удалось удалить подгруппы'); return }
+      }
+
+      // Про архив говорим отдельно и словами: человек нажимал «удалить»,
+      // а произошло другое, и молчание об этом было бы обманом.
+      if (toArchive.length) {
+        toast.info(
+          toArchive.length === 1
+            ? `Подгруппа «${toArchive[0].name}» убрана в архив, а не удалена — за ней числится история`
+            : `Убраны в архив, а не удалены: ${toArchive.map(x => `«${x.name}»`).join(', ')} — за ними числится история`,
+          'В расписании их больше не будет, но отметки, часы и выплаты сохранены. Вернуть можно в этом же окне, внизу.'
+        )
+      }
     }
 
     for (let i = 0; i < groupList.length; i++) {
@@ -878,6 +1001,28 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     reload()
   }
 
+  // Вернуть подгруппу в расписание. Само по себе это безопасно: время
+  // снова начинает рисовать занятия с сегодняшнего дня, прошлое
+  // не меняется. Но дети и педагоги, отвязанные вручную за время
+  // отсутствия подгруппы, сами не вернутся — об этом говорим прямо.
+  const restoreGroup = async (g) => {
+    const label = (g?.name || '').trim() || 'без названия'
+    const ok = await confirmAction({
+      title: 'Вернуть подгруппу в расписание?',
+      text: `Время «${label}» снова начнёт появляться в расписании — с сегодняшнего дня. Прошлые даты не изменятся. Проверьте после этого, кто в неё записан: пока подгруппы не было, детей и педагогов могли перевести на другое время.`,
+      confirmLabel: 'Вернуть', cancelLabel: 'Не возвращать',
+    })
+    if (!ok) return
+    const { error } = await supabase
+      .from('direction_groups')
+      .update({ archived_at: null, archived_by: null })
+      .eq('id', g.id)
+    if (error) { toast.fromError(error, `Не удалось вернуть подгруппу «${label}»`); return }
+    toast.success(`Подгруппа «${label}» вернулась в расписание`)
+    await loadGroups()
+    reload()
+  }
+
   const doArchive = async (id, archived) => {
     setBusy(true)
     const { error } = await setArchived('directions', id, studioId, archived)
@@ -888,9 +1033,13 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
     reload()
   }
 
+  // Карточка направления показывает расписание и вместимость на сегодня,
+  // поэтому архивные подгруппы сюда не входят: их времени в расписании
+  // больше нет, и в «занятий в неделю» они попадать не должны.
+  // Возвращают их из окна редактирования направления.
   const groupsByDirection = useMemo(() => {
     const map = {}
-    directionGroups.forEach(g => {
+    directionGroups.filter(g => !g.archived_at).forEach(g => {
       if (!map[g.direction_id]) map[g.direction_id] = []
       map[g.direction_id].push(g)
     })
@@ -1220,7 +1369,7 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
 
       {showAdd && <DirectionModal directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowAdd(false)} onSave={save} features={features}
         studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
-      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} features={features}
+      {showEdit && <DirectionModal direction={showEdit} directionGroups={directionGroups} teachers={teachers} addresses={allAddresses} subscriptions={subscriptions} priceCategories={priceCategories} durations={durations} onClose={()=>setShowEdit(null)} onSave={save} onRestoreGroup={restoreGroup} features={features}
         studioId={studioId} onDurationCreated={loadDurations} onAddressCreated={handleAddressCreated} onCategoryCreated={loadCategories} />}
     </div>
   )
