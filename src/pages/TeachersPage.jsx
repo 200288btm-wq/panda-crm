@@ -642,6 +642,7 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
   const [payOneDate, setPayOneDate] = useState(todayLocal())  // дата разовой выплаты
   const [cancelPayout, setCancelPayout] = useState(null)  // выплата, ждущая подтверждения отмены
   const [cancelling, setCancelling] = useState(false)
+  const [showOldRates, setShowOldRates] = useState(false)  // ставки убранных подгрупп — свёрнуты
   const [selectedPayout, setSelectedPayout] = useState(null)  // подсвечиваем занятия этой выплаты
   const [showAllPayouts, setShowAllPayouts] = useState(false) // история обрезана до 5, пока не развернут
 
@@ -849,29 +850,71 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                 )}
               </div>
 
-              {rates.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ставки</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {rates.map(r => {
-                      const dir = directions.find(d => d.id === r.direction_id)
-                      // Тоже среди всех: ставка убранной подгруппы
-                      // сохраняется и должна быть подписана
-                      const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
-                      return (
-                        <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
-                          <span style={{ color: T.ink }}>
-                            {dir?.name || '—'}
-                            {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
-                            {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
-                          </span>
-                          <span style={{ color: T.greenDark, fontWeight: 700 }}>{rateLabel(r)}</span>
+              {rates.length > 0 && (() => {
+                // Ставка убранной из расписания подгруппы никуда не делась
+                // и по ней считалось прошлое — но новых занятий по ней
+                // не будет. В общем списке она выглядит как действующая
+                // и путает: «700 ₽/зан.» и «1 000/1 500 от 3 чел.» рядом
+                // читаются как две живые ставки одного направления.
+                // Поэтому список делится на два, а старые прячутся.
+                const rateRow = (r) => {
+                  const dir = directions.find(d => d.id === r.direction_id)
+                  // Ищем среди всех, включая убранные: ставка обязана
+                  // остаться подписанной
+                  const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
+                  const old = !!grp?.archived_at
+                  return (
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, opacity: old ? .75 : 1 }}>
+                      <span style={{ color: T.ink }}>
+                        {dir?.name || '—'}
+                        {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
+                        {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
+                      </span>
+                      <span style={{ color: old ? T.muted : T.greenDark, fontWeight: 700 }}>{rateLabel(r)}</span>
+                    </div>
+                  )
+                }
+                const isOld = (r) => {
+                  const gid = +(r.group_id || 0)
+                  if (!gid) return false
+                  return !!findGroup(directions.find(d => d.id === r.direction_id), gid)?.archived_at
+                }
+                const live = rates.filter(r => !isOld(r))
+                const old = rates.filter(isOld)
+                return (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ставки</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {live.length === 0 && (
+                        <div style={{ fontSize: 13, color: '#c47a00' }}>
+                          Действующих ставок нет — занятия считаются в ноль
                         </div>
-                      )
-                    })}
+                      )}
+                      {live.map(rateRow)}
+                    </div>
+                    {old.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <button type="button" onClick={() => setShowOldRates(v => !v)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ transform: showOldRates ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▸</span>
+                          Убранные из расписания — {old.length}
+                        </button>
+                        {showOldRates && (
+                          <>
+                            <div style={{ fontSize: 11, color: T.muted, margin: '6px 0 8px', lineHeight: 1.5 }}>
+                              По этим ставкам считались прошлые занятия, они сохранены.
+                              Новых занятий по ним не будет, пока подгруппы не вернут в расписание.
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {old.map(rateRow)}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
