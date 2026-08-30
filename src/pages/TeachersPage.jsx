@@ -4,7 +4,7 @@ import { T, fmt, hashColor, todayLocal, ruDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import DeleteOrArchiveModal from '../components/DeleteOrArchiveModal'
 import { TEACHER_TRACES, countTraces, setArchived } from '../lib/archive'
-import { toast } from '../lib/ui'
+import { toast, confirmAction } from '../lib/ui'
 import { liveGroups, findGroup } from '../lib/groups'
 
 const STATUS_T = { 'Активен': 'badge-green', 'В поиске': 'badge-orange', 'Ожидание': 'badge-purple', 'Уволен': 'badge-gray' }
@@ -165,6 +165,11 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     salary_type: 'per_lesson', salary_amount: 0,
   })
   const [rates, setRates] = useState([])
+  // Ставки, которые человек убрал сознательно, кнопкой. Нужен отдельный
+  // список: сохранение возвращает на место всё, чего не было в редакторе
+  // (чтобы ничего не пропадало молча), и без этой пометки убранная
+  // строка приезжала бы обратно.
+  const [dropped, setDropped] = useState([])
   const [loadingRates, setLoadingRates] = useState(false)
   const [hiredError, setHiredError] = useState(false)
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
@@ -193,6 +198,23 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
         (r.direction_id === dirId && +(r.group_id || 0) === gid) ? { ...r, [field]: value } : r)
       return [...prev, { direction_id: dirId, group_id: gid, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
     })
+    // Правка отменяет прежнее решение убрать эту строку
+    setDropped(prev => prev.filter(k => k !== `${dirId}_${+(groupId || 0)}`))
+  }
+
+  // Убрать ставку подгруппы, чтобы занятия считались по ставке
+  // направления. Не «обнулить»: нулевая ставка и отсутствие ставки —
+  // разные вещи. Ноль означал бы «занятие стоит 0 ₽», а расчёт при
+  // отсутствии строки подставляет ставку направления.
+  const dropGroupRate = async (dirId, gid, label, dirName) => {
+    const ok = await confirmAction({
+      title: 'Считать по ставке направления?',
+      text: `Ставка времени «${label}» будет убрана, и занятия этого времени начнут считаться по ставке направления «${dirName}». Уже выплаченные занятия сохранят свои суммы, а проведённые, но ещё не выплаченные, будут пересчитаны по новой ставке. Изменение применится, когда вы нажмёте «Сохранить».`,
+      confirmLabel: 'Убрать ставку', cancelLabel: 'Оставить', danger: true,
+    })
+    if (!ok) return
+    setRates(prev => prev.filter(r => !(r.direction_id === dirId && +(r.group_id || 0) === +gid)))
+    setDropped(prev => prev.includes(`${dirId}_${+gid}`) ? prev : [...prev, `${dirId}_${+gid}`])
   }
 
   const selectedDirs = directions.filter(d => (f.direction_ids || []).includes(d.id))
@@ -222,7 +244,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
         <button className="btn btn-primary" onClick={() => {
           if (!f.hired) { setHiredError(true); return }
-          onSave(f, rates)
+          onSave(f, rates, dropped)
         }}>Сохранить</button>
       </>}>
       {/* Основная информация */}
@@ -415,10 +437,15 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                           <div style={{ fontWeight: 700, fontSize: 12, color: T.greenDark, marginBottom: 8 }}>📍 {label}</div>
                         )}
                         {extra && (
-                          <div style={{ fontSize: 11, color: '#c47a00', marginBottom: 8, lineHeight: 1.5 }}>
-                            Занятия этого времени считаются по этой ставке, а не по ставке направления.
-                            Строка осталась с тех пор, когда подгрупп было несколько. Обнулите её,
-                            если хотите, чтобы применялась ставка направления.
+                          <div style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: '#c47a00', lineHeight: 1.5 }}>
+                              Занятия этого времени считаются по этой ставке, а не по ставке направления.
+                              Строка осталась с тех пор, когда подгрупп было несколько.
+                            </div>
+                            <button type="button" onClick={() => dropGroupRate(d.id, gid, label, d.name)}
+                              style={{ background: 'none', border: 'none', padding: '4px 0 0', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: T.red, textDecoration: 'underline' }}>
+                              Убрать эту ставку и считать по направлению
+                            </button>
                           </div>
                         )}
 
@@ -1354,7 +1381,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const activeTeachers = teachers.filter(t => !t.archived_at)
   const archivedTeachers = teachers.filter(t => t.archived_at)
 
-  const save = async (f, rates) => {
+  const save = async (f, rates, dropped = []) => {
     // Подгруппы снятых направлений в списке оставаться не должны.
     // Убранные из расписания — должны: подгруппа существует, просто
     // её сейчас нет в сетке. Снять её здесь значило бы, что после
@@ -1464,11 +1491,15 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       const alreadyGoing = new Set(
         toInsert.map(r => `${r.direction_id}_${+(r.group_id || 0)}`)
       )
+      const droppedKeys = new Set(dropped)
       const keptOutsideEditor = (prevRates || [])
         .filter(r => {
           const gid = +(r.group_id || 0)
           if (!gid) return false
           if (alreadyGoing.has(`${r.direction_id}_${gid}`)) return false
+          // Убрана кнопкой — это осознанное решение человека, а не
+          // пропажа. Возвращать её было бы отменой его действия
+          if (droppedKeys.has(`${r.direction_id}_${gid}`)) return false
           // Подгруппы, которой больше нет вообще, ставку не держим:
           // она ссылалась бы в пустоту
           return !!findGroup(directions.find(d => d.id === r.direction_id), gid)
