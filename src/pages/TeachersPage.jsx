@@ -192,6 +192,11 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   const getRateForDir = (dirId, groupId = 0) =>
     rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId && !r.archived_at)
 
+  // Строка ставки в любом состоянии, включая убранную. Нужна, чтобы
+  // знать, что ставка вообще заводилась, и дать её вернуть.
+  const rateRowFor = (dirId, groupId = 0) =>
+    rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId)
+
   const setRate = (dirId, groupId, field, value) => {
     const gid = +(groupId || 0)
     setRates(prev => {
@@ -386,10 +391,14 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
               // ставки по ней в базе есть — и расчёт берёт именно её,
               // а не ставку направления. Не показать её значило бы
               // спрятать ту ставку, по которой реально считаются деньги.
+              // Убранная ставка сюда тоже попадает, иначе дорога односторонняя:
+              // убрать можно, а вернуть нечем — блока на экране нет,
+              // и вписать значение некуда.
               const hidden = liveGroups(d)
                 .filter(g => !base.some(t => +t.gid === +g.id))
-                .filter(g => getRateForDir(d.id, g.id))
-                .map(g => ({ gid: g.id, label: g.name, extra: true }))
+                .map(g => ({ g, row: rateRowFor(d.id, g.id) }))
+                .filter(({ row }) => !!row)
+                .map(({ g, row }) => ({ gid: g.id, label: g.name, extra: true, off: !!row.archived_at }))
 
               const targets = [...base, ...hidden]
 
@@ -426,7 +435,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                     </div>
                   )}
 
-                  {targets.map(({ gid, label, extra }) => {
+                  {targets.map(({ gid, label, extra, off }) => {
                     // rate_type мог приехать пустым (старые строки, импорт).
                     // Расчёт такую строку считает как «фикс» — кнопки должны
                     // говорить то же самое, а не стоять обе неподсвеченными.
@@ -444,14 +453,24 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                         )}
                         {extra && (
                           <div style={{ marginBottom: 8 }}>
-                            <div style={{ fontSize: 11, color: '#c47a00', lineHeight: 1.5 }}>
-                              Занятия этого времени считаются по этой ставке, а не по ставке направления.
-                              Строка осталась с тех пор, когда подгрупп было несколько.
-                            </div>
-                            <button type="button" onClick={() => dropGroupRate(d.id, gid, label, d.name)}
-                              style={{ background: 'none', border: 'none', padding: '4px 0 0', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: T.red, textDecoration: 'underline' }}>
-                              Убрать эту ставку и считать по направлению
-                            </button>
+                            {off ? (
+                              <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.5 }}>
+                                Ставка убрана — занятия этого времени считаются по ставке направления
+                                «{d.name}». Впишите значение, чтобы вернуть её в расчёт.
+                                Прежняя цена видна в карточке, в разделе «Не применяются сейчас».
+                              </div>
+                            ) : (
+                              <>
+                                <div style={{ fontSize: 11, color: '#c47a00', lineHeight: 1.5 }}>
+                                  Занятия этого времени считаются по этой ставке, а не по ставке направления.
+                                  Строка осталась с тех пор, когда подгрупп было несколько.
+                                </div>
+                                <button type="button" onClick={() => dropGroupRate(d.id, gid, label, d.name)}
+                                  style={{ background: 'none', border: 'none', padding: '4px 0 0', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: T.red, textDecoration: 'underline' }}>
+                                  Убрать эту ставку и считать по направлению
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
 
