@@ -63,9 +63,13 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
   // Ставка ищется сначала по конкретной подгруппе, затем «на всё
   // направление» (group_id = 0). Так занятие, проведённое в подгруппе
   // без своей ставки, считается по общей — а не в ноль.
+  // Убранная из обращения ставка (archived_at) в расчёте не участвует —
+  // ровно за этим её и убирали. Строка при этом сохранена: она помнит,
+  // по какой цене считались прошлые занятия, а больше этого не помнит
+  // никто (история ставок не ведётся — баг 26).
   const rateFor = (dirId, groupId) =>
-    rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0))
-    || rates.find(r => r.direction_id === dirId && +r.group_id === 0)
+    rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0) && !r.archived_at)
+    || rates.find(r => r.direction_id === dirId && +r.group_id === 0 && !r.archived_at)
 
   const lessonRate = (rate, date, dirId, groupId) => {
     if (rate?.rate_type === 'by_students') {
@@ -165,11 +169,6 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     salary_type: 'per_lesson', salary_amount: 0,
   })
   const [rates, setRates] = useState([])
-  // Ставки, которые человек убрал сознательно, кнопкой. Нужен отдельный
-  // список: сохранение возвращает на место всё, чего не было в редакторе
-  // (чтобы ничего не пропадало молча), и без этой пометки убранная
-  // строка приезжала бы обратно.
-  const [dropped, setDropped] = useState([])
   const [loadingRates, setLoadingRates] = useState(false)
   const [hiredError, setHiredError] = useState(false)
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
@@ -187,19 +186,23 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   }
 
   // Ставка адресуется парой «направление + подгруппа». 0 = на всё направление
+  // Убранная ставка для редактора всё равно что отсутствующая: она
+  // не применяется, поля должны быть пустыми. Саму строку не выбрасываем —
+  // она видна в карточке и хранит цену прошлых занятий.
   const getRateForDir = (dirId, groupId = 0) =>
-    rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId)
+    rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId && !r.archived_at)
 
   const setRate = (dirId, groupId, field, value) => {
     const gid = +(groupId || 0)
     setRates(prev => {
       const existing = prev.find(r => r.direction_id === dirId && +(r.group_id || 0) === gid)
+      // Правка возвращает ставку в обращение: человек снова задаёт
+      // по ней цену, значит решение «считать по направлению» отменено
       if (existing) return prev.map(r =>
-        (r.direction_id === dirId && +(r.group_id || 0) === gid) ? { ...r, [field]: value } : r)
+        (r.direction_id === dirId && +(r.group_id || 0) === gid)
+          ? { ...r, [field]: value, archived_at: null, archived_by: null } : r)
       return [...prev, { direction_id: dirId, group_id: gid, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
     })
-    // Правка отменяет прежнее решение убрать эту строку
-    setDropped(prev => prev.filter(k => k !== `${dirId}_${+(groupId || 0)}`))
   }
 
   // Убрать ставку подгруппы, чтобы занятия считались по ставке
@@ -213,8 +216,11 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
       confirmLabel: 'Убрать ставку', cancelLabel: 'Оставить', danger: true,
     })
     if (!ok) return
-    setRates(prev => prev.filter(r => !(r.direction_id === dirId && +(r.group_id || 0) === +gid)))
-    setDropped(prev => prev.includes(`${dirId}_${+gid}`) ? prev : [...prev, `${dirId}_${+gid}`])
+    // Не удаляем, а убираем из обращения: строка помнит цену, по которой
+    // считались прошлые занятия, и другого места, где это записано, нет
+    setRates(prev => prev.map(r =>
+      (r.direction_id === dirId && +(r.group_id || 0) === +gid)
+        ? { ...r, archived_at: new Date().toISOString() } : r))
   }
 
   const selectedDirs = directions.filter(d => (f.direction_ids || []).includes(d.id))
@@ -244,7 +250,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
         <button className="btn btn-primary" onClick={() => {
           if (!f.hired) { setHiredError(true); return }
-          onSave(f, rates, dropped)
+          onSave(f, rates)
         }}>Сохранить</button>
       </>}>
       {/* Основная информация */}
@@ -910,19 +916,29 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   // Ищем среди всех, включая убранные: ставка обязана
                   // остаться подписанной
                   const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
-                  const old = !!grp?.archived_at
+                  const old = !!r.archived_at || !!grp?.archived_at
+                  const why = r.archived_at
+                    ? 'считается по ставке направления'
+                    : (grp?.archived_at ? 'время убрано из расписания' : null)
                   return (
-                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, opacity: old ? .75 : 1 }}>
+                    <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 13, opacity: old ? .75 : 1 }}>
                       <span style={{ color: T.ink }}>
                         {dir?.name || '—'}
                         {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
                         {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
+                        {old && why && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>— {why}</span>}
                       </span>
-                      <span style={{ color: old ? T.muted : T.greenDark, fontWeight: 700 }}>{rateLabel(r)}</span>
+                      <span style={{ color: old ? T.muted : T.greenDark, fontWeight: 700, whiteSpace: 'nowrap' }}>{rateLabel(r)}</span>
                     </div>
                   )
                 }
+                // Ставка не применяется по двум разным причинам, и обе
+                // нужно показать: её подгруппу убрали из расписания,
+                // либо саму ставку убрали, чтобы считать по направлению.
+                // Общее у них одно и главное: по этой цене считались
+                // прошлые занятия, а новых по ней не будет.
                 const isOld = (r) => {
+                  if (r.archived_at) return true
                   const gid = +(r.group_id || 0)
                   if (!gid) return false
                   return !!findGroup(directions.find(d => d.id === r.direction_id), gid)?.archived_at
@@ -945,13 +961,13 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         <button type="button" onClick={() => setShowOldRates(v => !v)}
                           style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: T.muted, display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ transform: showOldRates ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▸</span>
-                          Убранные из расписания — {old.length}
+                          Не применяются сейчас — {old.length}
                         </button>
                         {showOldRates && (
                           <>
                             <div style={{ fontSize: 11, color: T.muted, margin: '6px 0 8px', lineHeight: 1.5 }}>
-                              По этим ставкам считались прошлые занятия, они сохранены.
-                              Новых занятий по ним не будет, пока подгруппы не вернут в расписание.
+                              По этим ставкам считались прошлые занятия — суммы уже выплаченного
+                              с ними сходятся. Новых занятий по ним не будет.
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               {old.map(rateRow)}
@@ -1191,7 +1207,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       setDismissed(new Set((dis || []).map(d => d.alert_key)))
 
       const byKey = {}
-      ;(rates || []).forEach(r => { byKey[`${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`] = r })
+      // Убранные ставки в расчёте не участвуют — значит и «ставка есть»
+      // по ним говорить нельзя, иначе предупреждение промолчит там,
+      // где занятия считаются в ноль
+      ;(rates || []).filter(r => !r.archived_at)
+        .forEach(r => { byKey[`${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`] = r })
       // Ставка «есть» только если по ней реально начислятся деньги
       const paying = (r, hourly) => {
         if (!r) return false
@@ -1381,7 +1401,7 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const activeTeachers = teachers.filter(t => !t.archived_at)
   const archivedTeachers = teachers.filter(t => t.archived_at)
 
-  const save = async (f, rates, dropped = []) => {
+  const save = async (f, rates) => {
     // Подгруппы снятых направлений в списке оставаться не должны.
     // Убранные из расписания — должны: подгруппа существует, просто
     // её сейчас нет в сетке. Снять её здесь значило бы, что после
@@ -1421,6 +1441,8 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       // а занятия молча пойдут по нулю (баг 61)
       const { data: prevRates } = await supabase.from('teacher_rates')
         .select('*').eq('teacher_id', teacherId)
+      const { data: u } = await supabase.auth.getUser()
+      const uid = u?.user?.id || null
 
       const { error: delErr } = await supabase.from('teacher_rates')
         .delete().eq('teacher_id', teacherId)
@@ -1462,6 +1484,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
             rate_part: +r.rate_part || 0,
             rate_full: +r.rate_full || 0,
             min_students: +r.min_students || 0,
+            // Метка «убрана из обращения» едет вместе со ставкой:
+            // сохранение перезаписывает строки целиком, и без неё
+            // ставка тихо вернулась бы в расчёт
+            archived_at: r.archived_at || null,
+            archived_by: r.archived_at ? (r.archived_by || uid || null) : null,
           }
         })
 
@@ -1491,15 +1518,11 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       const alreadyGoing = new Set(
         toInsert.map(r => `${r.direction_id}_${+(r.group_id || 0)}`)
       )
-      const droppedKeys = new Set(dropped)
       const keptOutsideEditor = (prevRates || [])
         .filter(r => {
           const gid = +(r.group_id || 0)
           if (!gid) return false
           if (alreadyGoing.has(`${r.direction_id}_${gid}`)) return false
-          // Убрана кнопкой — это осознанное решение человека, а не
-          // пропажа. Возвращать её было бы отменой его действия
-          if (droppedKeys.has(`${r.direction_id}_${gid}`)) return false
           // Подгруппы, которой больше нет вообще, ставку не держим:
           // она ссылалась бы в пустоту
           return !!findGroup(directions.find(d => d.id === r.direction_id), gid)

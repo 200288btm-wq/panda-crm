@@ -1770,6 +1770,10 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
                 rate_part:rType==='by_students'?(+row['Неполная группа, ₽']||0):0,
                 rate_full:rType==='by_students'?(+row['Полная группа, ₽']||0):0,
                 min_students:rType==='by_students'?(+row['Порог (чел.)']||0):0,
+                // Импортированная ставка должна применяться. Без этого
+                // строка, ранее убранная из обращения, осталась бы убранной,
+                // и импорт бы молча не подействовал
+                archived_at:null, archived_by:null,
               }, { onConflict: 'teacher_id,direction_id,group_id' })
               if (error) allErrors.push(`Ставка ${tName}/${dName}: ${error.message}`)
               else { importDetails['Ставки педагогов'] = (importDetails['Ставки педагогов']||0)+1; totalInserted++ }
@@ -1929,6 +1933,8 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
               rate_part: rateType === 'by_students' ? (+row['Неполная группа, ₽'] || 0) : 0,
               rate_full: rateType === 'by_students' ? (+row['Полная группа, ₽'] || 0) : 0,
               min_students: rateType === 'by_students' ? (+row['Порог (чел.)'] || 0) : 0,
+              // См. выше: импорт возвращает ставку в обращение
+              archived_at: null, archived_by: null,
             }, { onConflict: 'teacher_id,direction_id,group_id' })
             if (error) errors.push(`Ставка ${teacherName}/${dirName}: ${error.message}`)
           }
