@@ -54,6 +54,158 @@ const ratePeriod = (r) => {
   return null
 }
 
+// ── Планировщик изменений ставок ────────────────────────────
+// Чистая функция: на вход то, что лежит в базе, и то, что человек ввёл,
+// на выход — список операций. В базу сама не ходит, поэтому проверяется
+// тестами. Вынесена из save() специально: ошибка в ней стоит денег,
+// а внутри компонента, вперемешку с запросами, её нечем поймать.
+//
+//   prevRates   — все версии ставок педагога из базы
+//   desired     — строки из редактора (последняя версия каждой ставки,
+//                 плюс локальный флаг _removed у убранных)
+//   managedKeys — ключи, которыми редактор реально управляет
+//   validFrom   — дата из поля «действует с»
+//   today       — сегодня, для правила про самую первую версию
+//
+// Возвращает { toClose, toUpdate, toInsert, conflicts }.
+function planRateChanges({ prevRates = [], desired = [], managedKeys = new Set(), validFrom, today, directions = [], teacherId, studioId }) {
+  const keyOf = (r) => `${r.direction_id}_${+(r.group_id || 0)}`
+
+  // Все версии по ключу — нужны, чтобы новая не наложилась на чужой интервал
+  const allByKey = {}
+  prevRates.forEach(r => { (allByKey[keyOf(r)] = allByKey[keyOf(r)] || []).push(r) })
+
+  // Действующая версия каждой ставки: без правой границы и самая поздняя
+  // по valid_from. Строку с archived_at, но без valid_to (наследие старого
+  // кода до миграции) считаем закрытой.
+  const openInDb = {}
+  prevRates.forEach(r => {
+    if (r.valid_to || r.archived_at) return
+    const k = keyOf(r)
+    if (!openInDb[k] || String(r.valid_from || '') > String(openInDb[k].valid_from || '')) openInDb[k] = r
+  })
+
+  // Версии, которые новая дата разрезает: начались раньше неё и ещё
+  // не кончились к ней. Их надо закрыть, иначе у ключа окажется два
+  // значения на одну дату и расчёт станет непредсказуемым. Открытая
+  // версия сюда попадает сама, но не только она: убранная «с 1 октября»
+  // ставка тоже перекрывает сентябрь.
+  const cutBy = (key) => (allByKey[key] || []).filter(r =>
+    String(r.valid_from || RATE_EPOCH) < validFrom &&
+    (!r.valid_to || String(r.valid_to) > validFrom))
+
+  // ЧУЖИЕ версии, начинающиеся не раньше выбранной даты, — то есть все,
+  // кроме той, которую человек сейчас правит. Вот их разрезать мы не умеем:
+  // непонятно, что имелось в виду — сдвинуть то изменение или вставить
+  // перед ним ещё одно. Тут честнее не угадывать.
+  //
+  // Действующую версию из проверки исключаем специально. Иначе выходила
+  // ерунда: поправил ставку сегодня, тут же понял, что она должна была
+  // действовать с первого числа, — и сохранение отказывало, приняв
+  // собственную свежую запись за чужое будущее изменение. Поправить
+  // только что сделанное — это норма, а не конфликт.
+  const blocking = (key, curId) => (allByKey[key] || []).filter(r =>
+    r.id !== curId && String(r.valid_from || RATE_EPOCH) >= validFrom)
+
+  // Отдельный случай: действующая версия назначена на БУДУЩЕЕ, а человек
+  // сохраняет более ранней датой. Двигать её назад нельзя — так молча
+  // исчезло бы запланированное изменение, о котором потом никто не вспомнит.
+  // Дописать ещё одно изменение ПОСЛЕ запланированного — можно, это не про то.
+  const wouldEatScheduled = (cur) =>
+    !!cur && String(cur.valid_from || RATE_EPOCH) > today &&
+    validFrom < String(cur.valid_from)
+
+  // Тип ставки определяется форматом оплаты направления, а не тем,
+  // что осталось в строке от прошлых времён
+  const valuesOf = (r) => {
+    const hourly = isHourly(directions.find(d => d.id === r.direction_id))
+    return {
+      rate_type: hourly ? 'per_hour' : (r.rate_type === 'by_students' ? 'by_students' : 'per_lesson'),
+      rate: hourly ? 0 : (+r.rate || 0),
+      rate_hour: hourly ? (+r.rate_hour || 0) : 0,
+      rate_part: +r.rate_part || 0,
+      rate_full: +r.rate_full || 0,
+      min_students: +r.min_students || 0,
+    }
+  }
+  const RATE_FIELDS = ['rate_type', 'rate', 'rate_hour', 'rate_part', 'rate_full', 'min_students']
+  const sameValues = (a, b) => !!a && !!b &&
+    RATE_FIELDS.every(k => String(a[k] ?? '') === String(b[k] ?? ''))
+
+  const toClose = []     // версиям ставим правую границу
+  const toUpdate = []    // правка версии на месте
+  const toInsert = []    // новые версии
+  const conflicts = []   // ключи с чужим будущим изменением — пропускаем
+
+  desired.filter(r => r.direction_id && managedKeys.has(keyOf(r))).forEach(r => {
+    const key = keyOf(r)
+    const cur = openInDb[key]
+    const want = valuesOf(r)
+
+    // Ставка, которой не было НИКОГДА, начинается с начала времён, а не
+    // с сегодняшнего дня. Защищать тут нечего: прежней цены не существовало,
+    // занятия до сих пор считались в ноль. Начни мы такую ставку сегодняшним
+    // числом — прошлые занятия так и остались бы нулевыми, причём молча:
+    // предупреждение «не задана ставка» не сработает, ставка-то задана.
+    // Раньше первая же ставка закрывала всё прошлое — это и сохраняем.
+    // Если человек сам поставил дату, значит он имел в виду именно её.
+    const firstEver = (allByKey[key] || []).length === 0
+    const startsAt = (firstEver && validFrom === today) ? RATE_EPOCH : validFrom
+
+    const newVersion = () => ({
+      teacher_id: teacherId, studio_id: studioId,
+      direction_id: r.direction_id, group_id: +(r.group_id || 0),
+      valid_from: startsAt, valid_to: null,
+      archived_at: null, archived_by: null,
+      ...want,
+    })
+
+    // Ничего не поменялось — не плодим версии на каждое «Сохранить».
+    // Но «не поменялось» — это про значения И про дату: человек мог
+    // не трогать цифры, а лишь переставить дату, с которой они действуют
+    // («поставила 900 сегодняшним числом, а надо было с первого»).
+    // Проверять только цифры значило бы молча проглотить такую правку.
+    if (!r._removed && cur && sameValues(cur, want) &&
+        String(cur.valid_from || RATE_EPOCH) <= validFrom) return
+
+    // Второе исправление той же датой — правим ту же версию. Иначе за один
+    // вечер набежало бы пять версий с одной датой, а уникальный индекс
+    // по (педагог, направление, подгруппа, valid_from) их и не пустил бы.
+    if (!r._removed && cur && String(cur.valid_from) === validFrom) {
+      toUpdate.push({ id: cur.id, ...want })
+      return
+    }
+
+    // Есть ЧУЖАЯ версия не раньше выбранной даты, либо мы бы затёрли
+    // запланированное на будущее изменение — не угадываем
+    if (blocking(key, cur?.id).length > 0 || wouldEatScheduled(cur)) {
+      const dir = directions.find(d => d.id === r.direction_id)
+      conflicts.push(`${dir?.name || 'направление'}${+(r.group_id || 0) ? ` · ${findGroup(dir, r.group_id)?.name || 'время'}` : ''}`)
+      return
+    }
+
+    // Закрываем всё, что эта дата разрезает
+    cutBy(key).forEach(o => toClose.push({ id: o.id, removed: !!r._removed }))
+
+    // Убрали ставку — преемника нет, дальше считают по направлению
+    if (r._removed) return
+
+    // Действующая версия началась ПОЗЖЕ выбранной даты — значит человек
+    // переставляет дату у изменения, которое сам недавно внёс. Не плодим
+    // ещё одну версию поверх: двигаем эту, вместе с новыми значениями.
+    // Предыдущие перережет cutBy — интервалы снова сойдутся встык.
+    // (запланированное на будущее сюда уже не попадёт — отсеяно выше)
+    if (cur && String(cur.valid_from || RATE_EPOCH) > validFrom) {
+      toUpdate.push({ id: cur.id, valid_from: validFrom, ...want })
+      return
+    }
+
+    toInsert.push(newVersion())
+  })
+
+  return { toClose, toUpdate, toInsert, conflicts }
+}
+
 // Расчёт заработка по журналу работы.
 // Журнал — источник правды: он говорит, кто работал и сколько часов.
 // Для занятий до его появления есть запасной путь — отметки посещаемости.
@@ -552,6 +704,16 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
                         : undefined}>
                         {label && (
                           <div style={{ fontWeight: 700, fontSize: 12, color: T.greenDark, marginBottom: 8 }}>📍 {label}</div>
+                        )}
+                        {/* С какого числа действует то, что сейчас в полях.
+                            Поле «действует с» наверху сбрасывается на сегодня при
+                            каждом открытии карточки — это верно для СЛЕДУЮЩЕГО
+                            изменения, но без этой подписи отличить «моя дата
+                            не сохранилась» от «поле просто сбросилось» нельзя. */}
+                        {rawRate?.valid_from && rawRate.valid_from !== RATE_EPOCH && (
+                          <div style={{ fontSize: 11, color: T.muted, marginBottom: 6 }}>
+                            Текущее значение действует с {ruDate(rawRate.valid_from)}
+                          </div>
                         )}
                         {extra && (
                           <div style={{ marginBottom: 8 }}>
@@ -1633,146 +1795,36 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         return
       }
 
-      const keyOf = (r) => `${r.direction_id}_${+(r.group_id || 0)}`
-
-      // Все версии по ключу — нужны, чтобы новая версия не наложилась
-      // на чужой интервал
-      const allByKey = {}
-      ;(prevRates || []).forEach(r => {
-        const k = keyOf(r)
-        ;(allByKey[k] = allByKey[k] || []).push(r)
+      const { toClose, toUpdate, toInsert, conflicts } = planRateChanges({
+        prevRates: prevRates || [],
+        desired: rates,
+        managedKeys,
+        validFrom,
+        today: todayLocal(),
+        directions, teacherId, studioId,
       })
 
-      // Действующая версия каждой ставки в базе: без правой границы
-      // и самая поздняя по valid_from. Строку с archived_at, но без valid_to
-      // (наследие старого кода до миграции) считаем закрытой.
-      const openInDb = {}
-      ;(prevRates || []).forEach(r => {
-        if (r.valid_to || r.archived_at) return
-        const k = keyOf(r)
-        if (!openInDb[k] || String(r.valid_from || '') > String(openInDb[k].valid_from || '')) openInDb[k] = r
-      })
-
-      // Версии, которые новая дата разрезает: начались раньше неё и ещё
-      // не кончились к ней. Именно их надо закрыть, иначе у ключа окажется
-      // два значения на одну дату и расчёт станет непредсказуемым.
-      // Открытая версия сюда попадает сама, но не только она: убранная
-      // «с 1 октября» ставка тоже перекрывает сентябрь.
-      const cutBy = (key) => (allByKey[key] || []).filter(r =>
-        String(r.valid_from || RATE_EPOCH) < validFrom &&
-        (!r.valid_to || String(r.valid_to) > validFrom))
-
-      // Версия, начинающаяся ПОЗЖЕ выбранной даты. Такую мы разрезать
-      // не умеем: непонятно, что человек имел в виду — сдвинуть будущее
-      // изменение или вставить перед ним ещё одно. Честнее не угадывать.
-      const laterThan = (key) => (allByKey[key] || []).filter(r =>
-        String(r.valid_from || RATE_EPOCH) > validFrom)
-
-      // Значения ставки в том виде, в каком они лягут в базу.
-      // Тип ставки определяется форматом оплаты направления, а не тем,
-      // что осталось в строке от прошлых времён.
-      const valuesOf = (r) => {
-        const hourly = isHourly(directions.find(d => d.id === r.direction_id))
-        return {
-          rate_type: hourly ? 'per_hour' : (r.rate_type === 'by_students' ? 'by_students' : 'per_lesson'),
-          rate: hourly ? 0 : (+r.rate || 0),
-          rate_hour: hourly ? (+r.rate_hour || 0) : 0,
-          rate_part: +r.rate_part || 0,
-          rate_full: +r.rate_full || 0,
-          min_students: +r.min_students || 0,
-        }
-      }
-      const RATE_FIELDS = ['rate_type', 'rate', 'rate_hour', 'rate_part', 'rate_full', 'min_students']
-      const sameValues = (a, b) => !!a && !!b &&
-        RATE_FIELDS.every(k => String(a[k] ?? '') === String(b[k] ?? ''))
-
-      const toClose = []    // версиям ставим правую границу
-      const toUpdate = []   // правка версии, начатой той же датой
-      const toInsert = []   // новые версии
-
-      const conflicts = []   // ключи с версией из будущего — их пропускаем
-
-      rates.filter(r => r.direction_id && managedKeys.has(keyOf(r))).forEach(r => {
-        const key = keyOf(r)
-        const cur = openInDb[key]
-        const want = valuesOf(r)
-
-        // Ставка, которой не было НИКОГДА, начинается с начала времён,
-        // а не с сегодняшнего дня. Защищать тут нечего: прежней цены
-        // не существовало, занятия до сих пор считались в ноль. Начни мы
-        // такую ставку сегодняшним числом — прошлые занятия так и остались бы
-        // нулевыми, причём молча: предупреждение «не задана ставка» не сработает,
-        // ставка-то задана. Раньше первая же ставка закрывала всё прошлое,
-        // это поведение и сохраняем.
-        // Если человек сам поставил дату — значит он имел в виду именно её.
-        const firstEver = (allByKey[key] || []).length === 0
-        const startsAt = (firstEver && validFrom === todayLocal()) ? RATE_EPOCH : validFrom
-
-        const newVersion = () => ({
-          teacher_id: teacherId, studio_id: studioId,
-          direction_id: r.direction_id, group_id: +(r.group_id || 0),
-          valid_from: startsAt, valid_to: null,
-          archived_at: null, archived_by: null,
-          ...want,
-        })
-
-        // Ничего не поменялось — не плодим версии на каждое «Сохранить»
-        if (!r._removed && cur && sameValues(cur, want)) return
-
-        // Второе исправление той же датой — правим ту же версию.
-        // Иначе за один вечер набежало бы пять версий с одной датой,
-        // а уникальный индекс по (педагог, направление, подгруппа, valid_from)
-        // всё равно не дал бы их вставить.
-        if (!r._removed && cur && String(cur.valid_from) === validFrom) {
-          toUpdate.push({ id: cur.id, ...want })
-          return
-        }
-
-        // Есть версия, начинающаяся позже выбранной даты — не угадываем
-        const later = laterThan(key)
-        if (later.length > 0) {
-          const dir = directions.find(d => d.id === r.direction_id)
-          conflicts.push(`${dir?.name || 'направление'}${+(r.group_id || 0) ? ` · ${findGroup(dir, r.group_id)?.name || 'время'}` : ''}`)
-          return
-        }
-
-        // Закрываем всё, что эта дата разрезает
-        cutBy(key).forEach(o => toClose.push({ id: o.id, removed: !!r._removed }))
-
-        // Убрали ставку — преемника нет, дальше считают по направлению
-        if (r._removed) return
-        toInsert.push(newVersion())
-      })
-
-      if (conflicts.length > 0) {
-        toast.error(`Не сохранено: ${conflicts.join(', ')} — по этим ставкам уже есть изменение, назначенное более поздней датой. Откройте дату «действует с» позже неё или отмените будущее изменение.`)
-      }
-
-      // 1. Правки версий, начатых той же датой — самое безобидное, идёт первым
-      for (const u2 of toUpdate) {
-        const { id, ...vals } = u2
-        const { error } = await supabase.from('teacher_rates').update(vals).eq('id', id)
-        if (error) {
-          toast.fromError(error, 'Ставки сохранены не полностью — проверьте карточку')
-          setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
-          return
-        }
-      }
-
-      // 2. Закрываем версии, которые заменяются или убираются
+      // Порядок операций выбран так, чтобы любой сбой оставлял базу
+      // в безопасном состоянии. Сначала закрываем старые версии, потом
+      // правим, потом вставляем новые. Если что-то падает — уже закрытые
+      // возвращаем в строй: педагог без действующей ставки считается
+      // в ноль, и это тот самый молчаливый сбой из бага 61.
       const closed = []
+      const undoCloses = async () => {
+        for (const done of closed) {
+          await supabase.from('teacher_rates')
+            .update({ valid_to: null, archived_at: null, archived_by: null }).eq('id', done)
+        }
+      }
+
+      // 1. Закрываем версии, которые заменяются или убираются
       for (const c of toClose) {
         const patch = c.removed
           ? { valid_to: validFrom, archived_at: new Date().toISOString(), archived_by: uid }
           : { valid_to: validFrom }
         const { error } = await supabase.from('teacher_rates').update(patch).eq('id', c.id)
         if (error) {
-          // Откатываем уже закрытые: иначе часть ставок осталась бы
-          // без действующей версии, и занятия молча пошли бы по нулю (баг 61)
-          for (const done of closed) {
-            await supabase.from('teacher_rates')
-              .update({ valid_to: null, archived_at: null, archived_by: null }).eq('id', done)
-          }
+          await undoCloses()
           toast.fromError(error, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
           setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
           return
@@ -1780,20 +1832,37 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
         closed.push(c.id)
       }
 
+      // 2. Правим версии на месте: та же дата начала либо перестановка даты
+      for (const upd of toUpdate) {
+        const { id, ...vals } = upd
+        const { error } = await supabase.from('teacher_rates').update(vals).eq('id', id)
+        if (error) {
+          await undoCloses()
+          toast.fromError(error, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
+          setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
+          return
+        }
+      }
+
       // 3. Вставляем новые версии
       if (toInsert.length > 0) {
         const { error: insErr } = await supabase.from('teacher_rates').insert(toInsert)
         if (insErr) {
-          // Возвращаем закрытые версии в строй, иначе педагог остался бы
-          // без действующих ставок, а начисления уехали бы в ноль
-          for (const done of closed) {
-            await supabase.from('teacher_rates')
-              .update({ valid_to: null, archived_at: null, archived_by: null }).eq('id', done)
-          }
+          await undoCloses()
           toast.fromError(insErr, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
           setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
           return
         }
+      }
+
+      // Конфликт — это НЕ успех, и окно закрывать нельзя: закрытое окно
+      // читается как «сохранено», а плашку легко не заметить. Оставляем
+      // карточку открытой, чтобы сообщение было привязано к действию.
+      if (conflicts.length > 0) {
+        toast.error(`Не сохранено: ${conflicts.join(', ')} — по этой ставке уже есть отдельное изменение, назначенное этой же или более поздней датой. Выберите дату позже него.`)
+        setRefreshKey(k => k + 1)
+        reload()
+        return
       }
 
       // Тишина — тоже ответ, но не тот: без этого человек не понимает,
