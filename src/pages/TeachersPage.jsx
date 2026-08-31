@@ -13,6 +13,47 @@ const STATUSES_T = ['Активен', 'В поиске', 'Ожидание', 'У
 // Формат оплаты направления определяет, какую ставку задавать педагогу
 const isHourly = (dir) => dir?.payment_type === 'per_hour'
 
+// ── Ставка живёт во времени ─────────────────────────────────
+// Баг 26: раньше строка teacher_rates была «текущей ценой», и расчёт брал её
+// для ВСЕХ занятий подряд. Подняли ставку в сентябре — августовские занятия
+// пересчитались задним числом, потому что начисления нигде не хранятся,
+// они считаются заново при каждом открытии карточки.
+//
+// Теперь строка — это ОДНА ВЕРСИЯ цены со своим интервалом действия:
+//   valid_from — включительно, с этого дня версия применяется;
+//   valid_to   — ИСКЛЮЧИТЕЛЬНО: занятие этого дня считается уже не по ней;
+//                пусто = действует до сих пор.
+// Версии одного ключа (педагог + направление + подгруппа) идут подряд
+// и не пересекаются — это проверяется запросом П3 из миграции.
+//
+// RATE_EPOCH — дата-страж, её проставила миграция всем ставкам, заведённым
+// до появления истории. Читается как «действует с начала времён».
+const RATE_EPOCH = '2000-01-01'
+
+// Даты везде строки 'ГГГГ-ММ-ДД' и сравниваются как строки, без Date.
+// Так же сделано в «Финансах» (inRange) и по той же причине: любой заход
+// через Date тянет за собой часовой пояс, а в деньгах это сдвиг на сутки.
+const rateActiveOn = (r, date) => {
+  if (!r || !date) return false
+  if (date < (r.valid_from || RATE_EPOCH)) return false
+  if (r.valid_to && date >= r.valid_to) return false
+  // archived_at без valid_to — строка, убранная старым кодом до миграции.
+  // Считаем её закрытой, иначе убранная ставка молча вернулась бы в расчёт.
+  if (r.archived_at && !r.valid_to) return false
+  return true
+}
+
+// Подпись интервала для карточки: «с 01.09.2026», «по 01.09.2026», «01.09 — 01.10».
+// Дату-страж не показываем: «действует с 01.01.2000» — это шум, а не факт.
+const ratePeriod = (r) => {
+  const from = (r.valid_from && r.valid_from !== RATE_EPOCH) ? ruDate(r.valid_from) : null
+  const to = r.valid_to ? ruDate(r.valid_to) : null
+  if (from && to) return `${from} — ${to}`
+  if (from) return `с ${from}`
+  if (to) return `по ${to}`
+  return null
+}
+
 // Расчёт заработка по журналу работы.
 // Журнал — источник правды: он говорит, кто работал и сколько часов.
 // Для занятий до его появления есть запасной путь — отметки посещаемости.
@@ -63,13 +104,17 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
   // Ставка ищется сначала по конкретной подгруппе, затем «на всё
   // направление» (group_id = 0). Так занятие, проведённое в подгруппе
   // без своей ставки, считается по общей — а не в ноль.
-  // Убранная из обращения ставка (archived_at) в расчёте не участвует —
-  // ровно за этим её и убирали. Строка при этом сохранена: она помнит,
-  // по какой цене считались прошлые занятия, а больше этого не помнит
-  // никто (история ставок не ведётся — баг 26).
-  const rateFor = (dirId, groupId) =>
-    rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0) && !r.archived_at)
-    || rates.find(r => r.direction_id === dirId && +r.group_id === 0 && !r.archived_at)
+  //
+  // Главное отличие от прежней версии (баг 26): ставка выбирается ПО ДАТЕ
+  // ЗАНЯТИЯ, а не по тому, что лежит в базе сегодня. Из нескольких версий
+  // берётся та, чей интервал накрывает день занятия. Поэтому смена цены
+  // больше не переписывает прошлое, а убранная ставка продолжает считать
+  // те занятия, которые прошли до её убирания, — раньше она выбрасывалась
+  // из поиска целиком, для любой даты, и прошлое молча уезжало на ставку
+  // направления.
+  const rateFor = (dirId, groupId, date) =>
+    rates.find(r => r.direction_id === dirId && +r.group_id === +(groupId || 0) && rateActiveOn(r, date))
+    || rates.find(r => r.direction_id === dirId && +r.group_id === 0 && rateActiveOn(r, date))
 
   const lessonRate = (rate, date, dirId, groupId) => {
     if (rate?.rate_type === 'by_students') {
@@ -83,7 +128,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
 
   work.forEach(w => {
     const dir = directions.find(d => d.id === w.direction_id)
-    const rate = rateFor(w.direction_id, w.group_id)
+    const rate = rateFor(w.direction_id, w.group_id, w.date)
     const hourly = dir?.payment_type === 'per_hour'
     const isPaid = paidWorkLogIds.has(w.id)
     const calc = hourly
@@ -128,7 +173,7 @@ function calcEarnings({ work = [], attendance = [], rates = [], directions = [],
     const isPaid = paidLegacyKeys.has(legacyKey)
     const amount = isPaid && paidAmountByLegacy[legacyKey] != null
       ? +paidAmountByLegacy[legacyKey]
-      : lessonRate(rateFor(a.direction_id, gid), a.date, a.direction_id, gid)
+      : lessonRate(rateFor(a.direction_id, gid, a.date), a.date, a.direction_id, gid)
     add(a.direction_id, { lessons: 1, amount })
     items.push({
       workLogId: null, date: a.date, directionId: a.direction_id, groupId: gid,
@@ -171,6 +216,10 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   const [rates, setRates] = useState([])
   const [loadingRates, setLoadingRates] = useState(false)
   const [hiredError, setHiredError] = useState(false)
+  // С какого дня действуют изменённые в этом сохранении ставки (баг 26).
+  // Одно поле на весь блок: меняют обычно одну-две ставки за раз, и общая
+  // дата читается понятнее, чем поле у каждой строки.
+  const [validFrom, setValidFrom] = useState(todayLocal())
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
 
   useEffect(() => {
@@ -181,16 +230,27 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     setLoadingRates(true)
     const { data } = await supabase.from('teacher_rates')
       .select('*').eq('teacher_id', teacher.id)
-    setRates(data || [])
+    // В редакторе живёт только ПОСЛЕДНЯЯ версия каждой ставки. История версий
+    // редактору не нужна и была бы опасна: setRate нашёл бы в списке случайную
+    // строку из прошлого и правил бы прошлую цену вместо текущей.
+    const byKey = {}
+    ;(data || []).forEach(r => {
+      const k = `${r.direction_id}_${+(r.group_id || 0)}`
+      if (!byKey[k] || String(r.valid_from || '') > String(byKey[k].valid_from || '')) byKey[k] = r
+    })
+    setRates(Object.values(byKey))
     setLoadingRates(false)
   }
 
-  // Ставка адресуется парой «направление + подгруппа». 0 = на всё направление
+  // Ставка адресуется парой «направление + подгруппа». 0 = на всё направление.
   // Убранная ставка для редактора всё равно что отсутствующая: она
   // не применяется, поля должны быть пустыми. Саму строку не выбрасываем —
   // она видна в карточке и хранит цену прошлых занятий.
-  const getRateForDir = (dirId, groupId = 0) =>
-    rates.find(r => r.direction_id === dirId && +(r.group_id || 0) === +groupId && !r.archived_at)
+  const getRateForDir = (dirId, groupId = 0) => {
+    const r = rates.find(x => x.direction_id === dirId && +(x.group_id || 0) === +groupId)
+    if (!r || r._removed || r.valid_to || r.archived_at) return null
+    return r
+  }
 
   // Строка ставки в любом состоянии, включая убранную. Нужна, чтобы
   // знать, что ставка вообще заводилась, и дать её вернуть.
@@ -202,10 +262,13 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
     setRates(prev => {
       const existing = prev.find(r => r.direction_id === dirId && +(r.group_id || 0) === gid)
       // Правка возвращает ставку в обращение: человек снова задаёт
-      // по ней цену, значит решение «считать по направлению» отменено
+      // по ней цену, значит решение «считать по направлению» отменено.
+      // Границы снимаем только в локальном состоянии — в базе прежняя
+      // версия останется закрытой, а возврат приедет НОВОЙ версией.
+      // Иначе снятие метки переписало бы прошлое, где ставки не было.
       if (existing) return prev.map(r =>
         (r.direction_id === dirId && +(r.group_id || 0) === gid)
-          ? { ...r, [field]: value, archived_at: null, archived_by: null } : r)
+          ? { ...r, [field]: value, _removed: false, valid_to: null, archived_at: null, archived_by: null } : r)
       return [...prev, { direction_id: dirId, group_id: gid, teacher_id: teacher?.id, studio_id: studioId, rate_type: 'per_lesson', rate: 0, rate_hour: 0, rate_part: 0, rate_full: 0, min_students: 0, [field]: value }]
     })
   }
@@ -217,15 +280,16 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   const dropGroupRate = async (dirId, gid, label, dirName) => {
     const ok = await confirmAction({
       title: 'Считать по ставке направления?',
-      text: `Ставка времени «${label}» будет убрана, и занятия этого времени начнут считаться по ставке направления «${dirName}». Уже выплаченные занятия сохранят свои суммы, а проведённые, но ещё не выплаченные, будут пересчитаны по новой ставке. Изменение применится, когда вы нажмёте «Сохранить».`,
+      text: `Ставка времени «${label}» перестанет действовать с ${ruDate(validFrom)}, и занятия этого времени начиная с этого дня будут считаться по ставке направления «${dirName}». Занятия, проведённые раньше, останутся посчитанными по прежней ставке. Изменение применится, когда вы нажмёте «Сохранить».`,
       confirmLabel: 'Убрать ставку', cancelLabel: 'Оставить', danger: true,
     })
     if (!ok) return
-    // Не удаляем, а убираем из обращения: строка помнит цену, по которой
-    // считались прошлые занятия, и другого места, где это записано, нет
+    // Не удаляем и даже не правим строку здесь: окно с отложенным сохранением,
+    // все действия в нём отложенные (грабли захода 8). Ставим локальный флаг,
+    // а правую границу проставит save() — датой из поля «действует с».
     setRates(prev => prev.map(r =>
       (r.direction_id === dirId && +(r.group_id || 0) === +gid)
-        ? { ...r, archived_at: new Date().toISOString() } : r))
+        ? { ...r, _removed: true } : r))
   }
 
   const selectedDirs = directions.filter(d => (f.direction_ids || []).includes(d.id))
@@ -244,6 +308,46 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
   // Подгруппы направления, отмеченные у педагога
   const chosenGroups = (d) => realGroups(d).filter(g => (f.group_ids || []).includes(g.id))
 
+  // Какие ставки редактор реально показывает по этому направлению.
+  // Один список и для отрисовки, и для сохранения — специально.
+  // Раньше save() выводил этот набор заново, по своим правилам, и наборы
+  // расходились: показанная на экране ставка при сохранении считалась
+  // «непоказанной» и исчезала (баг 86). Пока список один, расходиться нечему.
+  const targetsFor = (d) => {
+    const chosen = chosenGroups(d)
+    // Ставку заводим на каждую отмеченную подгруппу; если не отмечено
+    // ни одной — одна ставка на всё направление (0)
+    const base = chosen.length
+      ? chosen.map(g => ({ gid: g.id, label: g.name }))
+      : [{ gid: 0, label: null }]
+
+    // Ставка живой подгруппы, которую редактор иначе бы не показал.
+    // Так бывает, когда подгрупп было несколько, часть убрали из расписания
+    // и осталась одна: чипов больше нет (одна подгруппа = обычное расписание
+    // направления), а строка ставки по ней в базе есть — и расчёт берёт
+    // именно её, а не ставку направления. Не показать её значило бы спрятать
+    // ту ставку, по которой реально считаются деньги. Убранная сюда тоже
+    // попадает, иначе дорога односторонняя: убрать можно, а вернуть нечем.
+    const hidden = liveGroups(d)
+      .filter(g => !base.some(t => +t.gid === +g.id))
+      .map(g => ({ g, row: rateRowFor(d.id, g.id) }))
+      .filter(({ row }) => !!row)
+      .map(({ g, row }) => ({
+        gid: g.id, label: g.name, extra: true,
+        off: !!row._removed || !!row.valid_to || !!row.archived_at,
+      }))
+
+    return [...base, ...hidden]
+  }
+
+  // Ключи, которыми редактор управляет. Всё, чего в этом наборе нет,
+  // сохранение не трогает вообще.
+  const managedKeys = () => {
+    const out = new Set()
+    selectedDirs.forEach(d => targetsFor(d).forEach(t => out.add(`${d.id}_${+(t.gid || 0)}`)))
+    return out
+  }
+
   const toggleGroup = (gid) => {
     const cur = f.group_ids || []
     set('group_ids', cur.includes(gid) ? cur.filter(x => x !== gid) : [...cur, gid])
@@ -255,7 +359,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
         <button className="btn btn-outline" onClick={onClose}>Отмена</button>
         <button className="btn btn-primary" onClick={() => {
           if (!f.hired) { setHiredError(true); return }
-          onSave(f, rates)
+          onSave(f, rates, { validFrom: validFrom || todayLocal(), managedKeys: managedKeys() })
         }}>Сохранить</button>
       </>}>
       {/* Основная информация */}
@@ -373,34 +477,32 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
       {f.salary_type === 'per_lesson' && selectedDirs.length > 0 && (
         <div className="form-group">
           <label className="form-label">Ставки по направлениям</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 6 }}>
+
+          {/* Дата вступления в силу. Без неё смена ставки переписывала прошлое:
+              занятия, проведённые по старой цене, пересчитывались по новой
+              (баг 26). Ставится один раз на всё сохранение. */}
+          <div style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', marginTop: 6, border: `1px solid ${T.border}` }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="form-label">Изменения ставок действуют с</label>
+              <input className="form-input" type="date" value={validFrom}
+                onChange={e => setValidFrom(e.target.value)} style={{ maxWidth: 200 }} />
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 6, lineHeight: 1.5 }}>
+                {validFrom && validFrom !== todayLocal()
+                  ? <>Занятия <b>с {ruDate(validFrom)}</b> посчитаются по новым ставкам. Всё, что было раньше, останется по прежним.</>
+                  : <>Занятия <b>с сегодняшнего дня</b> посчитаются по новым ставкам. Уже проведённые останутся по прежним — их суммы не изменятся.</>}
+                {' '}Ставки, которые вы не трогали, не меняются.
+                {validFrom === todayLocal() && ' Ставка, которую заводите впервые, посчитает и уже проведённые занятия — раньше их не по чему было считать.'}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
             {selectedDirs.map(d => {
               const hourly = isHourly(d)
               const groups = realGroups(d)
               const chosen = chosenGroups(d)
-              // Ставку заводим на каждую отмеченную подгруппу; если не
-              // отмечено ни одной — одна ставка на всё направление (0)
-              const base = chosen.length
-                ? chosen.map(g => ({ gid: g.id, label: g.name }))
-                : [{ gid: 0, label: null }]
-
-              // Ставка живой подгруппы, которую редактор иначе бы не показал.
-              // Так бывает, когда подгрупп было несколько, часть убрали
-              // из расписания и осталась одна: чипов больше нет (одна
-              // подгруппа = обычное расписание направления), а строка
-              // ставки по ней в базе есть — и расчёт берёт именно её,
-              // а не ставку направления. Не показать её значило бы
-              // спрятать ту ставку, по которой реально считаются деньги.
-              // Убранная ставка сюда тоже попадает, иначе дорога односторонняя:
-              // убрать можно, а вернуть нечем — блока на экране нет,
-              // и вписать значение некуда.
-              const hidden = liveGroups(d)
-                .filter(g => !base.some(t => +t.gid === +g.id))
-                .map(g => ({ g, row: rateRowFor(d.id, g.id) }))
-                .filter(({ row }) => !!row)
-                .map(({ g, row }) => ({ gid: g.id, label: g.name, extra: true, off: !!row.archived_at }))
-
-              const targets = [...base, ...hidden]
+              // Тот же список, по которому потом пойдёт сохранение
+              const targets = targetsFor(d)
 
               return (
                 <div key={d.id} style={{ background: T.cream, borderRadius: 12, padding: '12px 14px', border: `1px solid ${T.border}` }}>
@@ -911,7 +1013,12 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   <div style={{ background: T.cream, borderRadius: 10, padding: '10px 14px' }}>
                     <div style={{ fontSize: 11, color: T.muted }}>Оплата</div>
                     <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink }}>
-                      {rates.length > 0 ? `${rates.length} ставок` : 'Сделка'}
+                      {(() => {
+                        // Считаем действующие сегодня, а не все строки:
+                        // с историей версий их стало больше, чем ставок
+                        const n = rates.filter(r => rateActiveOn(r, todayLocal())).length
+                        return n > 0 ? `${n} ставок` : 'Сделка'
+                      })()}
                     </div>
                   </div>
                 )}
@@ -935,7 +1042,8 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   // Ищем среди всех, включая убранные: ставка обязана
                   // остаться подписанной
                   const grp = +(r.group_id || 0) ? findGroup(dir, r.group_id) : null
-                  const old = !!r.archived_at || !!grp?.archived_at
+                  const closed = !!r.valid_to || !!r.archived_at
+                  const old = closed || !!grp?.archived_at
                   // Ставка направления работает как запасная: она берётся
                   // только для тех времён, у которых своей ставки нет.
                   // Если своя есть у каждого, направление не применяется
@@ -943,10 +1051,13 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                   // с работающими, оно не должно: непонятно, по какой
                   // из двух цифр считают сегодня.
                   let spare = null
-                  if (!r.archived_at && +(r.group_id || 0) === 0 && dir) {
+                  if (!closed && +(r.group_id || 0) === 0 && dir) {
                     const live = liveGroups(dir)
+                    // «Своя ставка» у времени — та, что действует сегодня.
+                    // Закрытые версии прошлого тут не в счёт: по ним новых
+                    // занятий не будет, и запасной ставку они не делают.
                     const own = (g) => rates.some(x =>
-                      x.direction_id === dir.id && +(x.group_id || 0) === +g.id && !x.archived_at)
+                      x.direction_id === dir.id && +(x.group_id || 0) === +g.id && rateActiveOn(x, todayLocal()))
                     const uncovered = live.filter(g => !own(g))
                     if (live.length > 0 && uncovered.length === 0) {
                       spare = 'запасная — у всех времён свои ставки'
@@ -955,34 +1066,46 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                     }
                   }
 
-                  const why = r.archived_at
-                    ? 'считается по ставке направления'
+                  // Закрытая версия закрыта по двум разным причинам, и это
+                  // разные истории: её заменила новая цена (тогда есть
+                  // преемник) — или ставку убрали совсем (преемника нет,
+                  // дальше считают по направлению).
+                  const succeeded = !!r.valid_to && rates.some(x =>
+                    x.direction_id === r.direction_id &&
+                    +(x.group_id || 0) === +(r.group_id || 0) &&
+                    String(x.valid_from || '') === String(r.valid_to))
+                  const why = closed
+                    ? (succeeded ? 'заменена новой ставкой' : 'считается по ставке направления')
                     : (grp?.archived_at ? 'время убрано из расписания' : spare)
+                  const period = ratePeriod(r)
                   return (
                     <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, fontSize: 13, opacity: old ? .75 : 1 }}>
                       <span style={{ color: T.ink }}>
                         {dir?.name || '—'}
                         {grp && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>📍 {grp.name}</span>}
                         {isHourly(dir) && <span style={{ marginLeft: 6, fontSize: 11, color: '#c47a00' }}>⏱</span>}
+                        {period && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>{period}</span>}
                         {why && <span style={{ marginLeft: 6, fontSize: 11, color: T.muted }}>— {why}</span>}
                       </span>
                       <span style={{ color: (old || spare === 'запасная — у всех времён свои ставки') ? T.muted : T.greenDark, fontWeight: 700, whiteSpace: 'nowrap' }}>{rateLabel(r)}</span>
                     </div>
                   )
                 }
-                // Ставка не применяется по двум разным причинам, и обе
-                // нужно показать: её подгруппу убрали из расписания,
-                // либо саму ставку убрали, чтобы считать по направлению.
-                // Общее у них одно и главное: по этой цене считались
-                // прошлые занятия, а новых по ней не будет.
+                // Ставка не применяется по трём разным причинам, и все три
+                // нужно показать: её подгруппу убрали из расписания; саму
+                // ставку убрали, чтобы считать по направлению; либо её
+                // сменила новая цена. Общее у них одно и главное: по этой
+                // цене считались прошлые занятия, а новых по ней не будет.
                 const isOld = (r) => {
-                  if (r.archived_at) return true
+                  if (r.valid_to || r.archived_at) return true
                   const gid = +(r.group_id || 0)
                   if (!gid) return false
                   return !!findGroup(directions.find(d => d.id === r.direction_id), gid)?.archived_at
                 }
                 const live = rates.filter(r => !isOld(r))
                 const old = rates.filter(isOld)
+                  // Свежие сверху: история читается сверху вниз
+                  .sort((a, b) => String(b.valid_from || '').localeCompare(String(a.valid_from || '')))
                 return (
                   <div style={{ marginBottom: 16 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Ставки</div>
@@ -1004,8 +1127,9 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
                         {showOldRates && (
                           <>
                             <div style={{ fontSize: 11, color: T.muted, margin: '6px 0 8px', lineHeight: 1.5 }}>
-                              По этим ставкам считались прошлые занятия — суммы уже выплаченного
-                              с ними сходятся. Новых занятий по ним не будет.
+                              По этим ставкам считались занятия своего периода — и продолжают
+                              считаться: смена ставки прошлое не переписывает. Новых занятий
+                              по ним не будет.
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                               {old.map(rateRow)}
@@ -1245,10 +1369,13 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       setDismissed(new Set((dis || []).map(d => d.alert_key)))
 
       const byKey = {}
-      // Убранные ставки в расчёте не участвуют — значит и «ставка есть»
-      // по ним говорить нельзя, иначе предупреждение промолчит там,
-      // где занятия считаются в ноль
-      ;(rates || []).filter(r => !r.archived_at)
+      // Предупреждение — про сегодняшний день: «занятие, проведённое сейчас,
+      // посчитается в ноль». Поэтому берём версию, действующую СЕГОДНЯ,
+      // а не любую строку ключа: закрытые версии прошлого к сегодняшним
+      // занятиям отношения не имеют, а убранная ставка «есть» ровно так же,
+      // как её нет — иначе предупреждение промолчит там, где считают в ноль.
+      const todayStr = todayLocal()
+      ;(rates || []).filter(r => rateActiveOn(r, todayStr))
         .forEach(r => { byKey[`${r.teacher_id}_${r.direction_id}_${+(r.group_id || 0)}`] = r })
       // Ставка «есть» только если по ней реально начислятся деньги
       const paying = (r, hourly) => {
@@ -1439,7 +1566,9 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
   const activeTeachers = teachers.filter(t => !t.archived_at)
   const archivedTeachers = teachers.filter(t => t.archived_at)
 
-  const save = async (f, rates) => {
+  const save = async (f, rates, opts = {}) => {
+    const validFrom = opts.validFrom || todayLocal()
+    const managedKeys = opts.managedKeys || new Set()
     // Подгруппы снятых направлений в списке оставаться не должны.
     // Убранные из расписания — должны: подгруппа существует, просто
     // её сейчас нет в сетке. Снять её здесь значило бы, что после
@@ -1472,114 +1601,208 @@ export default function TeachersPage({ teachers, directions, reload, studioId })
       teacherId = data.id
     }
 
-    // Ставки по направлениям. Тип ставки определяется форматом оплаты направления
+    // ── Ставки: дифф по версиям, а не перезапись ──────────────────────────
+    // Раньше здесь было «удалить все ставки педагога и вставить заново».
+    // С историей так нельзя: удаление стирает цену, по которой считались
+    // прошлые занятия, и прошлое пересчитывается по сегодняшней ставке —
+    // это и есть баг 26.
+    //
+    // Теперь сохранение меняет ровно то, что человек трогал:
+    //   • значение изменилось → действующей версии ставим valid_to,
+    //     вставляем новую версию с valid_from = «действует с»;
+    //   • ставку убрали → действующей версии ставим valid_to, преемника нет,
+    //     дальше занятия считаются по ставке направления;
+    //   • ничего не изменилось → строку не трогаем вовсе.
+    //
+    // Ключи, которых редактор не показывал, в дифф не попадают и остаются
+    // как были. Баг 86 («ставка исчезала при сохранении карточки») после
+    // этого невозможен по устройству, а не благодаря отдельной защите:
+    // список показанного приходит из самой модалки (managedKeys), а не
+    // выводится здесь заново по своим правилам, которые расходились с её.
     if (f.salary_type === 'per_lesson' && rates.length > 0) {
-      // Прежние ставки держим в памяти: delete и insert идут разными запросами,
-      // и если второй упадёт после первого, педагог останется вообще без ставок,
-      // а занятия молча пойдут по нулю (баг 61)
-      const { data: prevRates } = await supabase.from('teacher_rates')
-        .select('*').eq('teacher_id', teacherId)
       const { data: u } = await supabase.auth.getUser()
       const uid = u?.user?.id || null
 
-      const { error: delErr } = await supabase.from('teacher_rates')
-        .delete().eq('teacher_id', teacherId)
-      if (delErr) {
-        toast.fromError(delErr, 'Педагог сохранён, но ставки обновить не удалось — остались прежние')
+      const { data: prevRates, error: prevErr } = await supabase.from('teacher_rates')
+        .select('*').eq('teacher_id', teacherId)
+      if (prevErr) {
+        // Молчать нельзя: без прежних версий дифф посчитается неверно
+        // и может завести вторую действующую ставку на тот же ключ (баг 61)
+        toast.fromError(prevErr, 'Педагог сохранён, но ставки прочитать не удалось — они остались прежними')
         setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
         return
       }
-      const toInsert = rates
-        .filter(r => r.direction_id && (f.direction_ids || []).includes(r.direction_id))
-        // Ставка по подгруппе имеет смысл, только пока эта подгруппа
-        // отмечена у педагога. Сняли отметку — ставка не сохраняется,
-        // занятия считаются по ставке направления.
-        // Обратное тоже верно: если подгруппы отмечены, ставка «на всё
-        // направление» (0) не редактируется в карточке и остаётся нулём —
-        // мусорной строкой, из-за которой начисление молча уходит в ноль
-        .filter(r => {
-          const gid = +(r.group_id || 0)
-          if (gid) return cleanGroupIds.includes(gid)
-          // Только действующие подгруппы: если из двух одна убрана,
-          // выбирать больше не из чего, чипов в карточке нет — и ставка
-          // «на всё направление» должна остаться, иначе занятия педагога
-          // молча посчитаются в ноль
-          const groups = liveGroups(directions.find(d => d.id === r.direction_id))
-          const hasChosen = groups.length > 1 && groups.some(g => cleanGroupIds.includes(g.id))
-          return !hasChosen
+
+      const keyOf = (r) => `${r.direction_id}_${+(r.group_id || 0)}`
+
+      // Все версии по ключу — нужны, чтобы новая версия не наложилась
+      // на чужой интервал
+      const allByKey = {}
+      ;(prevRates || []).forEach(r => {
+        const k = keyOf(r)
+        ;(allByKey[k] = allByKey[k] || []).push(r)
+      })
+
+      // Действующая версия каждой ставки в базе: без правой границы
+      // и самая поздняя по valid_from. Строку с archived_at, но без valid_to
+      // (наследие старого кода до миграции) считаем закрытой.
+      const openInDb = {}
+      ;(prevRates || []).forEach(r => {
+        if (r.valid_to || r.archived_at) return
+        const k = keyOf(r)
+        if (!openInDb[k] || String(r.valid_from || '') > String(openInDb[k].valid_from || '')) openInDb[k] = r
+      })
+
+      // Версии, которые новая дата разрезает: начались раньше неё и ещё
+      // не кончились к ней. Именно их надо закрыть, иначе у ключа окажется
+      // два значения на одну дату и расчёт станет непредсказуемым.
+      // Открытая версия сюда попадает сама, но не только она: убранная
+      // «с 1 октября» ставка тоже перекрывает сентябрь.
+      const cutBy = (key) => (allByKey[key] || []).filter(r =>
+        String(r.valid_from || RATE_EPOCH) < validFrom &&
+        (!r.valid_to || String(r.valid_to) > validFrom))
+
+      // Версия, начинающаяся ПОЗЖЕ выбранной даты. Такую мы разрезать
+      // не умеем: непонятно, что человек имел в виду — сдвинуть будущее
+      // изменение или вставить перед ним ещё одно. Честнее не угадывать.
+      const laterThan = (key) => (allByKey[key] || []).filter(r =>
+        String(r.valid_from || RATE_EPOCH) > validFrom)
+
+      // Значения ставки в том виде, в каком они лягут в базу.
+      // Тип ставки определяется форматом оплаты направления, а не тем,
+      // что осталось в строке от прошлых времён.
+      const valuesOf = (r) => {
+        const hourly = isHourly(directions.find(d => d.id === r.direction_id))
+        return {
+          rate_type: hourly ? 'per_hour' : (r.rate_type === 'by_students' ? 'by_students' : 'per_lesson'),
+          rate: hourly ? 0 : (+r.rate || 0),
+          rate_hour: hourly ? (+r.rate_hour || 0) : 0,
+          rate_part: +r.rate_part || 0,
+          rate_full: +r.rate_full || 0,
+          min_students: +r.min_students || 0,
+        }
+      }
+      const RATE_FIELDS = ['rate_type', 'rate', 'rate_hour', 'rate_part', 'rate_full', 'min_students']
+      const sameValues = (a, b) => !!a && !!b &&
+        RATE_FIELDS.every(k => String(a[k] ?? '') === String(b[k] ?? ''))
+
+      const toClose = []    // версиям ставим правую границу
+      const toUpdate = []   // правка версии, начатой той же датой
+      const toInsert = []   // новые версии
+
+      const conflicts = []   // ключи с версией из будущего — их пропускаем
+
+      rates.filter(r => r.direction_id && managedKeys.has(keyOf(r))).forEach(r => {
+        const key = keyOf(r)
+        const cur = openInDb[key]
+        const want = valuesOf(r)
+
+        // Ставка, которой не было НИКОГДА, начинается с начала времён,
+        // а не с сегодняшнего дня. Защищать тут нечего: прежней цены
+        // не существовало, занятия до сих пор считались в ноль. Начни мы
+        // такую ставку сегодняшним числом — прошлые занятия так и остались бы
+        // нулевыми, причём молча: предупреждение «не задана ставка» не сработает,
+        // ставка-то задана. Раньше первая же ставка закрывала всё прошлое,
+        // это поведение и сохраняем.
+        // Если человек сам поставил дату — значит он имел в виду именно её.
+        const firstEver = (allByKey[key] || []).length === 0
+        const startsAt = (firstEver && validFrom === todayLocal()) ? RATE_EPOCH : validFrom
+
+        const newVersion = () => ({
+          teacher_id: teacherId, studio_id: studioId,
+          direction_id: r.direction_id, group_id: +(r.group_id || 0),
+          valid_from: startsAt, valid_to: null,
+          archived_at: null, archived_by: null,
+          ...want,
         })
-        .map(r => {
+
+        // Ничего не поменялось — не плодим версии на каждое «Сохранить»
+        if (!r._removed && cur && sameValues(cur, want)) return
+
+        // Второе исправление той же датой — правим ту же версию.
+        // Иначе за один вечер набежало бы пять версий с одной датой,
+        // а уникальный индекс по (педагог, направление, подгруппа, valid_from)
+        // всё равно не дал бы их вставить.
+        if (!r._removed && cur && String(cur.valid_from) === validFrom) {
+          toUpdate.push({ id: cur.id, ...want })
+          return
+        }
+
+        // Есть версия, начинающаяся позже выбранной даты — не угадываем
+        const later = laterThan(key)
+        if (later.length > 0) {
           const dir = directions.find(d => d.id === r.direction_id)
-          const hourly = isHourly(dir)
-          return {
-            teacher_id: teacherId,
-            studio_id: studioId,
-            direction_id: r.direction_id,
-            group_id: +(r.group_id || 0),
-            rate_type: hourly ? 'per_hour' : (r.rate_type === 'by_students' ? 'by_students' : 'per_lesson'),
-            rate: hourly ? 0 : (+r.rate || 0),
-            rate_hour: hourly ? (+r.rate_hour || 0) : 0,
-            rate_part: +r.rate_part || 0,
-            rate_full: +r.rate_full || 0,
-            min_students: +r.min_students || 0,
-            // Метка «убрана из обращения» едет вместе со ставкой:
-            // сохранение перезаписывает строки целиком, и без неё
-            // ставка тихо вернулась бы в расчёт
-            archived_at: r.archived_at || null,
-            archived_by: r.archived_at ? (r.archived_by || uid || null) : null,
+          conflicts.push(`${dir?.name || 'направление'}${+(r.group_id || 0) ? ` · ${findGroup(dir, r.group_id)?.name || 'время'}` : ''}`)
+          return
+        }
+
+        // Закрываем всё, что эта дата разрезает
+        cutBy(key).forEach(o => toClose.push({ id: o.id, removed: !!r._removed }))
+
+        // Убрали ставку — преемника нет, дальше считают по направлению
+        if (r._removed) return
+        toInsert.push(newVersion())
+      })
+
+      if (conflicts.length > 0) {
+        toast.error(`Не сохранено: ${conflicts.join(', ')} — по этим ставкам уже есть изменение, назначенное более поздней датой. Откройте дату «действует с» позже неё или отмените будущее изменение.`)
+      }
+
+      // 1. Правки версий, начатых той же датой — самое безобидное, идёт первым
+      for (const u2 of toUpdate) {
+        const { id, ...vals } = u2
+        const { error } = await supabase.from('teacher_rates').update(vals).eq('id', id)
+        if (error) {
+          toast.fromError(error, 'Ставки сохранены не полностью — проверьте карточку')
+          setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
+          return
+        }
+      }
+
+      // 2. Закрываем версии, которые заменяются или убираются
+      const closed = []
+      for (const c of toClose) {
+        const patch = c.removed
+          ? { valid_to: validFrom, archived_at: new Date().toISOString(), archived_by: uid }
+          : { valid_to: validFrom }
+        const { error } = await supabase.from('teacher_rates').update(patch).eq('id', c.id)
+        if (error) {
+          // Откатываем уже закрытые: иначе часть ставок осталась бы
+          // без действующей версии, и занятия молча пошли бы по нулю (баг 61)
+          for (const done of closed) {
+            await supabase.from('teacher_rates')
+              .update({ valid_to: null, archived_at: null, archived_by: null }).eq('id', done)
           }
-        })
+          toast.fromError(error, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
+          setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
+          return
+        }
+        closed.push(c.id)
+      }
 
-      // Ставки убранных из расписания подгрупп редактор не показывает,
-      // а сохранение работает как «удалить все и вставить заново» —
-      // без этого шага они бы молча исчезли при первом же сохранении
-      // карточки. А это не косметика: начисления нигде не хранятся,
-      // они считаются заново из журнала и отметок, и пропавшая ставка
-      // задним числом пересчитала бы прошлые занятия по ставке
-      // направления или в ноль.
-      //
-      // Правило простое: сохранение карточки меняет только то, что
-      // человек в ней видел. Всё, чего редактор не показывал, едет
-      // обратно как было. Иначе «удалить все и вставить заново»
-      // превращается в тихое удаление ставок, которых на экране
-      // не было, — а начисления считаются заново по текущим ставкам,
-      // и пропавшая строка переписала бы прошлое.
-      //
-      // Под это правило попадают две ситуации:
-      //   — ставка убранной из расписания подгруппы;
-      //   — ставка живой подгруппы, которую редактор не предложил
-      //     (так бывает, когда из нескольких подгрупп осталась одна).
-      //
-      // Дубли исключаем явно: у teacher_rates есть ограничение
-      // teacher_rates_teacher_direction_group_uniq, а одна и та же
-      // строка может прийти и из редактора, и отсюда.
-      const alreadyGoing = new Set(
-        toInsert.map(r => `${r.direction_id}_${+(r.group_id || 0)}`)
-      )
-      const keptOutsideEditor = (prevRates || [])
-        .filter(r => {
-          const gid = +(r.group_id || 0)
-          if (!gid) return false
-          if (alreadyGoing.has(`${r.direction_id}_${gid}`)) return false
-          // Подгруппы, которой больше нет вообще, ставку не держим:
-          // она ссылалась бы в пустоту
-          return !!findGroup(directions.find(d => d.id === r.direction_id), gid)
-        })
-        .map(({ id, created_at, ...r }) => r)
-
-      const allToInsert = [...toInsert, ...keptOutsideEditor]
-      if (allToInsert.length > 0) {
-        const { error: insErr } = await supabase.from('teacher_rates').insert(allToInsert)
+      // 3. Вставляем новые версии
+      if (toInsert.length > 0) {
+        const { error: insErr } = await supabase.from('teacher_rates').insert(toInsert)
         if (insErr) {
-          // Возвращаем прежние ставки, иначе начисления уедут в ноль
-          if (prevRates && prevRates.length > 0) {
-            const restore = prevRates.map(({ id, created_at, ...r }) => r)
-            await supabase.from('teacher_rates').insert(restore)
+          // Возвращаем закрытые версии в строй, иначе педагог остался бы
+          // без действующих ставок, а начисления уехали бы в ноль
+          for (const done of closed) {
+            await supabase.from('teacher_rates')
+              .update({ valid_to: null, archived_at: null, archived_by: null }).eq('id', done)
           }
           toast.fromError(insErr, 'Ставки не сохранены — вернули прежние. Проверьте и сохраните ещё раз')
           setShowAdd(false); setShowEdit(null); setRefreshKey(k => k + 1); reload()
           return
         }
+      }
+
+      // Тишина — тоже ответ, но не тот: без этого человек не понимает,
+      // применилась ли дата, которую он выставил
+      const changed = toUpdate.length + toClose.length + toInsert.length
+      if (changed > 0) {
+        toast.success(validFrom === todayLocal()
+          ? 'Ставки обновлены — с сегодняшнего дня'
+          : `Ставки обновлены — действуют с ${ruDate(validFrom)}`)
       }
     }
 
