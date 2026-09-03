@@ -287,23 +287,53 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
   return events
 }
 
+// Заголовок группы в списке выбора: откуда человек и что с ним будет
+const PickHead = ({ children }) => (
+  <div style={{
+    padding: '6px 14px', fontSize: 11, fontWeight: 700, color: T.muted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    background: T.cream, borderBottom: `1px solid ${T.border}`,
+  }}>{children}</div>
+)
+
+// Строка выбора. Подпись справа обязательна: у трёх источников три разных
+// последствия, и человек должен видеть, что произойдёт, ДО клика,
+// а не узнавать об этом по факту сменившегося статуса.
+const PickRow = ({ name, sub, note, onClick, busy }) => (
+  <div onClick={() => !busy && onClick()}
+    style={{
+      padding: '9px 14px', cursor: busy ? 'wait' : 'pointer', fontSize: 13,
+      borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8,
+    }}
+    onMouseEnter={e => e.currentTarget.style.background = T.cream}
+    onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+    <div className="avatar" style={{ background: hashColor(name || '?'), width: 26, height: 26, fontSize: 11 }}>{(name || '?')[0]}</div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+      <div style={{ fontSize: 11, color: T.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
+    </div>
+    {note && <div style={{ fontSize: 10, color: T.muted, whiteSpace: 'nowrap' }}>{note}</div>}
+  </div>
+)
+
 // Attendance modal
 function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], onClientsChanged }) {
   const [attendance, setAttendance] = useState({})
-  const [enrolling, setEnrolling] = useState(null)
-  const [enrollSearch, setEnrollSearch] = useState('')
-  const [enrolling2, setEnrolling2] = useState(false)
   const [localEnrollments, setLocalEnrollments] = useState([])
   // Пробные, заведённые прямо сейчас в этом окне. Родительский список
   // клиентов приедет только после reload, а человек должен появиться
   // в составе занятия сразу — иначе кажется, что кнопка не сработала.
   const [freshTrials, setFreshTrials] = useState([])
-  const [trialFor, setTrialFor] = useState(null)     // ключ занятия, где открыт выбор
-  const [trialTab, setTrialTab] = useState('lead')   // lead | waiting | new
+  // Один поиск на все источники. Раньше здесь были вкладки по источникам,
+  // и человек, не подходящий ни под одну, становился ненаходимым: уже
+  // пробный второй раз не искался нигде — из заявок он ушёл, «Новым»
+  // не был, а списка прежних пробных не существовало.
+  const [pickerFor, setPickerFor] = useState(null)   // ключ занятия, где открыт выбор
+  const [pickSearch, setPickSearch] = useState('')
+  const [showNewForm, setShowNewForm] = useState(false)
   const [trialForm, setTrialForm] = useState({ child_name: '', adult_name: '', phone: '' })
-  const [trialSearch, setTrialSearch] = useState('')
   const [leads, setLeads] = useState(null)           // null = ещё не грузили
-  const [trialBusy, setTrialBusy] = useState(false)
+  const [pickBusy, setPickBusy] = useState(false)
   const [confirms, setConfirms] = useState({})   // «клиент_направление_подгруппа» → confirmed | declined
   const [work, setWork] = useState({})        // ключ → { teacher_id: часы } — текущее состояние в интерфейсе
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
@@ -395,13 +425,17 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   }
 
   const enroll = async (clientId, dirId, groupId = null) => {
-    setEnrolling2(true)
-    await supabase.from('enrollments').upsert({
+    setPickBusy(true)
+    const { error } = await supabase.from('enrollments').upsert({
       studio_id: studioId, direction_id: dirId, client_id: clientId,
       date: ds, status: 'enrolled', group_id: groupId || null
     }, { onConflict: 'studio_id,direction_id,client_id,date' })
-    setEnrolling(null); setEnrollSearch('')
-    setEnrolling2(false)
+    setPickBusy(false)
+    // Раньше ошибка здесь молчала: запись не легла, а окно закрывалось
+    // как при успехе, и человек просто не появлялся в составе
+    if (error) { toast.fromError(error, 'Не удалось записать на занятие'); return }
+    closePicker()
+    dirtyRef.current = true
     await reloadEnrollments()
   }
 
@@ -436,26 +470,26 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     setLeads(data || [])
   }
 
-  const openTrial = (key) => {
-    setTrialFor(key)
-    setTrialTab('lead')
-    setTrialSearch('')
+  const openPicker = (key) => {
+    setPickerFor(key)
+    setPickSearch('')
+    setShowNewForm(false)
     setTrialForm({ child_name: '', adult_name: '', phone: '' })
     loadLeads()
   }
-  const closeTrial = () => { setTrialFor(null); setTrialSearch('') }
+  const closePicker = () => { setPickerFor(null); setPickSearch(''); setShowNewForm(false) }
 
   // Заявки, по которым клиента уже завели, второй раз не предлагаем
   const usedLeadIds = new Set((allClients || []).map(c => c.lead_id).filter(Boolean))
   const freeLeads = (leads || []).filter(l => !usedLeadIds.has(l.id))
 
   // Уже заведённые, но никуда не поставленные — статус «Новый».
-  // Их не видно в обычном поиске записи: у «Нового» снята галочка
+  // В обычном списке клиентов их нет: у «Нового» снята галочка
   // «в расписании», значит в scheduleClients он не попадает.
   const waitingClients = (allClients || []).filter(c => c.status === newStatusName)
 
-  const matches = (s) => !trialSearch ||
-    String(s || '').toLowerCase().includes(trialSearch.toLowerCase())
+  const matches = (s) => !pickSearch ||
+    String(s || '').toLowerCase().includes(pickSearch.toLowerCase())
 
   // Общий хвост для всех трёх источников: записать человека на этот
   // день и показать его в составе немедленно.
@@ -472,13 +506,28 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     return null
   }
 
+  // Заявка, ставшая пробным, должна уйти из рабочего списка заявок:
+  // иначе она висит там как необработанная, хотя человек уже записан.
+  // НЕ удаляем, как это делает «конвертация заявки» на странице заявок:
+  // удаление обнуляет clients.lead_id (внешний ключ ON DELETE SET NULL),
+  // то есть стирает связь «этот клиент пришёл вот из этой заявки» —
+  // а вместе с ней и всю воронку. Архив у заявок есть, им и пользуемся.
+  const retireLead = async (leadId) => {
+    const { error } = await supabase.from('leads')
+      .update({ status: 'confirmed', archived_at: new Date().toISOString() })
+      .eq('id', leadId).eq('studio_id', studioId)
+    // Не критично: клиент заведён и записан, заявка просто осталась
+    // в списке. Говорим, но ничего не откатываем
+    if (error) toast.error('Пробный записан, но заявка осталась в списке — уберите её вручную')
+  }
+
   // Источник 1 и 2: завести человека и сразу записать
   const createTrial = async (ev, { fromLead } = {}) => {
     const name = (fromLead ? fromLead.child_name : trialForm.child_name || '').trim()
     if (!name) { toast.error('Укажите имя ребёнка'); return }
     if (!trialStatusName) { toast.error('В справочнике нет статуса «Пробное» — обновите страницу'); return }
 
-    setTrialBusy(true)
+    setPickBusy(true)
     const phone = (fromLead ? fromLead.parent_phone : trialForm.phone) || ''
     // Возраст из заявки — текст произвольного вида («5», «почти 4»),
     // отдельной колонки под него у клиента нет. Кладём в комментарий,
@@ -502,41 +551,43 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       direction_ids: [], group_ids: [],
     }).select().single()
 
-    if (error) { setTrialBusy(false); toast.fromError(error, 'Не удалось завести пробного'); return }
+    if (error) { setPickBusy(false); toast.fromError(error, 'Не удалось завести пробного'); return }
 
     const enrErr = await finishTrial(created, ev)
     if (enrErr) {
       // Клиент только что создан и ничего за собой не тянет — убираем,
       // чтобы не оставить человека, который никуда не записан
       await supabase.from('clients').delete().eq('id', created.id)
-      setTrialBusy(false)
+      setPickBusy(false)
       toast.fromError(enrErr, 'Не удалось записать на занятие — пробный не заведён')
       return
     }
-    setTrialBusy(false)
-    closeTrial()
+    // Заявку убираем из работы только после того, как всё сложилось
+    if (fromLead) await retireLead(fromLead.id)
+    setPickBusy(false)
+    closePicker()
     toast.success(`${name} записан на пробное`)
   }
 
   // Источник 3: человек уже есть в клиентах со статусом «Новый»
   const trialFromWaiting = async (ev, client) => {
     if (!trialStatusName) { toast.error('В справочнике нет статуса «Пробное» — обновите страницу'); return }
-    setTrialBusy(true)
+    setPickBusy(true)
     const { error } = await supabase.from('clients')
       .update({ status: trialStatusName }).eq('id', client.id).eq('studio_id', studioId)
-    if (error) { setTrialBusy(false); toast.fromError(error, 'Не удалось сменить статус'); return }
+    if (error) { setPickBusy(false); toast.fromError(error, 'Не удалось сменить статус'); return }
 
     const enrErr = await finishTrial({ ...client, status: trialStatusName }, ev)
     if (enrErr) {
       // Возвращаем прежний статус: иначе человек остался бы «Пробным»,
       // никуда не записанным, и пропал бы из общего списка
       await supabase.from('clients').update({ status: client.status }).eq('id', client.id)
-      setTrialBusy(false)
+      setPickBusy(false)
       toast.fromError(enrErr, 'Не удалось записать на занятие — статус возвращён')
       return
     }
-    setTrialBusy(false)
-    closeTrial()
+    setPickBusy(false)
+    closePicker()
     toast.success(`${client.child_name} записан на пробное`)
   }
 
@@ -695,6 +746,19 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
         const enrollKey = `${ev.dirId}_${ev.groupId || 0}`
         const maxSlot = ev.maxPerSlot || 0
         const isSlotFull = maxSlot > 0 && ev.students.length >= maxSlot
+
+        // Кого можно записать в ЭТО занятие. Один поиск, три источника,
+        // уже стоящие в составе исключены из всех трёх.
+        const already = new Set(ev.students.map(s => s.id))
+        const pickClients = knownClients
+          .filter(c => !already.has(c.id) && (matches(c.child_name) || matches(c.adult_name)))
+          .slice(0, 25)
+        const pickWaiting = waitingClients
+          .filter(c => !already.has(c.id) && (matches(c.child_name) || matches(c.adult_name)))
+          .slice(0, 25)
+        const pickLeads = freeLeads
+          .filter(l => matches(l.child_name) || matches(l.parent_name))
+          .slice(0, 25)
 
         // ── Учёт работы педагогов ──
         const wkey = enrollKey
@@ -929,30 +993,77 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               )
             })}
 
-            {/* Пробное занятие — доступно в любом формате направления */}
+            {/* Запись на занятие: один поиск по всем источникам сразу.
+                Вкладки по источникам («из заявок» / «из Новых» / «завести»)
+                оказались ловушкой: уже существующий пробный не искался
+                нигде — из заявок он ушёл, «Новым» не был, а списка прежних
+                пробных не было вовсе. Теперь ищем везде одним полем,
+                а группировка нужна лишь чтобы было видно, что произойдёт. */}
             {isAdmin && (
               <div style={{ padding:'8px 14px', borderTop: `1px solid ${T.border}` }}>
-                {trialFor === enrollKey ? (
+                {pickerFor === enrollKey ? (
                   <div style={{ background: T.cream, borderRadius: 12, padding: 12 }}>
                     <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
-                      Пробное на {date.toLocaleDateString('ru-RU')}
+                      Записать на {date.toLocaleDateString('ru-RU')}
                     </div>
 
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                      {[['lead', `Из заявок${freeLeads.length ? ` · ${freeLeads.length}` : ''}`],
-                        ['waiting', `Из «${newStatusName}»${waitingClients.length ? ` · ${waitingClients.length}` : ''}`],
-                        ['new', 'Завести нового']].map(([val, label]) => (
-                        <label key={val} onClick={() => { setTrialTab(val); setTrialSearch('') }} style={{
-                          padding: '5px 11px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                          border: `2px solid ${trialTab === val ? T.green : T.border}`,
-                          background: trialTab === val ? T.greenBg : 'white',
-                          color: trialTab === val ? T.greenDark : T.ink,
-                        }}>{label}</label>
-                      ))}
-                    </div>
+                    {!showNewForm && (
+                      <>
+                        <input className="form-input" autoFocus placeholder="Поиск по имени ребёнка или родителя…"
+                          value={pickSearch} onChange={e => setPickSearch(e.target.value)}
+                          style={{ marginBottom: 8 }} />
+                        <div style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10, background: 'white' }}>
 
-                    {trialTab === 'new' && (
+                          {/* Уже есть в клиентах и виден в расписании: и постоянные,
+                              и те, кто уже был на пробном. Статус не трогаем —
+                              это просто разовая запись на этот день */}
+                          {pickClients.length > 0 && <PickHead>Клиенты</PickHead>}
+                          {pickClients.map(c => (
+                            <PickRow key={`c${c.id}`} busy={pickBusy}
+                              name={c.child_name} sub={c.adult_name || '—'}
+                              note={c.status === trialStatusName ? 'ещё одно пробное' : 'разовая запись'}
+                              onClick={() => enroll(c.id, ev.dirId, ev.groupId)} />
+                          ))}
+
+                          {/* Заведены, но никуда не поставлены. Станут пробными */}
+                          {pickWaiting.length > 0 && <PickHead>Ждут записи · «{newStatusName}»</PickHead>}
+                          {pickWaiting.map(c => (
+                            <PickRow key={`w${c.id}`} busy={pickBusy}
+                              name={c.child_name} sub={c.adult_name || '—'}
+                              note={`станет «${trialStatusName}»`}
+                              onClick={() => trialFromWaiting(ev, c)} />
+                          ))}
+
+                          {/* Заявки с сайта: заведём клиента и уберём заявку из работы */}
+                          {leads === null && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>Загружаем заявки…</div>
+                          )}
+                          {pickLeads.length > 0 && <PickHead>Заявки</PickHead>}
+                          {pickLeads.map(l => (
+                            <PickRow key={`l${l.id}`} busy={pickBusy}
+                              name={`${l.child_name || 'Без имени'}${l.child_age ? ` · ${l.child_age}` : ''}`}
+                              sub={[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
+                              note={`станет «${trialStatusName}»`}
+                              onClick={() => createTrial(ev, { fromLead: l })} />
+                          ))}
+
+                          {leads !== null && pickClients.length === 0 && pickWaiting.length === 0 && pickLeads.length === 0 && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
+                              {pickSearch ? 'Никого не нашлось' : 'Некого записать — заведите нового'}
+                            </div>
+                          )}
+                        </div>
+
+                        <button className="btn btn-outline btn-sm" style={{ marginTop: 8 }}
+                          onClick={() => setShowNewForm(true)}>+ Завести нового</button>
+                      </>
+                    )}
+
+                    {showNewForm && (
                       <div>
+                        <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
+                          Новый человек — сразу пробным на это занятие
+                        </div>
                         <input className="form-input" autoFocus placeholder="Имя ребёнка *"
                           value={trialForm.child_name} style={{ marginBottom: 6 }}
                           onChange={e => setTrialForm(p => ({ ...p, child_name: e.target.value }))} />
@@ -963,65 +1074,12 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                           value={trialForm.phone} style={{ marginBottom: 8 }}
                           onFocus={() => { if (!trialForm.phone) setTrialForm(p => ({ ...p, phone: '+7' })) }}
                           onChange={e => setTrialForm(p => ({ ...p, phone: e.target.value }))} />
-                        <button className="btn btn-primary btn-sm" disabled={trialBusy || !trialForm.child_name.trim()}
-                          onClick={() => createTrial(ev)}>
-                          {trialBusy ? 'Записываем…' : 'Записать на пробное'}
-                        </button>
-                      </div>
-                    )}
-
-                    {trialTab !== 'new' && (
-                      <div>
-                        <input className="form-input" autoFocus placeholder="Поиск по имени…"
-                          value={trialSearch} onChange={e => setTrialSearch(e.target.value)}
-                          style={{ marginBottom: 8 }} />
-                        <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10, background: 'white' }}>
-                          {trialTab === 'lead' && leads === null && (
-                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>Загружаем заявки…</div>
-                          )}
-                          {trialTab === 'lead' && leads !== null && freeLeads.filter(l => matches(l.child_name) || matches(l.parent_name)).length === 0 && (
-                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
-                              {leads.length === 0 ? 'Заявок нет' : 'Ничего не нашлось. Заявки, по которым уже завели клиента, здесь не показываются'}
-                            </div>
-                          )}
-                          {trialTab === 'lead' && freeLeads
-                            .filter(l => matches(l.child_name) || matches(l.parent_name))
-                            .slice(0, 30)
-                            .map(l => (
-                              <div key={l.id} onClick={() => !trialBusy && createTrial(ev, { fromLead: l })}
-                                style={{ padding: '9px 14px', cursor: trialBusy ? 'wait' : 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}
-                                onMouseEnter={e => e.currentTarget.style.background = T.cream}
-                                onMouseLeave={e => e.currentTarget.style.background = 'white'}>
-                                <div className="avatar" style={{ background: hashColor(l.child_name || '?'), width: 26, height: 26, fontSize: 11 }}>{(l.child_name || '?')[0]}</div>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 600 }}>{l.child_name || 'Без имени'}{l.child_age ? <span style={{ color: T.muted, fontWeight: 400 }}> · {l.child_age}</span> : null}</div>
-                                  <div style={{ fontSize: 11, color: T.muted }}>
-                                    {[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-
-                          {trialTab === 'waiting' && waitingClients.filter(c => matches(c.child_name) || matches(c.adult_name)).length === 0 && (
-                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
-                              Никого со статусом «{newStatusName}» нет
-                            </div>
-                          )}
-                          {trialTab === 'waiting' && waitingClients
-                            .filter(c => matches(c.child_name) || matches(c.adult_name))
-                            .slice(0, 30)
-                            .map(c => (
-                              <div key={c.id} onClick={() => !trialBusy && trialFromWaiting(ev, c)}
-                                style={{ padding: '9px 14px', cursor: trialBusy ? 'wait' : 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}
-                                onMouseEnter={e => e.currentTarget.style.background = T.cream}
-                                onMouseLeave={e => e.currentTarget.style.background = 'white'}>
-                                <div className="avatar" style={{ background: hashColor(c.child_name || '?'), width: 26, height: 26, fontSize: 11 }}>{(c.child_name || '?')[0]}</div>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ fontWeight: 600 }}>{c.child_name}</div>
-                                  <div style={{ fontSize: 11, color: T.muted }}>{c.adult_name || '—'}</div>
-                                </div>
-                              </div>
-                            ))}
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn btn-primary btn-sm" disabled={pickBusy || !trialForm.child_name.trim()}
+                            onClick={() => createTrial(ev)}>
+                            {pickBusy ? 'Записываем…' : 'Записать на пробное'}
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setShowNewForm(false)}>Назад к поиску</button>
                         </div>
                       </div>
                     )}
@@ -1029,56 +1087,15 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
                       Пробный попадёт в это занятие и будет посчитан педагогу, если ставка
                       зависит от числа учеников. В статистику и в общий список клиентов
-                      он не пойдёт — увидеть его можно на вкладке «{trialStatusName}».
+                      он не пойдёт — искать его на вкладке «{trialStatusName}».
                     </div>
-                    <button className="btn btn-ghost btn-sm" onClick={closeTrial} style={{ marginTop: 6 }}>Отмена</button>
+                    <button className="btn btn-ghost btn-sm" onClick={closePicker} style={{ marginTop: 6 }}>Отмена</button>
                   </div>
                 ) : (
-                  <button className="btn btn-outline btn-sm" onClick={() => openTrial(enrollKey)}
+                  <button className="btn btn-outline btn-sm" onClick={() => openPicker(enrollKey)}
                     disabled={isSlotFull || !trialStatusRow}
                     title={!trialStatusRow ? 'Статус «Пробное» не найден в справочнике' : undefined}>
-                    {isSlotFull ? '🔒 Мест нет' : '+ Пробный'}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Кнопка записи (на даты / разовая в «чужой» день) */}
-            {(isCalendar || isClientDays) && isAdmin && (
-              <div style={{ padding:'8px 14px' }}>
-                {enrolling === enrollKey ? (
-                  <div>
-                    <input className="form-input" autoFocus placeholder="Поиск клиента..."
-                      value={enrollSearch} onChange={e => setEnrollSearch(e.target.value)}
-                      style={{ marginBottom: 8 }} />
-                    <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10 }}>
-                      {clients
-                        .filter(c => c.child_name?.toLowerCase().includes(enrollSearch.toLowerCase()) && !ev.students.find(s => s.id === c.id))
-                        .slice(0, 10)
-                        .map(c => (
-                          <div key={c.id} onClick={() => enroll(c.id, ev.dirId, ev.groupId)}
-                            style={{ padding:'9px 14px', cursor:'pointer', fontSize:13, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:8 }}
-                            onMouseEnter={e => e.currentTarget.style.background = T.cream}
-                            onMouseLeave={e => e.currentTarget.style.background = 'white'}>
-                            <div className="avatar" style={{ background:hashColor(c.child_name), width:26, height:26, fontSize:11 }}>{(c.child_name||'?')[0]}</div>
-                            <div>
-                              <div style={{ fontWeight:600 }}>{c.child_name}</div>
-                              <div style={{ fontSize:11, color:T.muted }}>{c.adult_name}</div>
-                            </div>
-                          </div>
-                        ))}
-                      {clients.filter(c => c.child_name?.toLowerCase().includes(enrollSearch.toLowerCase()) && !ev.students.find(s => s.id === c.id)).length === 0 && (
-                        <div style={{ padding:'10px 14px', fontSize:13, color:T.muted }}>Клиенты не найдены</div>
-                      )}
-                    </div>
-                    <button className="btn btn-ghost btn-sm" onClick={() => { setEnrolling(null); setEnrollSearch('') }} style={{ marginTop:8 }}>Отмена</button>
-                  </div>
-                ) : (
-                  <button className="btn btn-outline btn-sm" onClick={() => setEnrolling(enrollKey)}
-                    disabled={isSlotFull}>
-                    {isSlotFull
-                      ? '🔒 Мест нет'
-                      : isClientDays ? '+ Разовая запись' : '+ Записать клиента'}
+                    {isSlotFull ? '🔒 Мест нет' : '+ Записать'}
                   </button>
                 )}
               </div>
