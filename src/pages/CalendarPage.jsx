@@ -334,6 +334,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
   const [trialForm, setTrialForm] = useState({ child_name: '', adult_name: '', phone: '' })
   const [leads, setLeads] = useState(null)           // null = ещё не грузили
   const [pickBusy, setPickBusy] = useState(false)
+  // Какие занятия дня развёрнуты. null = ещё не трогали руками,
+  // работает умолчание из openSet ниже
+  const [openLessons, setOpenLessons] = useState(null)
   const [confirms, setConfirms] = useState({})   // «клиент_направление_подгруппа» → confirmed | declined
   const [work, setWork] = useState({})        // ключ → { teacher_id: часы } — текущее состояние в интерфейсе
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
@@ -490,6 +493,19 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
   const matches = (s) => !pickSearch ||
     String(s || '').toLowerCase().includes(pickSearch.toLowerCase())
+
+  // Занятие в дне одно — разворачиваем сразу: сворачивать нечего,
+  // а лишний клик на пустом месте только раздражает
+  const lessonKey = (ev) => `${ev.dirId}_${ev.groupId || 0}`
+  const defaultOpen = () => new Set(
+    initialEvents.length === 1 ? [lessonKey(initialEvents[0])] : []
+  )
+  const openSet = openLessons || defaultOpen()
+  const toggleLesson = (k) => setOpenLessons(prev => {
+    const next = new Set(prev || defaultOpen())
+    if (next.has(k)) next.delete(k); else next.add(k)
+    return next
+  })
 
   // Общий хвост для всех трёх источников: записать человека на этот
   // день и показать его в составе немедленно.
@@ -762,6 +778,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
         // ── Учёт работы педагогов ──
         const wkey = enrollKey
+        const isOpen = openSet.has(wkey)
         const cands = ev.teachersList || []
         const hourly = ev.paymentType === 'per_hour'
         const defaultHours = Math.round((ev.durationMin / 60) * 10) / 10
@@ -795,14 +812,29 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
           saveWork(wkey, ev.dirId, ev.groupId, m)
         }
         return (
-          <div key={i} style={{ marginBottom:20 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}` }}>
+          <div key={i} style={{ marginBottom: isOpen ? 20 : 8 }}>
+            <div onClick={() => toggleLesson(wkey)}
+              style={{ display:'flex', alignItems:'center', gap:10, marginBottom: isOpen ? 10 : 0, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}`, cursor:'pointer' }}>
+              <span style={{ fontSize:13, color:T.muted, transform: isOpen ? 'rotate(90deg)' : 'none', transition:'transform .15s', lineHeight:1 }}>▸</span>
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{ev.name}</div>
                 <div style={{ fontSize:12, color:T.muted }}>
                   🕐 {ev.time} · ⏱ {ev.duration}
                   {(ev.teachersList || []).length > 0 && ` · 👩‍🏫 ${ev.teachersList.map(t => t.name).join(', ')}`}
                 </div>
+                {/* Состояние журнала работы видно и в свёрнутом виде.
+                    Иначе оно прячется вместе с блоком, и незаполненный
+                    журнал обнаруживается в конце месяца, когда считают
+                    зарплату, — а не в тот день, когда его надо заполнить. */}
+                {!isOpen && isAdmin && cands.length > 0 && isPast && (
+                  <div style={{ fontSize:12, marginTop:2 }}>
+                    {isNoWork
+                      ? <span style={{ color:T.muted }}>🚫 никто не работал</span>
+                      : Object.keys(savedMap || {}).length > 0
+                        ? <span style={{ color:T.greenDark, fontWeight:600 }}>✅ работа записана</span>
+                        : <span style={{ color:'#c47a00', fontWeight:700 }}>⚠️ журнал не заполнен</span>}
+                  </div>
+                )}
                 {/* Ответы на напоминание бота. Молчунов считаем «придёт»,
                     поэтому строка появляется, только если кто-то ответил —
                     иначе она висела бы «✅0 ❌0» и читалась как тревога */}
@@ -830,6 +862,186 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 </span>
               )}
             </div>
+            {/* Свёрнутое занятие показывает только шапку. В дне бывает
+                шесть-восемь занятий, и раскрытыми они превращали окно
+                в простыню, где нужное приходилось искать прокруткой. */}
+            {isOpen && (<>
+            {/* Запись на занятие: один поиск по всем источникам сразу.
+                Вкладки по источникам («из заявок» / «из Новых» / «завести»)
+                оказались ловушкой: уже существующий пробный не искался
+                нигде — из заявок он ушёл, «Новым» не был, а списка прежних
+                пробных не было вовсе. Теперь ищем везде одним полем,
+                а группировка нужна лишь чтобы было видно, что произойдёт. */}
+            {isAdmin && (
+              <div style={{ padding:'0 0 10px' }}>
+                {pickerFor === enrollKey ? (
+                  <div style={{ background: T.cream, borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
+                      Записать на {date.toLocaleDateString('ru-RU')}
+                    </div>
+
+                    {!showNewForm && (
+                      <>
+                        <input className="form-input" autoFocus placeholder="Поиск по имени ребёнка или родителя…"
+                          value={pickSearch} onChange={e => setPickSearch(e.target.value)}
+                          style={{ marginBottom: 8 }} />
+                        <div style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10, background: 'white' }}>
+
+                          {/* Уже есть в клиентах и виден в расписании: и постоянные,
+                              и те, кто уже был на пробном. Статус не трогаем —
+                              это просто разовая запись на этот день */}
+                          {pickClients.length > 0 && <PickHead>Клиенты</PickHead>}
+                          {pickClients.map(c => (
+                            <PickRow key={`c${c.id}`} busy={pickBusy}
+                              name={c.child_name} sub={c.adult_name || '—'}
+                              note={c.status === trialStatusName ? 'ещё одно пробное' : 'разовая запись'}
+                              onClick={() => enroll(c.id, ev.dirId, ev.groupId)} />
+                          ))}
+
+                          {/* Заведены, но никуда не поставлены. Станут пробными */}
+                          {pickWaiting.length > 0 && <PickHead>Ждут записи · «{newStatusName}»</PickHead>}
+                          {pickWaiting.map(c => (
+                            <PickRow key={`w${c.id}`} busy={pickBusy}
+                              name={c.child_name} sub={c.adult_name || '—'}
+                              note={`станет «${trialStatusName}»`}
+                              onClick={() => trialFromWaiting(ev, c)} />
+                          ))}
+
+                          {/* Заявки с сайта: заведём клиента и уберём заявку из работы */}
+                          {leads === null && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>Загружаем заявки…</div>
+                          )}
+                          {pickLeads.length > 0 && <PickHead>Заявки</PickHead>}
+                          {pickLeads.map(l => (
+                            <PickRow key={`l${l.id}`} busy={pickBusy}
+                              name={`${l.child_name || 'Без имени'}${l.child_age ? ` · ${l.child_age}` : ''}`}
+                              sub={[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
+                              note={`станет «${trialStatusName}»`}
+                              onClick={() => createTrial(ev, { fromLead: l })} />
+                          ))}
+
+                          {leads !== null && pickClients.length === 0 && pickWaiting.length === 0 && pickLeads.length === 0 && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
+                              {pickSearch ? 'Никого не нашлось' : 'Некого записать — заведите нового'}
+                            </div>
+                          )}
+                        </div>
+
+                        <button className="btn btn-outline btn-sm" style={{ marginTop: 8 }}
+                          onClick={() => setShowNewForm(true)}>+ Завести нового</button>
+                      </>
+                    )}
+
+                    {showNewForm && (
+                      <div>
+                        <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
+                          Новый человек — сразу пробным на это занятие
+                        </div>
+                        <input className="form-input" autoFocus placeholder="Имя ребёнка *"
+                          value={trialForm.child_name} style={{ marginBottom: 6 }}
+                          onChange={e => setTrialForm(p => ({ ...p, child_name: e.target.value }))} />
+                        <input className="form-input" placeholder="Имя родителя"
+                          value={trialForm.adult_name} style={{ marginBottom: 6 }}
+                          onChange={e => setTrialForm(p => ({ ...p, adult_name: e.target.value }))} />
+                        <input className="form-input" placeholder="Телефон"
+                          value={trialForm.phone} style={{ marginBottom: 8 }}
+                          onFocus={() => { if (!trialForm.phone) setTrialForm(p => ({ ...p, phone: '+7' })) }}
+                          onChange={e => setTrialForm(p => ({ ...p, phone: e.target.value }))} />
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button className="btn btn-primary btn-sm" disabled={pickBusy || !trialForm.child_name.trim()}
+                            onClick={() => createTrial(ev)}>
+                            {pickBusy ? 'Записываем…' : 'Записать на пробное'}
+                          </button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setShowNewForm(false)}>Назад к поиску</button>
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                      Пробный попадёт в это занятие и будет посчитан педагогу, если ставка
+                      зависит от числа учеников. В статистику и в общий список клиентов
+                      он не пойдёт — искать его на вкладке «{trialStatusName}».
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={closePicker} style={{ marginTop: 6 }}>Отмена</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-primary btn-sm" onClick={() => openPicker(enrollKey)}
+                    disabled={isSlotFull || !trialStatusRow}
+                    title={!trialStatusRow ? 'Статус «Пробное» не найден в справочнике' : undefined}
+                    style={{ width: '100%' }}>
+                    {isSlotFull ? '🔒 Мест нет' : '＋ Записать на занятие'}
+                  </button>
+                )}
+              </div>
+            )}
+            {ev.students.map(s => {
+              const key = `${s.id}_${ev.dirId}_${ev.groupId || 0}`
+              const present = attendance[key]
+              // Родитель предупредил, что не придут. Ребёнка НЕ убираем:
+              // педагог должен видеть, кого не будет, а если тот всё же
+              // придёт — отметить его надо в один клик, без возни
+              const cf = confirms[key]
+              return (
+                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}`, opacity: cf === 'declined' && !present ? 0.55 : 1 }}>
+                  <div className="avatar" style={{ background:hashColor(s.child_name), width:30, height:30, fontSize:12 }}>{(s.child_name||'?')[0]}</div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontWeight:700, fontSize:13, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
+                      <span style={{ textDecoration: cf === 'declined' && !present ? 'line-through' : 'none' }}>{s.child_name}</span>
+                      {cf === 'confirmed' && <span title="Родитель подтвердил в боте" style={{ fontSize:11 }}>✅</span>}
+                      {cf === 'declined' && <span title="Родитель предупредил, что не придут" style={{ fontSize:11 }}>❌</span>}
+                      {s._oneOff && <span style={{ background:'#e0e7ff', color:'#4338ca', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>разово</span>}
+                    </div>
+                    <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
+                  </div>
+                  {isClientDays ? (
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: canMark ? 'pointer' : 'not-allowed',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
+                        color: present ? T.greenDark : isPast ? T.red : T.muted,
+                        opacity: canMark ? 1 : 0.55,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      {s._oneOff && (
+                        <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                      )}
+                    </div>
+                  ) : isCalendar ? (
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: 'pointer',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: present ? T.greenBg : '#f5f5f0',
+                        color: present ? T.greenDark : T.muted,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                    </div>
+                  ) : (
+                    // Групповой формат. Разовая запись тут теперь тоже
+                    // возможна (пробный, отработка пропуска), поэтому
+                    // рядом нужен крестик: записали по ошибке — снять.
+                    // Без него дорога односторонняя, как было со ставками.
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: canMark ? 'pointer' : 'not-allowed',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
+                        color: present ? T.greenDark : isPast ? T.red : T.muted,
+                        opacity: canMark ? 1 : 0.55,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      {s._oneOff && isAdmin && (
+                        <button onClick={() => cancelEnroll(s.id, ev.dirId)}
+                          title="Убрать разовую запись"
+                          style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {isAdmin && cands.length > 0 && (
               <div style={{ background:T.cream, borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
                 <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
@@ -924,182 +1136,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет записавшихся на этот день</div>
             )}
             {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
-            {ev.students.map(s => {
-              const key = `${s.id}_${ev.dirId}_${ev.groupId || 0}`
-              const present = attendance[key]
-              // Родитель предупредил, что не придут. Ребёнка НЕ убираем:
-              // педагог должен видеть, кого не будет, а если тот всё же
-              // придёт — отметить его надо в один клик, без возни
-              const cf = confirms[key]
-              return (
-                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}`, opacity: cf === 'declined' && !present ? 0.55 : 1 }}>
-                  <div className="avatar" style={{ background:hashColor(s.child_name), width:30, height:30, fontSize:12 }}>{(s.child_name||'?')[0]}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontWeight:700, fontSize:13, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
-                      <span style={{ textDecoration: cf === 'declined' && !present ? 'line-through' : 'none' }}>{s.child_name}</span>
-                      {cf === 'confirmed' && <span title="Родитель подтвердил в боте" style={{ fontSize:11 }}>✅</span>}
-                      {cf === 'declined' && <span title="Родитель предупредил, что не придут" style={{ fontSize:11 }}>❌</span>}
-                      {s._oneOff && <span style={{ background:'#e0e7ff', color:'#4338ca', borderRadius:6, padding:'1px 6px', fontSize:10, fontWeight:700 }}>разово</span>}
-                    </div>
-                    <div style={{ fontSize:11, color:T.muted }}>{s.adult_name}</div>
-                  </div>
-                  {isClientDays ? (
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
-                        padding:'5px 14px', borderRadius:10, border:'none',
-                        cursor: canMark ? 'pointer' : 'not-allowed',
-                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
-                        color: present ? T.greenDark : isPast ? T.red : T.muted,
-                        opacity: canMark ? 1 : 0.55,
-                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
-                      {s._oneOff && (
-                        <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
-                      )}
-                    </div>
-                  ) : isCalendar ? (
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
-                        padding:'5px 14px', borderRadius:10, border:'none',
-                        cursor: 'pointer',
-                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                        background: present ? T.greenBg : '#f5f5f0',
-                        color: present ? T.greenDark : T.muted,
-                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
-                      <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
-                    </div>
-                  ) : (
-                    // Групповой формат. Разовая запись тут теперь тоже
-                    // возможна (пробный, отработка пропуска), поэтому
-                    // рядом нужен крестик: записали по ошибке — снять.
-                    // Без него дорога односторонняя, как было со ставками.
-                    <div style={{ display:'flex', gap:6 }}>
-                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
-                        padding:'5px 14px', borderRadius:10, border:'none',
-                        cursor: canMark ? 'pointer' : 'not-allowed',
-                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
-                        color: present ? T.greenDark : isPast ? T.red : T.muted,
-                        opacity: canMark ? 1 : 0.55,
-                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
-                      {s._oneOff && isAdmin && (
-                        <button onClick={() => cancelEnroll(s.id, ev.dirId)}
-                          title="Убрать разовую запись"
-                          style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            {/* Запись на занятие: один поиск по всем источникам сразу.
-                Вкладки по источникам («из заявок» / «из Новых» / «завести»)
-                оказались ловушкой: уже существующий пробный не искался
-                нигде — из заявок он ушёл, «Новым» не был, а списка прежних
-                пробных не было вовсе. Теперь ищем везде одним полем,
-                а группировка нужна лишь чтобы было видно, что произойдёт. */}
-            {isAdmin && (
-              <div style={{ padding:'8px 14px', borderTop: `1px solid ${T.border}` }}>
-                {pickerFor === enrollKey ? (
-                  <div style={{ background: T.cream, borderRadius: 12, padding: 12 }}>
-                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
-                      Записать на {date.toLocaleDateString('ru-RU')}
-                    </div>
-
-                    {!showNewForm && (
-                      <>
-                        <input className="form-input" autoFocus placeholder="Поиск по имени ребёнка или родителя…"
-                          value={pickSearch} onChange={e => setPickSearch(e.target.value)}
-                          style={{ marginBottom: 8 }} />
-                        <div style={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10, background: 'white' }}>
-
-                          {/* Уже есть в клиентах и виден в расписании: и постоянные,
-                              и те, кто уже был на пробном. Статус не трогаем —
-                              это просто разовая запись на этот день */}
-                          {pickClients.length > 0 && <PickHead>Клиенты</PickHead>}
-                          {pickClients.map(c => (
-                            <PickRow key={`c${c.id}`} busy={pickBusy}
-                              name={c.child_name} sub={c.adult_name || '—'}
-                              note={c.status === trialStatusName ? 'ещё одно пробное' : 'разовая запись'}
-                              onClick={() => enroll(c.id, ev.dirId, ev.groupId)} />
-                          ))}
-
-                          {/* Заведены, но никуда не поставлены. Станут пробными */}
-                          {pickWaiting.length > 0 && <PickHead>Ждут записи · «{newStatusName}»</PickHead>}
-                          {pickWaiting.map(c => (
-                            <PickRow key={`w${c.id}`} busy={pickBusy}
-                              name={c.child_name} sub={c.adult_name || '—'}
-                              note={`станет «${trialStatusName}»`}
-                              onClick={() => trialFromWaiting(ev, c)} />
-                          ))}
-
-                          {/* Заявки с сайта: заведём клиента и уберём заявку из работы */}
-                          {leads === null && (
-                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>Загружаем заявки…</div>
-                          )}
-                          {pickLeads.length > 0 && <PickHead>Заявки</PickHead>}
-                          {pickLeads.map(l => (
-                            <PickRow key={`l${l.id}`} busy={pickBusy}
-                              name={`${l.child_name || 'Без имени'}${l.child_age ? ` · ${l.child_age}` : ''}`}
-                              sub={[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
-                              note={`станет «${trialStatusName}»`}
-                              onClick={() => createTrial(ev, { fromLead: l })} />
-                          ))}
-
-                          {leads !== null && pickClients.length === 0 && pickWaiting.length === 0 && pickLeads.length === 0 && (
-                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
-                              {pickSearch ? 'Никого не нашлось' : 'Некого записать — заведите нового'}
-                            </div>
-                          )}
-                        </div>
-
-                        <button className="btn btn-outline btn-sm" style={{ marginTop: 8 }}
-                          onClick={() => setShowNewForm(true)}>+ Завести нового</button>
-                      </>
-                    )}
-
-                    {showNewForm && (
-                      <div>
-                        <div style={{ fontSize: 12, color: T.muted, marginBottom: 6 }}>
-                          Новый человек — сразу пробным на это занятие
-                        </div>
-                        <input className="form-input" autoFocus placeholder="Имя ребёнка *"
-                          value={trialForm.child_name} style={{ marginBottom: 6 }}
-                          onChange={e => setTrialForm(p => ({ ...p, child_name: e.target.value }))} />
-                        <input className="form-input" placeholder="Имя родителя"
-                          value={trialForm.adult_name} style={{ marginBottom: 6 }}
-                          onChange={e => setTrialForm(p => ({ ...p, adult_name: e.target.value }))} />
-                        <input className="form-input" placeholder="Телефон"
-                          value={trialForm.phone} style={{ marginBottom: 8 }}
-                          onFocus={() => { if (!trialForm.phone) setTrialForm(p => ({ ...p, phone: '+7' })) }}
-                          onChange={e => setTrialForm(p => ({ ...p, phone: e.target.value }))} />
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button className="btn btn-primary btn-sm" disabled={pickBusy || !trialForm.child_name.trim()}
-                            onClick={() => createTrial(ev)}>
-                            {pickBusy ? 'Записываем…' : 'Записать на пробное'}
-                          </button>
-                          <button className="btn btn-ghost btn-sm" onClick={() => setShowNewForm(false)}>Назад к поиску</button>
-                        </div>
-                      </div>
-                    )}
-
-                    <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
-                      Пробный попадёт в это занятие и будет посчитан педагогу, если ставка
-                      зависит от числа учеников. В статистику и в общий список клиентов
-                      он не пойдёт — искать его на вкладке «{trialStatusName}».
-                    </div>
-                    <button className="btn btn-ghost btn-sm" onClick={closePicker} style={{ marginTop: 6 }}>Отмена</button>
-                  </div>
-                ) : (
-                  <button className="btn btn-outline btn-sm" onClick={() => openPicker(enrollKey)}
-                    disabled={isSlotFull || !trialStatusRow}
-                    title={!trialStatusRow ? 'Статус «Пробное» не найден в справочнике' : undefined}>
-                    {isSlotFull ? '🔒 Мест нет' : '+ Записать'}
-                  </button>
-                )}
-              </div>
-            )}
+            </>)}
           </div>
         )
       })}
