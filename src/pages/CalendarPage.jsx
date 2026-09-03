@@ -812,9 +812,21 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
           saveWork(wkey, ev.dirId, ev.groupId, m)
         }
         return (
-          <div key={i} style={{ marginBottom: isOpen ? 20 : 8 }}>
+          // Одна карточка на занятие. Раньше шапка, кнопка, список и журнал
+          // были четырьмя отдельными плашками, и по виду нельзя было понять,
+          // где кончается одно занятие и начинается следующее. Теперь всё
+          // лежит на общей подложке цвета направления: шапка ярче, содержимое
+          // бледнее, рамка одна на всех.
+          <div key={i} style={{
+            marginBottom: 10,
+            borderRadius: 14,
+            border: `1px solid ${ev.color}44`,
+            borderLeft: `4px solid ${ev.color}`,
+            background: isOpen ? ev.color + '0e' : 'transparent',
+            overflow: 'hidden',
+          }}>
             <div onClick={() => toggleLesson(wkey)}
-              style={{ display:'flex', alignItems:'center', gap:10, marginBottom: isOpen ? 10 : 0, padding:'10px 14px', background:ev.color+'22', borderRadius:12, borderLeft:`4px solid ${ev.color}`, cursor:'pointer' }}>
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:ev.color+'22', cursor:'pointer' }}>
               <span style={{ fontSize:13, color:T.muted, transform: isOpen ? 'rotate(90deg)' : 'none', transition:'transform .15s', lineHeight:1 }}>▸</span>
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'Nunito,sans-serif', fontWeight:800, fontSize:15 }}>{ev.name}</div>
@@ -865,7 +877,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
             {/* Свёрнутое занятие показывает только шапку. В дне бывает
                 шесть-восемь занятий, и раскрытыми они превращали окно
                 в простыню, где нужное приходилось искать прокруткой. */}
-            {isOpen && (<>
+            {isOpen && (<div style={{ padding: '10px 12px 12px' }}>
             {/* Запись на занятие: один поиск по всем источникам сразу.
                 Вкладки по источникам («из заявок» / «из Новых» / «завести»)
                 оказались ловушкой: уже существующий пробный не искался
@@ -873,9 +885,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                 пробных не было вовсе. Теперь ищем везде одним полем,
                 а группировка нужна лишь чтобы было видно, что произойдёт. */}
             {isAdmin && (
-              <div style={{ padding:'0 0 10px' }}>
+              <div style={{ paddingBottom: 10 }}>
                 {pickerFor === enrollKey ? (
-                  <div style={{ background: T.cream, borderRadius: 12, padding: 12 }}>
+                  // Панель выбора светлее подложки, чтобы поля ввода читались,
+                  // но не белая — иначе снова выглядит вставным блоком
+                  <div style={{ background: 'rgba(255,255,255,.65)', borderRadius: 12, padding: 12, border: `1px solid ${ev.color}33` }}>
                     <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
                       Записать на {date.toLocaleDateString('ru-RU')}
                     </div>
@@ -982,7 +996,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               // придёт — отметить его надо в один клик, без возни
               const cf = confirms[key]
               return (
-                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 14px', borderBottom:`1px solid ${T.border}`, opacity: cf === 'declined' && !present ? 0.55 : 1 }}>
+                <div key={s.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 2px', borderBottom:`1px solid ${ev.color}2e`, opacity: cf === 'declined' && !present ? 0.55 : 1 }}>
                   <div className="avatar" style={{ background:hashColor(s.child_name), width:30, height:30, fontSize:12 }}>{(s.child_name||'?')[0]}</div>
                   <div style={{ flex:1 }}>
                     <div style={{ fontWeight:700, fontSize:13, display:'flex', alignItems:'center', gap:5, flexWrap:'wrap' }}>
@@ -1043,7 +1057,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               )
             })}
             {isAdmin && cands.length > 0 && (
-              <div style={{ background:T.cream, borderRadius:10, padding:'10px 12px', marginBottom:10 }}>
+              <div style={{ background:'rgba(255,255,255,.55)', borderRadius:10, padding:'10px 12px', marginTop:10, border:`1px solid ${ev.color}33` }}>
                 <div style={{ fontSize:11, fontWeight:700, color:T.muted, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>
                   👩‍🏫 Кто работал{hourly ? ' и сколько часов' : ''}
                 </div>
@@ -1133,10 +1147,10 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
               </div>
             )}
             {isCalendar && ev.students.length === 0 && (
-              <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>Нет записавшихся на этот день</div>
+              <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>Нет записавшихся на этот день</div>
             )}
-            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 14px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
-            </>)}
+            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
+            </div>)}
           </div>
         )
       })}
