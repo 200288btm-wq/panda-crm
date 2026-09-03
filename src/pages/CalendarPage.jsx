@@ -318,7 +318,7 @@ const PickRow = ({ name, sub, note, onClick, busy }) => (
 )
 
 // Attendance modal
-function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], directions = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
   const [attendance, setAttendance] = useState({})
   const [localEnrollments, setLocalEnrollments] = useState([])
   // Пробные, заведённые прямо сейчас в этом окне. Родительский список
@@ -622,6 +622,18 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       if (!ok) return
     }
     await enroll(c.id, ev.dirId, ev.groupId)
+  }
+
+  // Любое исключение внутри обработчика клика уходило в никуда: промис
+  // отклонялся, кнопка выглядела мёртвой, и отличить «сломано» от «так
+  // задумано» было нельзя. Теперь сбой виден и не оставляет окно висеть.
+  const guard = (fn) => async (...args) => {
+    try { await fn(...args) }
+    catch (e) {
+      setPickBusy(false)
+      toast.error('Не удалось записать: ' + (e?.message || 'непредвиденная ошибка'))
+      console.error('picker:', e)
+    }
   }
 
   // Источник 3: человек уже есть в клиентах со статусом «Новый»
@@ -949,7 +961,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                             <PickRow key={`c${c.id}`} busy={pickBusy}
                               name={c.child_name} sub={c.adult_name || '—'}
                               note={c.status === trialStatusName ? 'ещё одно пробное' : 'разовая запись'}
-                              onClick={() => enrollExisting(c, ev)} />
+                              onClick={guard(() => enrollExisting(c, ev))} />
                           ))}
 
                           {/* Заведены, но никуда не поставлены. Станут пробными */}
@@ -958,7 +970,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                             <PickRow key={`w${c.id}`} busy={pickBusy}
                               name={c.child_name} sub={c.adult_name || '—'}
                               note={`станет «${trialStatusName}»`}
-                              onClick={() => trialFromWaiting(ev, c)} />
+                              onClick={guard(() => trialFromWaiting(ev, c))} />
                           ))}
 
                           {/* Заявки с сайта: заведём клиента и уберём заявку из работы */}
@@ -971,7 +983,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                               name={`${l.child_name || 'Без имени'}${l.child_age ? ` · ${l.child_age}` : ''}`}
                               sub={[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
                               note={`станет «${trialStatusName}»`}
-                              onClick={() => createTrial(ev, { fromLead: l })} />
+                              onClick={guard(() => createTrial(ev, { fromLead: l }))} />
                           ))}
 
                           {leads !== null && pickClients.length === 0 && pickWaiting.length === 0 && pickLeads.length === 0 && (
@@ -1003,7 +1015,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                           onChange={e => setTrialForm(p => ({ ...p, phone: e.target.value }))} />
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button className="btn btn-primary btn-sm" disabled={pickBusy || !trialForm.child_name.trim()}
-                            onClick={() => createTrial(ev)}>
+                            onClick={guard(() => createTrial(ev))}>
                             {pickBusy ? 'Записываем…' : 'Записать на пробное'}
                           </button>
                           <button className="btn btn-ghost btn-sm" onClick={() => setShowNewForm(false)}>Назад к поиску</button>
@@ -1691,6 +1703,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           // («Новый»), и по нему же проверяется, не заведён ли уже
           // клиент по этой заявке
           allClients={clients}
+          directions={directions}
           onClientsChanged={reload}
           trialRepeatPolicy={studioSettings?.trial_repeat_policy || 'warn'}
           onClose={(changed) => {
