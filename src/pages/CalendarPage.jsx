@@ -4,7 +4,7 @@ import { T, hashColor, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
 import { toast } from '../lib/ui'
-import { statusIndex, inSchedule } from '../lib/clientStatus'
+import { statusIndex, inSchedule, systemStatus, systemStatusName } from '../lib/clientStatus'
 import { groupsOnDate, liveGroups } from '../lib/groups'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
@@ -175,6 +175,24 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
             if (clientGroups.length === 0) return true
             return clientGroups.includes(String(group.id))
           })
+          // Разовая запись на конкретный день. Раньше в групповом формате
+          // подсадить человека на одно занятие было НЕКУДА: состав целиком
+          // выводился из direction_ids/group_ids, то есть «ходит всегда»
+          // либо «не ходит никогда». Пробному и ребёнку, отрабатывающему
+          // пропуск, обе эти роли не подходят.
+          //
+          // Берём только записи со СВОЕЙ подгруппой. Запись без неё —
+          // наследие (баг 46), и если её пустить, один старый мусорный
+          // ряд всплыл бы сразу во всех временах направления.
+          const oneOff = enrollments.filter(e =>
+            e.direction_id === d.id && e.date === ds && e.status !== 'cancelled' &&
+            e.group_id != null && String(e.group_id) === String(group.id)
+          )
+          oneOff.forEach(e => {
+            if (students.some(s => s.id === e.client_id)) return
+            const c = clients.find(x => x.id === e.client_id)
+            if (c) students.push({ ...c, _oneOff: true })
+          })
         }
         if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
@@ -237,6 +255,16 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         })
       } else {
         students = clients.filter(c => (c.direction_ids||[]).includes(d.id))
+        // Разовая запись — то же, что и в ветке с подгруппами выше.
+        // Подгруппы тут нет вовсе, поэтому берём все записи дня.
+        const oneOff = enrollments.filter(e =>
+          e.direction_id === d.id && e.date === ds && e.status !== 'cancelled'
+        )
+        oneOff.forEach(e => {
+          if (students.some(s => s.id === e.client_id)) return
+          const c = clients.find(x => x.id === e.client_id)
+          if (c) students.push({ ...c, _oneOff: true })
+        })
       }
       if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
 
@@ -260,12 +288,22 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
 }
 
 // Attendance modal
-function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], onClientsChanged }) {
   const [attendance, setAttendance] = useState({})
   const [enrolling, setEnrolling] = useState(null)
   const [enrollSearch, setEnrollSearch] = useState('')
   const [enrolling2, setEnrolling2] = useState(false)
   const [localEnrollments, setLocalEnrollments] = useState([])
+  // Пробные, заведённые прямо сейчас в этом окне. Родительский список
+  // клиентов приедет только после reload, а человек должен появиться
+  // в составе занятия сразу — иначе кажется, что кнопка не сработала.
+  const [freshTrials, setFreshTrials] = useState([])
+  const [trialFor, setTrialFor] = useState(null)     // ключ занятия, где открыт выбор
+  const [trialTab, setTrialTab] = useState('lead')   // lead | waiting | new
+  const [trialForm, setTrialForm] = useState({ child_name: '', adult_name: '', phone: '' })
+  const [trialSearch, setTrialSearch] = useState('')
+  const [leads, setLeads] = useState(null)           // null = ещё не грузили
+  const [trialBusy, setTrialBusy] = useState(false)
   const [confirms, setConfirms] = useState({})   // «клиент_направление_подгруппа» → confirmed | declined
   const [work, setWork] = useState({})        // ключ → { teacher_id: часы } — текущее состояние в интерфейсе
   const [savedWork, setSavedWork] = useState({}) // то же, но как лежит в базе
@@ -306,11 +344,21 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       })
   }, [ds, studioId])
 
+  // Клиенты, которых можно подставить в состав: пришедшие пропсом
+  // плюс заведённые в этом окне и ещё не доехавшие до родителя.
+  // Склейка по id обязательна: после reload тот же человек приезжает
+  // и пропсом, и из freshTrials — без неё он встал бы в состав дважды
+  const knownClients = useMemo(() => {
+    if (!freshTrials.length) return clients
+    const seen = new Set(clients.map(c => c.id))
+    return [...clients, ...freshTrials.filter(c => !seen.has(c.id))]
+  }, [clients, freshTrials])
+
   // Пересчитываем events с учётом localEnrollments
   const events = initialEvents.map(ev => {
     if (ev.enrollmentType === 'calendar') {
       const enrolledIds = localEnrollments.filter(e => e.direction_id === ev.dirId).map(e => e.client_id)
-      return { ...ev, students: clients.filter(c => enrolledIds.includes(c.id)) }
+      return { ...ev, students: knownClients.filter(c => enrolledIds.includes(c.id)) }
     }
     if (ev.enrollmentType === 'client_days') {
       // Базовые ученики (по своим дням) + разовые записи
@@ -318,12 +366,26 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       const oneOffIds = localEnrollments
         .filter(e => e.direction_id === ev.dirId && (!e.group_id || String(e.group_id) === String(ev.groupId)))
         .map(e => e.client_id)
-      const extra = clients
+      const extra = knownClients
         .filter(c => oneOffIds.includes(c.id) && !base.some(s => s.id === c.id))
         .map(c => ({ ...c, _oneOff: true }))
       return { ...ev, students: [...base, ...extra] }
     }
-    return ev
+    // Групповой формат. Пересчёт нужен по той же причине, что и выше:
+    // без него записанный только что пробный появился бы в составе
+    // лишь после закрытия и повторного открытия окна.
+    // Правило подгруппы то же, что в getEventsForDate: у занятия
+    // с подгруппой берём только записи этой подгруппы.
+    const base = ev.students.filter(s => !s._oneOff)
+    const oneOffIds = localEnrollments
+      .filter(e => e.direction_id === ev.dirId && (
+        ev.groupId ? (e.group_id != null && String(e.group_id) === String(ev.groupId)) : true
+      ))
+      .map(e => e.client_id)
+    const extra = knownClients
+      .filter(c => oneOffIds.includes(c.id) && !base.some(s => s.id === c.id))
+      .map(c => ({ ...c, _oneOff: true }))
+    return { ...ev, students: [...base, ...extra] }
   })
 
   const reloadEnrollments = async () => {
@@ -349,6 +411,133 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
       .eq('studio_id', studioId)
       .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
     await reloadEnrollments()
+  }
+
+  // ── Пробное занятие ───────────────────────────────────────────────
+  // Пробный — это не сорт человека, а факт: записан на конкретное
+  // занятие конкретного дня. Поэтому он рождается здесь, в занятии,
+  // а не на странице клиентов, и направление с подгруппой ему НЕ
+  // проставляются: он ничего не посещает регулярно, он пришёл на день.
+  // Его появление в составе держит одна разовая запись в enrollments.
+
+  const trialStatusRow = systemStatus(clientStatuses, 'trial')
+  const trialStatusName = systemStatusName(clientStatuses, 'trial')
+  const newStatusName = systemStatusName(clientStatuses, 'new')
+
+  // Заявки, ещё не превратившиеся в клиента. Грузим один раз при
+  // первом открытии выбора — список нужен не всем и не всегда.
+  const loadLeads = async () => {
+    if (leads !== null) return
+    const { data, error } = await supabase.from('leads')
+      .select('id, child_name, child_age, parent_name, parent_phone, created_at, source')
+      .eq('studio_id', studioId).is('archived_at', null)
+      .order('created_at', { ascending: false }).limit(300)
+    if (error) { toast.fromError(error, 'Не удалось загрузить заявки'); setLeads([]); return }
+    setLeads(data || [])
+  }
+
+  const openTrial = (key) => {
+    setTrialFor(key)
+    setTrialTab('lead')
+    setTrialSearch('')
+    setTrialForm({ child_name: '', adult_name: '', phone: '' })
+    loadLeads()
+  }
+  const closeTrial = () => { setTrialFor(null); setTrialSearch('') }
+
+  // Заявки, по которым клиента уже завели, второй раз не предлагаем
+  const usedLeadIds = new Set((allClients || []).map(c => c.lead_id).filter(Boolean))
+  const freeLeads = (leads || []).filter(l => !usedLeadIds.has(l.id))
+
+  // Уже заведённые, но никуда не поставленные — статус «Новый».
+  // Их не видно в обычном поиске записи: у «Нового» снята галочка
+  // «в расписании», значит в scheduleClients он не попадает.
+  const waitingClients = (allClients || []).filter(c => c.status === newStatusName)
+
+  const matches = (s) => !trialSearch ||
+    String(s || '').toLowerCase().includes(trialSearch.toLowerCase())
+
+  // Общий хвост для всех трёх источников: записать человека на этот
+  // день и показать его в составе немедленно.
+  const finishTrial = async (client, ev) => {
+    const { error } = await supabase.from('enrollments').upsert({
+      studio_id: studioId, direction_id: ev.dirId, client_id: client.id,
+      date: ds, status: 'enrolled', group_id: ev.groupId || null,
+    }, { onConflict: 'studio_id,direction_id,client_id,date' })
+    if (error) return error
+    setFreshTrials(prev => prev.some(c => c.id === client.id) ? prev : [...prev, client])
+    dirtyRef.current = true
+    await reloadEnrollments()
+    onClientsChanged && onClientsChanged()
+    return null
+  }
+
+  // Источник 1 и 2: завести человека и сразу записать
+  const createTrial = async (ev, { fromLead } = {}) => {
+    const name = (fromLead ? fromLead.child_name : trialForm.child_name || '').trim()
+    if (!name) { toast.error('Укажите имя ребёнка'); return }
+    if (!trialStatusName) { toast.error('В справочнике нет статуса «Пробное» — обновите страницу'); return }
+
+    setTrialBusy(true)
+    const phone = (fromLead ? fromLead.parent_phone : trialForm.phone) || ''
+    // Возраст из заявки — текст произвольного вида («5», «почти 4»),
+    // отдельной колонки под него у клиента нет. Кладём в комментарий,
+    // чтобы не потерять то, что родитель уже написал.
+    const notes = []
+    if (fromLead?.child_age) notes.push(`Возраст из заявки: ${fromLead.child_age}`)
+    if (fromLead?.source) notes.push(`Источник: ${fromLead.source}`)
+    notes.push(`Пробное ${date.toLocaleDateString('ru-RU')}`)
+
+    const { data: created, error } = await supabase.from('clients').insert({
+      studio_id: studioId,
+      child_name: name,
+      adult_name: (fromLead ? fromLead.parent_name : trialForm.adult_name) || null,
+      contacts: phone ? [{ type: 'Телефон', val: phone }] : [],
+      status: trialStatusName,
+      lead_id: fromLead ? fromLead.id : null,
+      comment: notes.join('. '),
+      // Направление и подгруппа НЕ проставляются намеренно: иначе
+      // в групповом формате человек появился бы во всех занятиях
+      // этой подгруппы навсегда, а он пришёл один раз
+      direction_ids: [], group_ids: [],
+    }).select().single()
+
+    if (error) { setTrialBusy(false); toast.fromError(error, 'Не удалось завести пробного'); return }
+
+    const enrErr = await finishTrial(created, ev)
+    if (enrErr) {
+      // Клиент только что создан и ничего за собой не тянет — убираем,
+      // чтобы не оставить человека, который никуда не записан
+      await supabase.from('clients').delete().eq('id', created.id)
+      setTrialBusy(false)
+      toast.fromError(enrErr, 'Не удалось записать на занятие — пробный не заведён')
+      return
+    }
+    setTrialBusy(false)
+    closeTrial()
+    toast.success(`${name} записан на пробное`)
+  }
+
+  // Источник 3: человек уже есть в клиентах со статусом «Новый»
+  const trialFromWaiting = async (ev, client) => {
+    if (!trialStatusName) { toast.error('В справочнике нет статуса «Пробное» — обновите страницу'); return }
+    setTrialBusy(true)
+    const { error } = await supabase.from('clients')
+      .update({ status: trialStatusName }).eq('id', client.id).eq('studio_id', studioId)
+    if (error) { setTrialBusy(false); toast.fromError(error, 'Не удалось сменить статус'); return }
+
+    const enrErr = await finishTrial({ ...client, status: trialStatusName }, ev)
+    if (enrErr) {
+      // Возвращаем прежний статус: иначе человек остался бы «Пробным»,
+      // никуда не записанным, и пропал бы из общего списка
+      await supabase.from('clients').update({ status: client.status }).eq('id', client.id)
+      setTrialBusy(false)
+      toast.fromError(enrErr, 'Не удалось записать на занятие — статус возвращён')
+      return
+    }
+    setTrialBusy(false)
+    closeTrial()
+    toast.success(`${client.child_name} записан на пробное`)
   }
 
   useEffect(() => {
@@ -716,18 +905,143 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                       <button onClick={() => cancelEnroll(s.id, ev.dirId)} style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
                     </div>
                   ) : (
-                    <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
-                      padding:'5px 14px', borderRadius:10, border:'none',
-                      cursor: canMark ? 'pointer' : 'not-allowed',
-                      fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
-                      background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
-                      color: present ? T.greenDark : isPast ? T.red : T.muted,
-                      opacity: canMark ? 1 : 0.55,
-                    }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                    // Групповой формат. Разовая запись тут теперь тоже
+                    // возможна (пробный, отработка пропуска), поэтому
+                    // рядом нужен крестик: записали по ошибке — снять.
+                    // Без него дорога односторонняя, как было со ставками.
+                    <div style={{ display:'flex', gap:6 }}>
+                      <button onClick={() => toggle(s.id, ev.dirId, ev)} style={{
+                        padding:'5px 14px', borderRadius:10, border:'none',
+                        cursor: canMark ? 'pointer' : 'not-allowed',
+                        fontFamily:'Nunito,sans-serif', fontWeight:700, fontSize:12,
+                        background: present ? T.greenBg : isPast ? T.redLight : '#f5f5f0',
+                        color: present ? T.greenDark : isPast ? T.red : T.muted,
+                        opacity: canMark ? 1 : 0.55,
+                      }}>{present ? '✅ Пришёл' : '❌ Отсутствует'}</button>
+                      {s._oneOff && isAdmin && (
+                        <button onClick={() => cancelEnroll(s.id, ev.dirId)}
+                          title="Убрать разовую запись"
+                          style={{ padding:'5px 10px', borderRadius:10, border:'none', cursor:'pointer', background:'#fde8e8', color:'#e05a5a', fontSize:12, fontWeight:700 }}>✕</button>
+                      )}
+                    </div>
                   )}
                 </div>
               )
             })}
+
+            {/* Пробное занятие — доступно в любом формате направления */}
+            {isAdmin && (
+              <div style={{ padding:'8px 14px', borderTop: `1px solid ${T.border}` }}>
+                {trialFor === enrollKey ? (
+                  <div style={{ background: T.cream, borderRadius: 12, padding: 12 }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
+                      Пробное на {date.toLocaleDateString('ru-RU')}
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                      {[['lead', `Из заявок${freeLeads.length ? ` · ${freeLeads.length}` : ''}`],
+                        ['waiting', `Из «${newStatusName}»${waitingClients.length ? ` · ${waitingClients.length}` : ''}`],
+                        ['new', 'Завести нового']].map(([val, label]) => (
+                        <label key={val} onClick={() => { setTrialTab(val); setTrialSearch('') }} style={{
+                          padding: '5px 11px', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                          border: `2px solid ${trialTab === val ? T.green : T.border}`,
+                          background: trialTab === val ? T.greenBg : 'white',
+                          color: trialTab === val ? T.greenDark : T.ink,
+                        }}>{label}</label>
+                      ))}
+                    </div>
+
+                    {trialTab === 'new' && (
+                      <div>
+                        <input className="form-input" autoFocus placeholder="Имя ребёнка *"
+                          value={trialForm.child_name} style={{ marginBottom: 6 }}
+                          onChange={e => setTrialForm(p => ({ ...p, child_name: e.target.value }))} />
+                        <input className="form-input" placeholder="Имя родителя"
+                          value={trialForm.adult_name} style={{ marginBottom: 6 }}
+                          onChange={e => setTrialForm(p => ({ ...p, adult_name: e.target.value }))} />
+                        <input className="form-input" placeholder="Телефон"
+                          value={trialForm.phone} style={{ marginBottom: 8 }}
+                          onFocus={() => { if (!trialForm.phone) setTrialForm(p => ({ ...p, phone: '+7' })) }}
+                          onChange={e => setTrialForm(p => ({ ...p, phone: e.target.value }))} />
+                        <button className="btn btn-primary btn-sm" disabled={trialBusy || !trialForm.child_name.trim()}
+                          onClick={() => createTrial(ev)}>
+                          {trialBusy ? 'Записываем…' : 'Записать на пробное'}
+                        </button>
+                      </div>
+                    )}
+
+                    {trialTab !== 'new' && (
+                      <div>
+                        <input className="form-input" autoFocus placeholder="Поиск по имени…"
+                          value={trialSearch} onChange={e => setTrialSearch(e.target.value)}
+                          style={{ marginBottom: 8 }} />
+                        <div style={{ maxHeight: 200, overflowY: 'auto', border: `1px solid ${T.border}`, borderRadius: 10, background: 'white' }}>
+                          {trialTab === 'lead' && leads === null && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>Загружаем заявки…</div>
+                          )}
+                          {trialTab === 'lead' && leads !== null && freeLeads.filter(l => matches(l.child_name) || matches(l.parent_name)).length === 0 && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
+                              {leads.length === 0 ? 'Заявок нет' : 'Ничего не нашлось. Заявки, по которым уже завели клиента, здесь не показываются'}
+                            </div>
+                          )}
+                          {trialTab === 'lead' && freeLeads
+                            .filter(l => matches(l.child_name) || matches(l.parent_name))
+                            .slice(0, 30)
+                            .map(l => (
+                              <div key={l.id} onClick={() => !trialBusy && createTrial(ev, { fromLead: l })}
+                                style={{ padding: '9px 14px', cursor: trialBusy ? 'wait' : 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}
+                                onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                                onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                                <div className="avatar" style={{ background: hashColor(l.child_name || '?'), width: 26, height: 26, fontSize: 11 }}>{(l.child_name || '?')[0]}</div>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600 }}>{l.child_name || 'Без имени'}{l.child_age ? <span style={{ color: T.muted, fontWeight: 400 }}> · {l.child_age}</span> : null}</div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>
+                                    {[l.parent_name, l.parent_phone].filter(Boolean).join(' · ') || 'контактов нет'}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+
+                          {trialTab === 'waiting' && waitingClients.filter(c => matches(c.child_name) || matches(c.adult_name)).length === 0 && (
+                            <div style={{ padding: '10px 14px', fontSize: 13, color: T.muted }}>
+                              Никого со статусом «{newStatusName}» нет
+                            </div>
+                          )}
+                          {trialTab === 'waiting' && waitingClients
+                            .filter(c => matches(c.child_name) || matches(c.adult_name))
+                            .slice(0, 30)
+                            .map(c => (
+                              <div key={c.id} onClick={() => !trialBusy && trialFromWaiting(ev, c)}
+                                style={{ padding: '9px 14px', cursor: trialBusy ? 'wait' : 'pointer', fontSize: 13, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 8 }}
+                                onMouseEnter={e => e.currentTarget.style.background = T.cream}
+                                onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                                <div className="avatar" style={{ background: hashColor(c.child_name || '?'), width: 26, height: 26, fontSize: 11 }}>{(c.child_name || '?')[0]}</div>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontWeight: 600 }}>{c.child_name}</div>
+                                  <div style={{ fontSize: 11, color: T.muted }}>{c.adult_name || '—'}</div>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
+                      Пробный попадёт в это занятие и будет посчитан педагогу, если ставка
+                      зависит от числа учеников. В статистику и в общий список клиентов
+                      он не пойдёт — увидеть его можно на вкладке «{trialStatusName}».
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={closeTrial} style={{ marginTop: 6 }}>Отмена</button>
+                  </div>
+                ) : (
+                  <button className="btn btn-outline btn-sm" onClick={() => openTrial(enrollKey)}
+                    disabled={isSlotFull || !trialStatusRow}
+                    title={!trialStatusRow ? 'Статус «Пробное» не найден в справочнике' : undefined}>
+                    {isSlotFull ? '🔒 Мест нет' : '+ Пробный'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Кнопка записи (на даты / разовая в «чужой» день) */}
             {(isCalendar || isClientDays) && isAdmin && (
@@ -1263,6 +1577,13 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           teachers={teachers}
           clients={scheduleClients}
           studioId={studioId}
+          clientStatuses={clientStatuses}
+          // Полный список, не отфильтрованный по in_schedule: пробного
+          // заводят в том числе из тех, кто в расписание пока не входит
+          // («Новый»), и по нему же проверяется, не заведён ли уже
+          // клиент по этой заявке
+          allClients={clients}
+          onClientsChanged={reload}
           onClose={(changed) => {
             setSelectedDay(null)
             // Если внутри что-то отмечали — обновляем списки клиентов (баланс, посещения)
