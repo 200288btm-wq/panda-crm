@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles.jsx'
+import { T, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { systemStatusName } from '../lib/clientStatus'
+import { sweepStaleTrials } from '../lib/trials'
 import Dashboard from './Dashboard'
 import ClientsPage from './ClientsPage'
 import PaymentsPage from './PaymentsPage'
@@ -186,6 +187,33 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     if (cs.data) setClientStatuses(cs.data)
     if (oi.data) setOtherIncome(oi.data)
     if (background) setRefreshing(false); else setDataLoading(false)
+
+    // Подметание просроченных пробных. Отдельного планировщика в CRM нет:
+    // единственный крон живёт в проекте бота, это другой деплой. Уборка
+    // при открытии не требует ни инфраструктуры, ни секрета и идемпотентна.
+    // Минус честный: если в CRM никто не заходит, никто и не архивируется —
+    // для архивации это безвредно.
+    //
+    // Идёт последним и без await у вызывающего: это фоновая уборка,
+    // интерфейс её ждать не должен. Ошибки внутри проглатываются
+    // намеренно — не получилось сегодня, получится в следующий заход.
+    const days = ss.data?.trial_archive_after_days
+    if (days && c.data && cs.data) {
+      sweepStaleTrials({
+        supabase, studioId: sid,
+        clients: c.data, payments: p.data || [],
+        trialName: systemStatusName(cs.data, 'trial'),
+        archiveName: systemStatusName(cs.data, 'archive'),
+        days,
+        today: todayLocal(),
+      }).then(ids => {
+        // Поправляем список на месте, а не перезагружаем всё заново:
+        // перезагрузка запустила бы уборку по второму кругу
+        if (!ids.length) return
+        const archName = systemStatusName(cs.data, 'archive')
+        setClients(prev => prev.map(x => ids.includes(x.id) ? { ...x, status: archName } : x))
+      })
+    }
   }, [studio])
 
   // Страница восстанавливается из localStorage. Если у роли к ней нет

@@ -3,7 +3,8 @@ import { supabase } from '../supabase'
 import { T, fmt } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { SearchSelect, NumberInput } from '../components/SearchSelect'
-import { statusIndex, inPayments } from '../lib/clientStatus'
+import { statusIndex, inPayments, systemStatus, systemStatusName } from '../lib/clientStatus'
+import { toast } from '../lib/ui'
 import { liveGroups } from '../lib/groups'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
@@ -114,12 +115,29 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
 
   const [saving, setSaving] = useState(false)
 
+  // ── Перевод в «Активен» при первой настоящей оплате ──────────────
+  // Тип считается заранее, а не внутри save(): от него зависит, показывать
+  // ли галочку. Условие НЕ «первая оплата»: у пробного первая оплата —
+  // это само пробное (строка на 0 ₽ типа «Пробное занятие»), и галочка
+  // выскакивала бы ещё до того, как ребёнок пришёл.
+  const autoPayType = selectedSub
+    ? (selectedSub.lessons_count === 1 ? 'Разовое занятие' : 'Абонемент')
+    : payType
+
+  // Статусы ищем по РОЛИ, а не по названию: студия вольна переименовать
+  // их как угодно (баг 41)
+  const trialName = systemStatus(clientStatuses, 'trial')?.name
+  const newName = systemStatus(clientStatuses, 'new')?.name
+  const activeName = systemStatusName(clientStatuses, 'active')
+  const fromTrial = !!client && !!trialName && client.status === trialName
+  const fromNew = !!client && !!newName && client.status === newName
+  const canPromote = !payment && (fromTrial || fromNew)
+    && autoPayType !== 'Пробное занятие' && !!activeName
+  const [promote, setPromote] = useState(true)
+
   const save = async () => {
     setSaveError(null)
     if (!clientId) { setSaveError('Выберите клиента'); return }
-    const autoPayType = selectedSub
-      ? (selectedSub.lessons_count === 1 ? 'Разовое занятие' : 'Абонемент')
-      : payType
     setSaving(true)
     const err = await onSave({
       client_id: +clientId,
@@ -134,7 +152,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
       base_amount: basePrice,
       lessons_count: selectedSub ? selectedSub.lessons_count : (payType === 'Разовое занятие' || payType === 'Пробное занятие' ? 1 : +customLessons || 0),
       expires_at: expiresAt || null,
-    })
+    }, (canPromote && promote) ? { promoteClientId: +clientId, activeName } : {})
     setSaving(false)
     if (err) setSaveError(err)
   }
@@ -155,6 +173,33 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
           emptyText="Клиент не найден"
         />
       </div>
+
+      {/* Первая настоящая оплата у пробного или новенького.
+          Текст зависит от того, откуда переводим: у «Пробного» галочка
+          «в расписании» уже стоит, и обещать «попадёт в расписание» было бы
+          враньём; у «Нового» наоборот — он в общем списке есть, а в расписании
+          нет. Название статуса берём из справочника, а не пишем в коде. */}
+      {canPromote && (
+        <label style={{
+          display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer',
+          background: promote ? T.greenBg : T.cream, borderRadius: 10,
+          padding: '10px 12px', marginBottom: 12,
+          border: `1.5px solid ${promote ? T.green : T.border}`,
+        }}>
+          <input type="checkbox" checked={promote} onChange={e => setPromote(e.target.checked)}
+            style={{ marginTop: 2, cursor: 'pointer' }} />
+          <span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>
+              Перевести в «{activeName}»
+            </span>
+            <span style={{ display: 'block', fontSize: 11, color: T.muted, marginTop: 3, lineHeight: 1.5 }}>
+              {fromTrial
+                ? 'Пробный стал постоянным. Попадёт в статистику и в общий список — сейчас его там нет.'
+                : 'Ребёнок начинает ходить. Попадёт в расписание и в статистику — сейчас его там нет.'}
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* Show client discount if exists */}
       {client && client.discount > 0 && (
@@ -319,7 +364,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
 
   // Возвращаем текст ошибки, а не молча закрываем окно:
   // раньше при сбое запись пропадала без следа.
-  const save = async (f) => {
+  const save = async (f, opts = {}) => {
     if (showEdit) {
       const { error } = await supabase.from('payments').update(f).eq('id', showEdit.id)
       if (error) return 'Не удалось сохранить: ' + error.message
@@ -328,6 +373,16 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
       const { error } = await supabase.from('payments').insert({ ...f, studio_id: studioId })
       if (error) return 'Не удалось сохранить: ' + error.message
       setShowAdd(false)
+    }
+    // Перевод пробного или новенького в «Активен» — отдельным шагом ПОСЛЕ
+    // оплаты. Если он сорвётся, оплата всё равно записана, откатывать нечего:
+    // деньги приняты. Но молчать нельзя — иначе человек так и останется
+    // пробным, и никто не поймёт почему.
+    if (opts.promoteClientId && opts.activeName) {
+      const { error } = await supabase.from('clients')
+        .update({ status: opts.activeName })
+        .eq('id', opts.promoteClientId).eq('studio_id', studioId)
+      if (error) toast.error('Оплата записана, но статус клиента не изменился — смените его вручную')
     }
     reload()
     return null

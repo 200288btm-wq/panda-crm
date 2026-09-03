@@ -3,9 +3,10 @@ import { supabase } from '../supabase'
 import { T, hashColor, addressColor } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
-import { toast } from '../lib/ui'
+import { toast, confirmAction } from '../lib/ui'
 import { statusIndex, inSchedule, systemStatus, systemStatusName } from '../lib/clientStatus'
 import { groupsOnDate, liveGroups } from '../lib/groups'
+import { countTrials, checkTrialRepeat } from '../lib/trials'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -317,7 +318,7 @@ const PickRow = ({ name, sub, note, onClick, busy }) => (
 )
 
 // Attendance modal
-function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], onClientsChanged }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
   const [attendance, setAttendance] = useState({})
   const [localEnrollments, setLocalEnrollments] = useState([])
   // Пробные, заведённые прямо сейчас в этом окне. Родительский список
@@ -585,9 +586,48 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
     toast.success(`${name} записан на пробное`)
   }
 
+  // Повторное пробное. Правило задаёт студия, а проверять его надо ДО
+  // записи: иначе человек узнаёт об ограничении уже после того, как оно
+  // нарушено. Считаем по разовым записям — они и есть пробные занятия.
+  const allowRepeat = async (client, ev) => {
+    const { data, error } = await supabase.from('enrollments')
+      .select('client_id, direction_id, status')
+      .eq('studio_id', studioId).eq('client_id', client.id)
+    // Не смогли проверить — не мешаем работать. Ограничение тут
+    // организационное, а не денежное: цена ошибки ниже, чем цена
+    // застрявшего окна
+    if (error) return true
+
+    const counts = countTrials(data || [], client.id, ev.dirId)
+    const dirName = (directions.find(d => d.id === ev.dirId) || {}).name || 'этому направлению'
+    const verdict = checkTrialRepeat({ policy: trialRepeatPolicy, counts, directionName: dirName })
+
+    if (!verdict.allow) { toast.error(verdict.message); return false }
+    if (verdict.needConfirm) {
+      return await confirmAction({
+        title: 'Ещё одно пробное?',
+        text: verdict.message,
+        confirmLabel: 'Записать', cancelLabel: 'Отмена',
+      })
+    }
+    return true
+  }
+
+  // Запись уже существующего человека. Ограничение на повторное пробное
+  // касается только пробных: обычный клиент, отрабатывающий пропуск,
+  // к пробным занятиям отношения не имеет и спрашивать его не о чем.
+  const enrollExisting = async (c, ev) => {
+    if (trialStatusName && c.status === trialStatusName) {
+      const ok = await allowRepeat(c, ev)
+      if (!ok) return
+    }
+    await enroll(c.id, ev.dirId, ev.groupId)
+  }
+
   // Источник 3: человек уже есть в клиентах со статусом «Новый»
   const trialFromWaiting = async (ev, client) => {
     if (!trialStatusName) { toast.error('В справочнике нет статуса «Пробное» — обновите страницу'); return }
+    if (!(await allowRepeat(client, ev))) return
     setPickBusy(true)
     const { error } = await supabase.from('clients')
       .update({ status: trialStatusName }).eq('id', client.id).eq('studio_id', studioId)
@@ -909,7 +949,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
                             <PickRow key={`c${c.id}`} busy={pickBusy}
                               name={c.child_name} sub={c.adult_name || '—'}
                               note={c.status === trialStatusName ? 'ещё одно пробное' : 'разовая запись'}
-                              onClick={() => enroll(c.id, ev.dirId, ev.groupId)} />
+                              onClick={() => enrollExisting(c, ev)} />
                           ))}
 
                           {/* Заведены, но никуда не поставлены. Станут пробными */}
@@ -1397,7 +1437,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
   )
 }
 
-export default function CalendarPage({ directions, clients, teachers, addresses = [], clientStatuses = [], staff, role, reload, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+export default function CalendarPage({ directions, clients, teachers, addresses = [], clientStatuses = [], studioSettings = null, staff, role, reload, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const now = new Date()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
@@ -1652,6 +1692,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           // клиент по этой заявке
           allClients={clients}
           onClientsChanged={reload}
+          trialRepeatPolicy={studioSettings?.trial_repeat_policy || 'warn'}
           onClose={(changed) => {
             setSelectedDay(null)
             // Если внутри что-то отмечали — обновляем списки клиентов (баланс, посещения)
