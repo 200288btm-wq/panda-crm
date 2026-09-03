@@ -158,6 +158,10 @@ function ConvertLeadModal({ lead, directions, clientStatuses = [], onClose, onCo
       discount: 0,
       comment: form.comment.trim() || null,
       studio_id: studioId,
+      // Откуда пришёл клиент. Без этого поля половина конверсий
+      // не считается: пробный из занятия связь проставляет, а ручной
+      // перенос — нет, и воронка «заявка → клиент» получается дырявой
+      lead_id: lead.id,
     }
     const { data, error: err } = await supabase.from('clients').insert(payload).select()
     setSaving(false)
@@ -165,8 +169,27 @@ function ConvertLeadModal({ lead, directions, clientStatuses = [], onClose, onCo
       setError('Ошибка: ' + (err.message || JSON.stringify(err)))
       return
     }
-    // Удаляем заявку после успешного переноса
-    await supabase.from('leads').delete().eq('id', lead.id)
+    // Заявку убираем из работы, но НЕ удаляем.
+    //
+    // Раньше здесь был delete. Он ломал сразу две вещи. Во-первых,
+    // внешний ключ clients.lead_id объявлен ON DELETE SET NULL —
+    // удаление заявки молча обнуляло связь, которую мы только что
+    // проставили, то есть стирало ответ на вопрос «откуда этот клиент».
+    // Во-вторых, два пути вели себя по-разному: пробный из занятия
+    // отправлял заявку в архив, а перенос отсюда — в небытие.
+    // Одно действие, разный результат — так продукт и становится
+    // непредсказуемым.
+    //
+    // Удалить заявку насовсем по-прежнему можно кнопкой «Удалить»,
+    // но это осознанное действие с подтверждением, а не побочный
+    // эффект переноса.
+    const { error: leadErr } = await supabase.from('leads')
+      .update({ status: 'confirmed', archived_at: new Date().toISOString() })
+      .eq('id', lead.id)
+    // Клиент уже создан, откатывать нечего. Но молчать нельзя:
+    // заявка останется в рабочем списке, и её перенесут второй раз
+    if (leadErr) toast.error('Клиент создан, но заявка осталась в списке — уберите её в архив вручную')
+
     onConverted()
     onClose()
   }
