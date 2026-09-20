@@ -454,6 +454,12 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
   const age = calcAge(client.birthday)
   const totalPaid = stats?.totalPaid ?? client.paid_lessons ?? 0
   const totalVisited = stats?.totalVisited ?? client.visited_lessons ?? 0
+  // Стартовые значения — занятия до внедрения CRM. Они входят в итог,
+  // но в историях их не было видно: в карточке стояло «посещено 7»
+  // при двух отметках, и казалось, что счётчик врёт. Показываем их
+  // и в плашке, и отдельной строкой в самой истории.
+  const startPaid = +client.paid_lessons || 0
+  const startVisited = +client.visited_initial || 0
   const bal = calcBalance(totalPaid, totalVisited)
   const todayStr = todayLocal()
   const activeFreeze = freezes.find(f => f.start_date <= todayStr && f.end_date >= todayStr)
@@ -591,6 +597,7 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
               <span style={{ fontSize: 12, color: T.muted }}>всего</span>
             </div>
             {stats && <div style={{ fontSize: 12, color: T.greenDark, marginTop: 2 }}>в этом мес.: <strong>{stats.monthPaid}</strong> зан.</div>}
+            {stats && startPaid > 0 && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>из них на начало учёта: <strong>{startPaid}</strong> зан.</div>}
           </div>
           {payExpanded && (
             <div style={{ flex: 1, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 16 }}>
@@ -616,7 +623,17 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
                       <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: +p.amount > 0 ? T.greenDark : T.muted }}>{+p.amount > 0 ? fmt(p.amount) : 'Бесплатно'}</div>
                     </div>
                   )
-                }) : <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
+                }) : null}
+                {startPaid > 0 && (
+                  <div className="fin-row" style={{ borderLeft: `3px solid ${T.border}` }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>На начало учёта</div>
+                      <div style={{ fontSize: 11, color: T.muted }}>занятия, оплаченные до CRM</div>
+                    </div>
+                    <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.muted }}>{startPaid} зан.</div>
+                  </div>
+                )}
+                {!cPay.length && !startPaid && <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Оплат пока нет</div>}
               </div>
             </div>
           )}
@@ -637,13 +654,14 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
               <span style={{ fontSize: 12, color: T.muted }}>всего</span>
             </div>
             {stats && <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>в этом мес.: <strong>{stats.monthVisited}</strong> зан.</div>}
+            {stats && startVisited > 0 && <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>из них на начало учёта: <strong>{startVisited}</strong> зан.</div>}
           </div>
           {attExpanded && (
             <div style={{ flex: 1, padding: 12, background: '#fafaf5', borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 16 }}>
               <div style={{ fontWeight: 700, fontSize: 11, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
                 История посещений ({attDetails.length})
               </div>
-              {attDetails.length === 0 ? (
+              {attDetails.length === 0 && !startVisited ? (
                 <div style={{ fontSize: 13, color: T.muted, padding: '6px 0' }}>Посещений пока нет</div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto' }}>
@@ -664,6 +682,13 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
                       </div>
                     )
                   })}
+                  {startVisited > 0 && (
+                    <div style={{ background: 'white', borderRadius: 8, padding: '8px 10px', borderLeft: `3px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, minWidth: 90 }}>На начало учёта</div>
+                      <div style={{ fontSize: 12, color: T.muted }}>занятия, пройденные до CRM</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginLeft: 'auto' }}>{startVisited} зан.</div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -874,6 +899,24 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       if (c) { setShowDetail(c); setDeepLink(null) }
     }
   }, [deepLink, clients])
+  // Возврат в карточку после правки.
+  //
+  // Правка открывается вместо карточки, а не поверх неё, поэтому после
+  // «Отмена» или «Сохранить» человек оказывался в общем списке — хотя
+  // пришёл из конкретной карточки.
+  //
+  // Храним id, а не сам объект: после сохранения список перезагружается,
+  // и вернуть надо свежую карточку, а не ту, что была до правки. Поэтому
+  // при сохранении id ставится уже ПОСЛЕ reload().
+  const [returnToId, setReturnToId] = useState(null)
+  useEffect(() => {
+    if (returnToId == null) return
+    const c = clients.find(x => x.id === returnToId)
+    // Клиента могло не стать (удалили из другой вкладки) — тогда просто
+    // остаёмся в списке, а не показываем пустую карточку.
+    if (c) setShowDetail(c)
+    setReturnToId(null)
+  }, [returnToId, clients])
   useEffect(() => {
     if (!studioId) return
     // Без фильтра по студии сюда попадали адреса всех студий пользователя
@@ -1015,17 +1058,22 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
       start_date: f.start_date || null,
     }
     if (showEdit) {
-      const { error } = await supabase.from('clients').update(cleaned).eq('id', showEdit.id)
+      const editedId = showEdit.id
+      const { error } = await supabase.from('clients').update(cleaned).eq('id', editedId)
       if (error) { toast.fromError(error, 'Не удалось сохранить карточку'); return }
       toast.success('Карточка сохранена')
       setShowEdit(null)
-    } else {
-      cleaned.studio_id = studioId
-      const { error } = await supabase.from('clients').insert(cleaned)
-      if (error) { toast.fromError(error, 'Не удалось создать клиента'); return }
-      toast.success(`${cleaned.child_name || 'Клиент'} добавлен`)
-      setShowAdd(false)
+      // Сначала свежий список, потом возврат в карточку: иначе на миг
+      // показались бы данные до правки.
+      await reload()
+      setReturnToId(editedId)
+      return
     }
+    cleaned.studio_id = studioId
+    const { error } = await supabase.from('clients').insert(cleaned)
+    if (error) { toast.fromError(error, 'Не удалось создать клиента'); return }
+    toast.success(`${cleaned.child_name || 'Клиент'} добавлен`)
+    setShowAdd(false)
     await reload()
   }
   /**
@@ -1286,7 +1334,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
         )}
       </div>
       {showAdd && <ClientModal directions={directions} onClose={() => setShowAdd(false)} onSave={save} statuses={STATUSES_LIST} defaultStatus={newName} />}
-      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => setShowEdit(null)} onSave={save} statuses={STATUSES_LIST} defaultStatus={newName} />}
+      {showEdit && <ClientModal client={showEdit} directions={directions} onClose={() => { setReturnToId(showEdit.id); setShowEdit(null) }} onSave={save} statuses={STATUSES_LIST} defaultStatus={newName} />}
       {showDetail && (
         <ClientDetail
           client={showDetail}
