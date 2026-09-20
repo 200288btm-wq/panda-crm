@@ -11,7 +11,7 @@ import ImportPreviewModal from '../components/ImportPreviewModal'
 import { parseDate, dateToRu } from '../lib/importParse'
 import { buildClientsPlan, applyClientsPlan, CLIENT_SELECT } from '../lib/importClients'
 import { toast, confirmAction } from '../lib/ui'
-import { describeFlags, systemStatusName } from '../lib/clientStatus'
+import { describeFlags } from '../lib/clientStatus'
 import { liveGroups } from '../lib/groups'
 
 // Узкий экран. Нужен там, где раскладка не сводится к CSS: карточка
@@ -659,16 +659,6 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           T={T}
         />
 
-        <TrialSettingsSection
-          settings={settings}
-          set={set}
-          onSave={saveSettings}
-          saving={saving}
-          msg={msg}
-          trialName={systemStatusName(statuses, 'trial')}
-          T={T}
-        />
-
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
         <Section title="Длительность занятий" icon="⏱">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
@@ -838,6 +828,7 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
         directions={directions}
         subscriptions={subscriptions}
         reload={reload}
+        statuses={statuses}
         T={T}
       />}
 
@@ -1290,97 +1281,6 @@ function StatusRow({ item, onRename, onDelete, onFlag, narrow, T }) {
   )
 }
 
-// ── Пробные занятия ─────────────────────────────────────────────────
-// Стоит сразу под справочником статусов: человек только что увидел там
-// карточку «Пробное» и логично ждёт рядом ответ на вопрос «а как оно
-// работает».
-//
-// Обе настройки — про поведение, которое студия выбирает сама. Умолчания
-// подобраны так, чтобы новая функция ничего не начала делать без спроса:
-// не архивировать никогда, повторное пробное разрешать с предупреждением.
-function TrialSettingsSection({ settings, set, onSave, saving, msg, trialName, T }) {
-  if (!settings) return null
-
-  const days = settings.trial_archive_after_days
-  const PRESETS = [
-    { val: null, label: 'Никогда' },
-    { val: 7,    label: 'Через неделю' },
-    { val: 14,   label: 'Через 2 недели' },
-    { val: 30,   label: 'Через месяц' },
-  ]
-  const isPreset = PRESETS.some(p => p.val === days)
-  const custom = !isPreset && days != null
-
-  const POLICIES = [
-    { val: 'once',          label: 'Только одно',            hint: 'один человек — одно пробное за всё время' },
-    { val: 'per_direction', label: 'По одному на направление', hint: 'на каждое направление можно сходить раз' },
-    { val: 'warn',          label: 'Можно, но предупредить',   hint: 'запишем, но скажем, что пробное уже было' },
-    { val: 'always',        label: 'Всегда можно',            hint: 'без ограничений' },
-  ]
-
-  const chip = (on) => ({
-    padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontSize: 12.5, fontWeight: 600,
-    border: `2px solid ${on ? T.green : T.border}`,
-    background: on ? T.greenBg : 'white',
-    color: on ? T.greenDark : T.ink,
-  })
-
-  return (
-    <Section title={`Пробные занятия — статус «${trialName}»`} icon="🎈">
-      <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.6, marginBottom: 16 }}>
-        Пробный записывается кнопкой «Записать» прямо в занятии — из заявок,
-        из ждущих записи или с нуля. Он виден в расписании и считается педагогу,
-        если ставка зависит от числа учеников, но в статистику и в общий список
-        клиентов не идёт.
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">Если пробный не вернулся — убирать в архив</label>
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 4 }}>
-          {PRESETS.map(p => (
-            <label key={String(p.val)} onClick={() => set('trial_archive_after_days', p.val)}
-              style={chip(days === p.val)}>{p.label}</label>
-          ))}
-          <label onClick={() => set('trial_archive_after_days', custom ? days : 21)}
-            style={chip(custom)}>Свой срок</label>
-          {custom && (
-            <input className="form-input" type="number" min="1" max="365"
-              value={days} onChange={e => set('trial_archive_after_days', +e.target.value || 1)}
-              style={{ width: 90 }} />
-          )}
-        </div>
-        <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
-          Срок считается от последнего события: отметки, записи на занятие или
-          дня, когда пробного завели. <b>Незакрытый счёт архив не пускает</b> — и когда
-          человек должен студии, и когда у него остались неизрасходованные оплаченные
-          занятия. В архиве нельзя ни принять оплату, ни израсходовать оставшееся,
-          поэтому туда уходят только те, с кем рассчитались в ноль.
-        </div>
-      </div>
-
-      <div className="form-group" style={{ marginBottom: 8 }}>
-        <label className="form-label">Можно ли прийти на пробное ещё раз</label>
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 4 }}>
-          {POLICIES.map(p => (
-            <label key={p.val} onClick={() => set('trial_repeat_policy', p.val)}
-              style={chip((settings.trial_repeat_policy || 'warn') === p.val)}>{p.label}</label>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: T.muted, marginTop: 8, lineHeight: 1.5 }}>
-          {POLICIES.find(p => p.val === (settings.trial_repeat_policy || 'warn'))?.hint}.
-          {' '}Ограничение считает <b>занятия</b>, а не карточки: один человек — всегда
-          один клиент, сколько бы пробных он ни посетил.
-        </div>
-      </div>
-
-      <button className="btn btn-primary" onClick={onSave} disabled={saving}>
-        {saving ? 'Сохраняем…' : 'Сохранить'}
-      </button>
-      <Msg msg={msg} />
-    </Section>
-  )
-}
-
 function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, deleteStatus, renameStatus, setStatusFlag, narrow, T }) {
   const [adding, setAdding] = useState(false)
   // Закрываем форму только при удачном сохранении: на ошибке (дубль
@@ -1493,7 +1393,12 @@ function StatusesTab({ statuses, newStatus, setNewStatus, statusMsg, addStatus, 
   )
 }
 
-function DataTab({ studioId, clients, payments, expenses, teachers, directions, subscriptions, reload, T }) {
+// statuses приходит сверху: внутри DataTab его не было, а три вызова
+// buildClientsPlan на него ссылались. Сборка такое пропускает, падает
+// уже у человека — при загрузке файла с клиентами (баг 90).
+// Пока не падало по случайности: до этих строк доходили только те,
+// кто грузит клиентов, а справочник им подставлялся умолчанием.
+function DataTab({ studioId, clients, payments, expenses, teachers, directions, subscriptions, reload, statuses = [], T }) {
   const [importing, setImporting] = useState(null)
   const [importMsg, setImportMsg] = useState(null)
   const [importResult, setImportResult] = useState(null)
@@ -1563,7 +1468,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
     const wb = XLSX.utils.book_new()
     if (withData) {
       let rows = [tmpl.columns]
-      if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
+      if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_initial||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
       else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
       else if (type === 'teachers') {
         rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
@@ -1641,7 +1546,7 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
           supabase.from('teacher_rates').select('*').eq('studio_id', studioId).then(({ data: rates }) => {
             Object.entries(TEMPLATES).forEach(([type, tmpl]) => {
               let rows = [tmpl.columns]
-              if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_lessons||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
+              if (type === 'clients') rows = rows.concat(clients.map(c => [c.child_name||'',c.adult_name||'',(c.contacts||[]).find(x=>x.type==='Телефон')?.val||'',(c.contacts||[]).find(x=>x.type==='Email')?.val||'',c.status||'',c.paid_lessons||0,c.visited_initial||0,c.discount||0,dateToRu(c.birthday),c.source||'',c.comment||'']))
               else if (type === 'payments') rows = rows.concat(payments.map(p => [clients.find(c=>c.id===p.client_id)?.child_name||'',p.payment_date||'',p.payment_type||'',p.amount||0,p.lessons_count||0,p.comment||'']))
               else if (type === 'teachers') rows = rows.concat(teachers.map(t => [t.name||'',t.phone||'',t.status||'',t.salary_type==='salary'?'Оклад':'За занятие',t.salary_type==='salary'?t.salary_amount||0:'',t.hired||'']))
               else if (type === 'directions') rows = rows.concat(directions.map(d => [d.name||'',d.teacher_name||'',d.schedule||'',d.cost_abo||0,d.cost_single||0,d.max_capacity||0]))
@@ -1702,7 +1607,11 @@ function DataTab({ studioId, clients, payments, expenses, teachers, directions, 
       status: c.status || '',
       directions: (c.direction_ids || []).map(id => directions.find(d => d.id === id)?.name).filter(Boolean).join(', '),
       paid_lessons: c.paid_lessons || 0,
-      visited_lessons: c.visited_lessons || 0,
+      // В шаблон уходит стартовое значение: колонка называется
+      // «Посещено занятий» и при обратной загрузке читается как
+      // «до внедрения CRM». Отдавать сюда итог — значит раздуть
+      // счётчик при повторном импорте того же файла.
+      visited_lessons: c.visited_initial || 0,
       discount: c.discount || 0,
       birthday: dateToRu(c.birthday),
       source: c.source || '',

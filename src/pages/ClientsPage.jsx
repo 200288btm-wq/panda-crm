@@ -80,11 +80,11 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
     weekly_schedule: client.weekly_schedule || {},
     group_ids: client.group_ids || [],
     paid_lessons: client.paid_lessons || 0,
-    visited_lessons: client.visited_lessons || 0,
+    visited_initial: client.visited_initial || 0,
     balance: client.balance || 0,
     discount: client.discount || 0,
     comment: client.comment || '',
-  } : { child_name: '', adult_name: '', status: defaultStatus, contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, group_ids: [], paid_lessons: 0, visited_lessons: 0, balance: 0, discount: 0, comment: '' })
+  } : { child_name: '', adult_name: '', status: defaultStatus, contacts: [{ type: 'Телефон', val: '' }], start_date: '', source: '', birthday: '', sex: 'М', direction_ids: [], weekly_schedule: {}, group_ids: [], paid_lessons: 0, visited_initial: 0, balance: 0, discount: 0, comment: '' })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))
   const age = calcAge(f.birthday)
 
@@ -318,9 +318,12 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
           <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Сколько занятий уже было оплачено до внедрения CRM</div>
         </div>
         <div className="form-group">
-          <label className="form-label">Посещено занятий (начало учёта)</label>
-          <input className="form-input" type="number" min="0" value={f.visited_lessons} onChange={e => set('visited_lessons', e.target.value)} placeholder="0" />
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>Сколько занятий уже было посещено до внедрения CRM</div>
+          <label className="form-label">Посещено занятий до внедрения CRM</label>
+          <input className="form-input" type="number" min="0" value={f.visited_initial} onChange={e => set('visited_initial', e.target.value)} placeholder="0" />
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 3 }}>
+            Только то, что было ДО начала учёта. Занятия, отмеченные в расписании,
+            считаются сами и в это поле не входят.
+          </div>
         </div>
       </div>
       <div className="form-group">
@@ -430,8 +433,9 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
         .eq('present', true)
         .order('date', { ascending: false })
       setAttDetails(att || [])
-      // visited_lessons уже равен числу отметок в attendance (обновляется в расписании),
-      // поэтому НЕ прибавляем attendance повторно — иначе посещения задваиваются в карточке.
+      // visited_lessons — это уже итог: стартовое значение плюс отметки,
+      // его считает триггер в базе. Прибавлять сюда attendance ещё раз
+      // нельзя — посещения задвоятся в карточке.
       const totalVisited = (client.visited_lessons || 0)
       const monthVisited = (att||[]).filter(a => a.date >= monthStart).length
       setStats({ totalPaid, monthPaid, totalVisited, monthVisited })
@@ -994,7 +998,10 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     const cleaned = {
       ...f,
       paid_lessons: +f.paid_lessons || 0,
-      visited_lessons: +f.visited_lessons || 0,
+      // Итог (visited_lessons) отсюда НЕ пишем: его считает база по отметкам.
+      // Раньше форма отправляла его вместе со всей карточкой и затирала
+      // накопленное — из-за этого у шестерых счётчик уехал в ноль.
+      visited_initial: +f.visited_initial || 0,
       balance: +f.balance || 0,
       discount: +f.discount || 0,
       direction_ids: f.direction_ids || [],

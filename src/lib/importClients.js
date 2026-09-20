@@ -8,17 +8,17 @@ const LABELS = {
   adult_name: 'Родитель',
   status: 'Статус',
   paid_lessons: 'Оплачено занятий',
-  visited_lessons: 'Посещено занятий',
+  visited_initial: 'Посещено занятий',
   discount: 'Скидка %',
   birthday: 'Дата рождения',
   source: 'Источник',
   comment: 'Комментарий',
 }
 // Числа — это баланс ребёнка. Обращаемся осторожнее, чем с текстом.
-const NUMERIC = new Set(['paid_lessons', 'visited_lessons', 'discount'])
+const NUMERIC = new Set(['paid_lessons', 'visited_initial', 'discount'])
 
 export const CLIENT_SELECT =
-  'id, child_name, adult_name, contacts, status, paid_lessons, visited_lessons, discount, birthday, source, comment'
+  'id, child_name, adult_name, contacts, status, paid_lessons, visited_initial, visited_lessons, discount, birthday, source, comment'
 
 /**
  * @param mode 'fill'    — дополнить: пишем только в пустые поля базы
@@ -65,7 +65,9 @@ export function buildClientsPlan({ rows, existingClients, clientStatuses = [], m
       adult_name: asStr(pick(row, 'Имя родителя')),
       status: asStr(pick(row, 'Статус')),
       paid_lessons: asNum(pick(row, 'Оплачено занятий')),
-      visited_lessons: asNum(pick(row, 'Посещено занятий')),
+      // Колонка файла означает «посещено ДО внедрения CRM» — это
+      // стартовое значение, а не итог. Итог считает база по отметкам.
+      visited_initial: asNum(pick(row, 'Посещено занятий')),
       discount: asNum(pick(row, 'Скидка %')),
       birthday: bd.iso,
       source: asStr(pick(row, 'Источник')),
@@ -169,7 +171,7 @@ export function buildClientsPlan({ rows, existingClients, clientStatuses = [], m
           ],
           status: vals.status || defaultStatus,
           paid_lessons: vals.paid_lessons || 0,
-          visited_lessons: vals.visited_lessons || 0,
+          visited_initial: vals.visited_initial || 0,
           discount: vals.discount || 0,
           birthday: vals.birthday,
           source: vals.source || null,
