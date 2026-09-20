@@ -318,7 +318,7 @@ const PickRow = ({ name, sub, note, onClick, busy }) => (
 )
 
 // Attendance modal
-function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], directions = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavigate, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], directions = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
   const [attendance, setAttendance] = useState({})
   const [localEnrollments, setLocalEnrollments] = useState([])
   // Пробные, заведённые прямо сейчас в этом окне. Родительский список
@@ -801,9 +801,47 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, isAdmin
 
   const handleClose = () => { onClose(dirtyRef.current) }
 
+  // Переход на соседний день без закрытия окна.
+  //
+  // Накопленное «что-то менялось» отдаём наверх: окно пересоздаётся под новую
+  // дату и свой dirtyRef теряет, а списки клиентов обновить всё равно нужно —
+  // иначе отметки, поставленные в понедельник, не доехали бы до баланса,
+  // если закрыть окно во вторник.
+  const goToDay = (next) => {
+    if (!onNavigate) return
+    onNavigate(next, dirtyRef.current)
+  }
+
+  const isToday = ds === dateStr(today)
+
   return (
     <Modal title={`📅 ${date.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}`} onClose={handleClose} large
       footer={<button className="btn btn-ghost" onClick={handleClose}>Закрыть</button>}>
+
+      {/* Навигация по дням. Раньше, чтобы посмотреть соседний день,
+          окно приходилось закрывать и открывать заново. Липкая строка:
+          у дня с несколькими занятиями список длинный, и кнопки не должны
+          уезжать вверх вместе с ним. */}
+      {onNavigate && (
+        <div style={{
+          position:'sticky', top:0, zIndex:3, background:T.white,
+          display:'flex', alignItems:'center', gap:8,
+          padding:'0 0 12px', marginBottom:4, borderBottom:`1px solid ${T.border}`,
+        }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => goToDay(addDays(date, -1))} title="Предыдущий день">←</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => goToDay(addDays(date, 1))} title="Следующий день">→</button>
+          <div style={{ flex:1, textAlign:'center', fontWeight:700, fontSize:14, color:T.ink }}>
+            {date.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' })}
+          </div>
+          <button
+            className="btn btn-light btn-sm"
+            onClick={() => goToDay(new Date())}
+            disabled={isToday}
+            title={isToday ? 'Вы и так на сегодняшнем дне' : 'Перейти на сегодня'}
+          >Сегодня</button>
+        </div>
+      )}
+
       {!isPast && <div style={{ background:'#fff4e6', color:'#c47a00', borderRadius:10, padding:'10px 14px', marginBottom:16, fontSize:13, fontWeight:600 }}>⏳ Отмечать можно только прошедшие даты и сегодня</div>}
       {events.length === 0 && <div className="empty"><div className="empty-icon">🗓️</div><div className="empty-text">Занятий нет</div></div>}
       {events.map((ev, i) => {
@@ -1454,6 +1492,9 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
   const [selectedDay, setSelectedDay] = useState(null)
+  // Были ли изменения за время, что окно дня открыто. Живёт здесь, а не
+  // в самом окне: при переходе на соседний день окно пересоздаётся.
+  const dayDirtyRef = useRef(false)
 
   const [filterTeacher, setFilterTeacher] = useState('all')
   const [filterDirs, setFilterDirs] = useState([]) // empty = all
@@ -1692,6 +1733,11 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
       {/* Attendance modal */}
       {selectedDay && (
         <DayModal
+          // Ключ по дате: при переходе на соседний день окно пересобирается
+          // с нуля, как будто его закрыли и открыли. Иначе в новом дне
+          // осталось бы состояние старого — раскрытые занятия, отметки
+          // педагогов, наполовину заполненный поиск.
+          key={dateStr(selectedDay)}
           date={selectedDay}
           events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
           teachers={teachers}
@@ -1706,10 +1752,18 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           directions={directions}
           onClientsChanged={reload}
           trialRepeatPolicy={studioSettings?.trial_repeat_policy || 'warn'}
+          onNavigate={(next, changed) => {
+            if (changed) dayDirtyRef.current = true
+            setSelectedDay(next)
+          }}
           onClose={(changed) => {
+            // Могли отмечать в одном дне, а закрыть окно в другом —
+            // поэтому считаем изменения по всем просмотренным дням.
+            const anyChanged = changed || dayDirtyRef.current
+            dayDirtyRef.current = false
             setSelectedDay(null)
             // Если внутри что-то отмечали — обновляем списки клиентов (баланс, посещения)
-            if (changed) reload && reload()
+            if (anyChanged) reload && reload()
             // Перезагружаем enrollments чтобы обновить счётчик в календаре
             const from = dateStr(addDays(new Date(), -60))
             const to = dateStr(addDays(new Date(), 60))

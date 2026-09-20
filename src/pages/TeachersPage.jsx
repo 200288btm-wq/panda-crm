@@ -1150,6 +1150,16 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
 
       {open && (
         <div style={{ borderTop: `1px solid ${T.border}`, padding: '16px 18px' }}>
+          {/* Выплата и правка — сразу под именем.
+              Раньше они стояли в самом низу карточки, за всей историей
+              занятий и выплат: у педагога с полугодом работы до них
+              приходилось листать экран за экраном, а нужны они каждый день.
+              «Удалить или в архив» остался внизу — он редкий и необратимый,
+              ему в шапке не место. */}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+            <button className="btn btn-primary btn-sm" onClick={() => onPayout(teacher)}>💰 Выплата</button>
+            <button className="btn btn-outline btn-sm" onClick={() => onEdit(teacher)}>✏️ Редактировать</button>
+          </div>
           {loadingStats ? (
             <div style={{ color: T.muted, fontSize: 13 }}>Загрузка...</div>
           ) : (
@@ -1416,8 +1426,6 @@ function TeacherCard({ teacher, directions, studioId, onEdit, onDelete, onPayout
               )}
 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn btn-primary btn-sm" onClick={() => onPayout(teacher)}>💰 Выплата</button>
-                <button className="btn btn-outline btn-sm" onClick={() => onEdit(teacher)}>✏️ Редактировать</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => onDelete(teacher.id, teacher.name)} style={{ color: '#e05a5a' }}>🗑️ Удалить или в архив</button>
               </div>
             </>

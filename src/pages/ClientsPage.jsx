@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../supabase'
 import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
 import { Modal } from '../components/Modal'
@@ -7,6 +7,7 @@ import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
 import { toast, confirmAction } from '../lib/ui'
 import { statusIndex, inList, inPayments, systemStatusName } from '../lib/clientStatus'
 import { liveGroups, findGroup } from '../lib/groups'
+import { findClientMatch, firstPhone } from '../lib/duplicates'
 
 const DEFAULT_COLOR = '#7BAF8E'
 
@@ -336,7 +337,79 @@ function ClientModal({ client, directions, onClose, onSave, statuses = [], defau
   )
 }
 
-function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onArchive, onRestore, isArchived = false, canPay = true, onAddPayment, onEnroll, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+/**
+ * Статус клиента прямо в карточке: нажал — выбрал — сохранилось.
+ *
+ * Раньше смена статуса стоила четырёх действий: «Редактировать», найти поле
+ * в длинной форме, выбрать, «Сохранить». А статус меняют чаще, чем всё
+ * остальное в карточке вместе взятое.
+ *
+ * Список статусов тот же, что в форме редактирования, — справочник студии.
+ */
+function StatusPicker({ value, statuses, colorClass, onPick, disabled }) {
+  const [open, setOpen] = useState(false)
+  const boxRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const away = (e) => { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false) }
+    const esc = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
+    document.addEventListener('mousedown', away)
+    // capture: иначе Escape сначала поймает модалка и закроет карточку целиком
+    document.addEventListener('keydown', esc, true)
+    return () => {
+      document.removeEventListener('mousedown', away)
+      document.removeEventListener('keydown', esc, true)
+    }
+  }, [open])
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', display: 'inline-block', marginTop: 6 }}>
+      <button
+        type="button"
+        className={`badge ${colorClass}`}
+        onClick={() => !disabled && setOpen(o => !o)}
+        disabled={disabled}
+        title={disabled ? 'Статус нельзя сменить' : 'Нажмите, чтобы сменить статус'}
+        style={{
+          fontSize: 14, fontWeight: 800, padding: '6px 12px', lineHeight: 1.2,
+          border: 'none', cursor: disabled ? 'default' : 'pointer',
+          display: 'inline-flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        {value || '—'}
+        {!disabled && <span style={{ fontSize: 10, opacity: 0.7 }}>▾</span>}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
+          background: T.white, border: `1px solid ${T.border}`, borderRadius: 12,
+          boxShadow: '0 10px 30px rgba(0,0,0,.14)', padding: 6, minWidth: 190,
+          maxHeight: 280, overflowY: 'auto',
+        }}>
+          {statuses.map(s => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => { setOpen(false); if (s !== value) onPick(s) }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '8px 10px', borderRadius: 8, border: 'none',
+                background: s === value ? T.cream : 'transparent',
+                fontWeight: s === value ? 800 : 600, fontSize: 13.5,
+                cursor: 'pointer', color: T.ink,
+              }}
+            >
+              {s === value ? '✓ ' : ''}{s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ClientDetail({ client, directions, payments, teachers, addresses, onClose, onEdit, onFreeze, onDelete, onArchive, onRestore, isArchived = false, canPay = true, onAddPayment, onEnroll, statuses = [], onStatusChange, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [stats, setStats] = useState(null)
   const [freezes, setFreezes] = useState([])
   const [attDetails, setAttDetails] = useState([])
@@ -432,7 +505,15 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
             {client.birthday ? ` (${new Date(client.birthday).toLocaleDateString('ru-RU')})` : ''}
             {` · ${client.sex}`}
           </div>
-          <span className={`badge ${STATUS_COLORS[client.status]}`} style={{ marginTop: 4 }}>{client.status}</span>
+          {/* Архив меняется своими кнопками внизу карточки: туда завязаны
+              проверка долга и возврат, и обойти их выпадающим списком нельзя. */}
+          <StatusPicker
+            value={client.status}
+            statuses={statuses}
+            colorClass={STATUS_COLORS[client.status]}
+            disabled={isArchived || !onStatusChange || statuses.length === 0}
+            onPick={(s) => onStatusChange(client, s)}
+          />
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 900, fontSize: 22, color: bal.color }}>{Math.abs(bal.left)}</div>
@@ -874,6 +955,42 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
   }, [filtered, sort, statusOrder, directions, payments])
   const hiddenCount = clients.filter(c => !inList(statusIdx, c.status)).length
   const save = async (f) => {
+    // Тот же ребёнок не должен заводиться дважды.
+    //
+    // Правило то же, что при загрузке файлом (lib/duplicates.js): телефон
+    // плюс имя ребёнка — это он же; тот же телефон с другим именем — брат
+    // или сестра. Раньше проверка была только в импорте, и вручную клиент
+    // с тем же именем и телефоном заводился молча.
+    const phoneVal = (f.contacts || []).find(x => x && x.type === 'Телефон' && x.val)?.val || ''
+    const dup = findClientMatch({
+      childName: f.child_name,
+      phone: phoneVal,
+      // Архивных тоже учитываем: дубль архивного — такой же дубль,
+      // его просто не видно в списке.
+      clients,
+      excludeId: showEdit ? showEdit.id : null,
+    })
+    if (dup.kind === 'same_child') {
+      const where = dup.client.status === archiveName ? ' (сейчас в архиве)' : ''
+      toast.error(
+        `«${dup.client.child_name}» с этим телефоном уже заведён${where}`,
+        'Это тот же ребёнок. Откройте его карточку — или измените имя, если это другой ребёнок в семье.',
+      )
+      return
+    }
+    if (dup.kind === 'name_only') {
+      const ok = await confirmAction({
+        title: 'Возможно, это тот же ребёнок',
+        text: `«${dup.client.child_name}» уже есть в списке${firstPhone(dup.client) ? `, телефон ${firstPhone(dup.client)}` : ''}. `
+            + 'Имя совпадает, телефон другой. Завести ещё одного?',
+        confirmLabel: 'Да, это другой ребёнок',
+      })
+      if (!ok) return
+    }
+    if (dup.kind === 'sibling' && !showEdit) {
+      toast.info(`Тот же телефон, что у «${dup.client.child_name}» — записываем вторым ребёнком в семье`)
+    }
+
     const cleaned = {
       ...f,
       paid_lessons: +f.paid_lessons || 0,
@@ -904,6 +1021,28 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
     }
     await reload()
   }
+  /**
+   * Смена статуса одним нажатием из карточки.
+   *
+   * Пишем только одно поле. Раньше статус менялся через форму
+   * редактирования, а она отправляет карточку целиком — и заодно
+   * перезаписывает счётчик посещений тем, что стоит в поле
+   * «Посещено занятий (начало учёта)».
+   *
+   * Архив сюда не попадает: у него свои кнопки внизу карточки,
+   * с проверкой долга и возвратом.
+   */
+  const changeStatus = async (c, status) => {
+    if (!c || !status || status === c.status) return
+    const { error } = await supabase.from('clients').update({ status }).eq('id', c.id)
+    if (error) { toast.fromError(error, 'Не удалось сменить статус'); return }
+    // Показываем новое значение сразу, не дожидаясь перезагрузки списка:
+    // иначе кажется, что нажатие не сработало.
+    setShowDetail(d => (d && d.id === c.id ? { ...d, status } : d))
+    toast.success(`Статус: ${status}`)
+    await reload()
+  }
+
   // ── Архив ──────────────────────────────────────────────────────────
   // Ушедший ребёнок уходит в архив, а не удаляется: отметки — основа
   // начислений педагогам, оплаты — основа финансов.
@@ -1158,6 +1297,8 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
           canPay={inPayments(statusIdx, showDetail.status)}
           onAddPayment={navigate ? (c) => { setShowDetail(null); navigate('payments', { clientId: c.id }) } : null}
           onEnroll={(data) => setEnrollModal(data)}
+          statuses={STATUSES_LIST.filter(s => s !== archiveName)}
+          onStatusChange={changeStatus}
           features={features}
         />
       )}

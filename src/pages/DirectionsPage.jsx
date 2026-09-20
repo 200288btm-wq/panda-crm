@@ -785,7 +785,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
   )
 }
 
-export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], clientStatuses=[], reload, isAdmin, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
+export default function DirectionsPage({ directions, clients, teachers, addresses=[], subscriptions=[], clientStatuses=[], reload, isAdmin, studioId, navigate, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [showDetail, setShowDetail] = useState(null)
@@ -1090,14 +1090,24 @@ export default function DirectionsPage({ directions, clients, teachers, addresse
             ⚠️ К некоторым направлениям не закреплён педагог
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {/* Название — ссылка: раньше предупреждение говорило, куда идти,
+                но идти приходилось самому. */}
             {dirsWithoutTeacher.map(d => (
-              <span key={d.id}
-                style={{ background: '#e05a5a22', color: '#c0392b', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600, border: '1px solid #e05a5a44' }}>
+              <button key={d.id} type="button"
+                onClick={() => navigate && navigate('teachers')}
+                disabled={!navigate}
+                title={navigate ? 'Открыть «Педагоги»' : undefined}
+                style={{ background: '#e05a5a22', color: '#c0392b', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 600, border: '1px solid #e05a5a44',
+                         cursor: navigate ? 'pointer' : 'default', textDecoration: navigate ? 'underline' : 'none', font: 'inherit' }}>
                 {d.name}
-              </span>
+              </button>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>Откройте раздел «👩‍🏫 Педагоги» и отметьте эти направления в карточках педагогов</div>
+          <div style={{ fontSize: 11, color: '#c0392b', marginTop: 6 }}>
+            {navigate
+              ? 'Нажмите на направление, чтобы перейти к педагогам и отметить его в карточке нужного человека'
+              : 'Откройте раздел «👩‍🏫 Педагоги» и отметьте эти направления в карточках педагогов'}
+          </div>
         </div>
       )}
       {isAdmin && <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:18 }}><button className="btn btn-primary" onClick={()=>setShowAdd(true)}>+ Новое направление</button></div>}
