@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase } from '../supabase'
 import { T, hashColor, addressColor, nowInStudio, todayDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
@@ -7,6 +7,7 @@ import { toast, confirmAction } from '../lib/ui'
 import { statusIndex, inSchedule, systemStatus, systemStatusName } from '../lib/clientStatus'
 import { groupsOnDate, liveGroups } from '../lib/groups'
 import { countTrials, checkTrialRepeat } from '../lib/trials'
+import { EMPTY_LESSONS, buildLessons, studentsOf, lessonKey, orphanCount, monthGridRange } from '../lib/lessons'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -66,21 +67,43 @@ const getTimeForDow = (dow, schedule) => {
 }
 
 const fmt2 = n => String(n).padStart(2,'0')
+const plural = (n, one, few, many) => {
+  const m10 = n % 10, m100 = n % 100
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? few : many
+}
 const dateStr = (d) => `${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}`
 const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r }
 const startOfWeek = (d) => { const r = new Date(d); const dow = (r.getDay()+6)%7; r.setDate(r.getDate()-dow); return r }
 
-// Get events for a specific date
+// Занятия дня для сетки.
 //
-// ⚠️ `clients` сюда приходит УЖЕ отфильтрованным по галочке in_schedule
-// справочника статусов (см. scheduleClients в CalendarPage). Внутри
-// статус не проверяется: раньше в четырёх ветках стояло сравнение с
-// «Активен», а пятая — запись на конкретное занятие — не проверяла
-// ничего, и ушедший ребёнок оставался в сетке.
-const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = [], enrollments = []) => {
+// ⚠️ Кто на каком занятии, здесь НЕ решается. Состав приходит из базы —
+// функции schedule_lessons, той же, по которой бот шлёт напоминания
+// (см. lib/lessons.js). До захода 13 здесь стояла своя копия правил:
+// групповой формат с подгруппами, свои дни клиента, запись на дату,
+// разовые записи. Сверка двух копий нашла баг 95 — в этой, а не в базе.
+//
+// Здесь осталось только КОГДА (разбор расписания — пустые занятия сетке
+// тоже нужны) и фильтры экрана.
+//
+// `clients` — уже отфильтрованные по in_schedule, нужны только фильтру
+// «ребёнок»: у выбранного ребёнка показываем лишь его направления.
+const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress = 'all', colorMode = 'direction', addresses = [], filterGroups = [], lessons = EMPTY_LESSONS) => {
   const dow = date.getDay()
   const ds = dateStr(date)
   const events = []
+
+  // Состав занятия из ответа базы. pending — состав на этот день ещё
+  // не загружен: показываем «…», а не «0 человек» и не «Свободно»
+  const roster = (dirId, groupId) => {
+    const list = studentsOf(lessons, ds, dirId, groupId)
+    if (list === null) return { students: [], pending: true }
+    return {
+      students: filterChild !== 'all' ? list.filter(c => String(c.id) === filterChild) : list,
+      pending: false,
+    }
+  }
+
   directions.forEach(d => {
     // Занятия рисуются из расписания, а не из базы. Поэтому архивное
     // направление гасим только начиная с даты архивации: прошлые
@@ -126,78 +149,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         const timeMin = parseTime(timeForDay)
         if (timeMin === null) return
 
-        // Ученики подгруппы
-        const dayKey = DOW_TO_KEY[dow]
-        let students
-        if (d.enrollment_type === 'calendar') {
-          const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
-          const enrolledIds = dayEnrollments.map(e => e.client_id)
-          students = clients.filter(c => enrolledIds.includes(c.id))
-        } else if (d.enrollment_type === 'client_days') {
-          // Клиент показывается только в свои дни и только в своей подгруппе
-          students = clients.filter(c => {
-            if (!(c.direction_ids||[]).includes(d.id)) return false
-            const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
-            if (!ws || !Array.isArray(ws.days)) return false
-            if (!ws.days.includes(dayKey)) return false
-            // Подгруппа: если у клиента указана — должна совпадать
-            if (ws.group_id && String(ws.group_id) !== String(group.id)) return false
-            return true
-          })
-          // Разовые записи в «чужой» день/подгруппу
-          const oneOff = enrollments.filter(e =>
-            e.direction_id === d.id && e.date === ds && e.status !== 'cancelled' &&
-            (!e.group_id || String(e.group_id) === String(group.id))
-          )
-          oneOff.forEach(e => {
-            if (students.some(s => s.id === e.client_id)) return
-            const c = clients.find(x => x.id === e.client_id)
-            if (c) students.push({ ...c, _oneOff: true })
-          })
-        } else {
-          // Групповой формат. Раньше сюда попадали ВСЕ ученики направления,
-          // из-за чего после разреза подгрупп по времени ребёнок оказывался
-          // в каждом времени сразу (баг 83). Теперь смотрим на clients.group_ids.
-          //
-          // Правило то же, что у педагогов (teachers.group_ids):
-          // подгруппы этого направления не отмечены — ученик виден во всех,
-          // отмечены — только в своих. Ученик, у которого отмечены подгруппы
-          // ДРУГИХ направлений, по этому направлению остаётся во всех.
-          const dirGroupIds = dirGroups.map(g => +g.id)
-          students = clients.filter(c => {
-            if (!(c.direction_ids||[]).includes(d.id)) return false
-            const mine = (c.group_ids || []).map(Number).filter(id => dirGroupIds.includes(id))
-            return mine.length === 0 || mine.includes(+group.id)
-          })
-          // Здесь стоял второй фильтр по подгруппе — остаток кода до бага 83.
-          // Он выкидывал ребёнка, у которого отмечены подгруппы только ДРУГИХ
-          // направлений, из всех подгрупп этого — то есть из календаря
-          // направления целиком. Ровно противоположное правилу выше (баг 95).
-          //
-          // ⚠️ Правила состава занятия живут ещё в базе — функция
-          // schedule_lessons, по ней шлёт напоминания бот. Меняя правило
-          // здесь, менять и там; сверка — набором проверок захода 12.
-          // Разовая запись на конкретный день. Раньше в групповом формате
-          // подсадить человека на одно занятие было НЕКУДА: состав целиком
-          // выводился из direction_ids/group_ids, то есть «ходит всегда»
-          // либо «не ходит никогда». Пробному и ребёнку, отрабатывающему
-          // пропуск, обе эти роли не подходят.
-          //
-          // Берём только записи со СВОЕЙ подгруппой. Запись без неё —
-          // наследие (баг 46), и если её пустить, один старый мусорный
-          // ряд всплыл бы сразу во всех временах направления.
-          const oneOff = enrollments.filter(e =>
-            e.direction_id === d.id && e.date === ds && e.status !== 'cancelled' &&
-            e.group_id != null && String(e.group_id) === String(group.id)
-          )
-          oneOff.forEach(e => {
-            if (students.some(s => s.id === e.client_id)) return
-            const c = clients.find(x => x.id === e.client_id)
-            if (c) students.push({ ...c, _oneOff: true })
-          })
-        }
-        if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
-
+        const { students, pending } = roster(d.id, group.id)
 
         // Цвет. В режиме «по адресам» занятие без адреса красим нейтральным
         // серым: цвет направления там читался бы как ещё один адрес
@@ -214,7 +166,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
           timeMin, time: timeForDay,
           teacher: dirTeachers.length === 1 ? dirTeachers[0].name : null,
           teachersList: dirTeachers,
-          dirId: d.id, groupId: group.id, students,
+          dirId: d.id, groupId: group.id, students, pending,
           color: eventColor, duration: d.duration || '1 час',
           durationMin: durationMinutes(d),
           enrollmentType: d.enrollment_type || 'group',
@@ -223,7 +175,7 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
         })
       })
     } else {
-      // Старая логика — направление без подгрупп
+      // Направление без подгрупп
       const timeForDay = getTimeForDow(dow, d.schedule)
       if (!timeForDay) return
       if (filterTeacher !== 'all') {
@@ -235,47 +187,14 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
       const timeMin = parseTime(timeForDay)
       if (timeMin === null) return
 
-      const dayKey = DOW_TO_KEY[dow]
-      let students
-      if (d.enrollment_type === 'calendar') {
-        const dayEnrollments = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
-        const enrolledIds = dayEnrollments.map(e => e.client_id)
-        students = clients.filter(c => enrolledIds.includes(c.id))
-      } else if (d.enrollment_type === 'client_days') {
-        students = clients.filter(c => {
-          if (!(c.direction_ids||[]).includes(d.id)) return false
-          const ws = (c.weekly_schedule || {})[d.id] || (c.weekly_schedule || {})[String(d.id)]
-          if (!ws || !Array.isArray(ws.days)) return false
-          return ws.days.includes(dayKey)
-        })
-        // Разовые записи
-        const oneOff = enrollments.filter(e => e.direction_id === d.id && e.date === ds && e.status !== 'cancelled')
-        oneOff.forEach(e => {
-          if (students.some(s => s.id === e.client_id)) return
-          const c = clients.find(x => x.id === e.client_id)
-          if (c) students.push({ ...c, _oneOff: true })
-        })
-      } else {
-        students = clients.filter(c => (c.direction_ids||[]).includes(d.id))
-        // Разовая запись — то же, что и в ветке с подгруппами выше.
-        // Подгруппы тут нет вовсе, поэтому берём все записи дня.
-        const oneOff = enrollments.filter(e =>
-          e.direction_id === d.id && e.date === ds && e.status !== 'cancelled'
-        )
-        oneOff.forEach(e => {
-          if (students.some(s => s.id === e.client_id)) return
-          const c = clients.find(x => x.id === e.client_id)
-          if (c) students.push({ ...c, _oneOff: true })
-        })
-      }
-      if (filterChild !== 'all') students = students.filter(c => String(c.id) === filterChild)
+      const { students, pending } = roster(d.id, 0)
 
       const dirTeachers = (teachers || []).filter(t => (t.direction_ids || []).includes(d.id))
       events.push({
         name: d.name, timeMin, time: timeForDay,
         teacher: dirTeachers.length === 1 ? dirTeachers[0].name : null,
         teachersList: dirTeachers,
-        dirId: d.id, groupId: null, students,
+        dirId: d.id, groupId: null, students, pending,
         color: colorMode === 'address' ? NO_ADDRESS_COLOR : (d.color || DEFAULT_COLOR),
         duration: d.duration || '1 час',
         durationMin: durationMinutes(d),
@@ -287,6 +206,19 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
   })
   events.sort((a,b) => a.timeMin - b.timeMin)
   return events
+}
+
+// Ключи всех занятий периода без фильтров экрана — чтобы заметить строку
+// состава, которой не нашлось места в сетке (lib/lessons.js, orphanCount)
+const allEventKeys = (fromStr, toStr, directions) => {
+  const keys = new Set()
+  const [y, m, dd] = fromStr.split('-').map(Number)
+  for (let d = new Date(y, m - 1, dd); dateStr(d) <= toStr; d = addDays(d, 1)) {
+    const ds = dateStr(d)
+    getEventsForDate(d, directions, [], [], 'all', 'all', [], 'all', 'direction', [], [], EMPTY_LESSONS)
+      .forEach(ev => keys.add(lessonKey(ds, ev.dirId, ev.groupId)))
+  }
+  return keys
 }
 
 // Заголовок группы в списке выбора: откуда человек и что с ним будет
@@ -319,9 +251,8 @@ const PickRow = ({ name, sub, note, onClick, busy }) => (
 )
 
 // Attendance modal
-function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavigate, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], directions = [], onClientsChanged, trialRepeatPolicy = 'warn' }) {
+function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavigate, isAdmin, myTeacherName, onAttendanceChange, clients = [], studioId, clientStatuses = [], allClients = [], directions = [], onClientsChanged, onLessonsChanged, onFreshClient, trialRepeatPolicy = 'warn' }) {
   const [attendance, setAttendance] = useState({})
-  const [localEnrollments, setLocalEnrollments] = useState([])
   // Пробные, заведённые прямо сейчас в этом окне. Родительский список
   // клиентов приедет только после reload, а человек должен появиться
   // в составе занятия сразу — иначе кажется, что кнопка не сработала.
@@ -353,16 +284,6 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
   const isPast = date <= today
   const ds = dateStr(date)
 
-  useEffect(() => {
-    if (!studioId) return
-    // Загружаем enrollments для этого дня.
-    // Фильтр по студии обязателен: RLS пропускает ВСЕ студии участника,
-    // поэтому у человека в двух студиях сюда подмешивались чужие записи.
-    supabase.from('enrollments').select('*')
-      .eq('studio_id', studioId).eq('date', ds).eq('status', 'enrolled')
-      .then(({ data }) => { if (data) setLocalEnrollments(data) })
-  }, [ds, studioId])
-
   // Ответы родителей на напоминание бота. Ключ тот же, что у занятия:
   // клиент + направление + подгруппа — в базе занятия нет, оно рисуется
   // из расписания. Подтверждение это ПРОГНОЗ, а не посещение: отметка
@@ -390,44 +311,14 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
     return [...clients, ...freshTrials.filter(c => !seen.has(c.id))]
   }, [clients, freshTrials])
 
-  // Пересчитываем events с учётом localEnrollments
-  const events = initialEvents.map(ev => {
-    if (ev.enrollmentType === 'calendar') {
-      const enrolledIds = localEnrollments.filter(e => e.direction_id === ev.dirId).map(e => e.client_id)
-      return { ...ev, students: knownClients.filter(c => enrolledIds.includes(c.id)) }
-    }
-    if (ev.enrollmentType === 'client_days') {
-      // Базовые ученики (по своим дням) + разовые записи
-      const base = ev.students.filter(s => !s._oneOff)
-      const oneOffIds = localEnrollments
-        .filter(e => e.direction_id === ev.dirId && (!e.group_id || String(e.group_id) === String(ev.groupId)))
-        .map(e => e.client_id)
-      const extra = knownClients
-        .filter(c => oneOffIds.includes(c.id) && !base.some(s => s.id === c.id))
-        .map(c => ({ ...c, _oneOff: true }))
-      return { ...ev, students: [...base, ...extra] }
-    }
-    // Групповой формат. Пересчёт нужен по той же причине, что и выше:
-    // без него записанный только что пробный появился бы в составе
-    // лишь после закрытия и повторного открытия окна.
-    // Правило подгруппы то же, что в getEventsForDate: у занятия
-    // с подгруппой берём только записи этой подгруппы.
-    const base = ev.students.filter(s => !s._oneOff)
-    const oneOffIds = localEnrollments
-      .filter(e => e.direction_id === ev.dirId && (
-        ev.groupId ? (e.group_id != null && String(e.group_id) === String(ev.groupId)) : true
-      ))
-      .map(e => e.client_id)
-    const extra = knownClients
-      .filter(c => oneOffIds.includes(c.id) && !base.some(s => s.id === c.id))
-      .map(c => ({ ...c, _oneOff: true }))
-    return { ...ev, students: [...base, ...extra] }
-  })
+  // Состав занятий приходит от родителя уже из базы (schedule_lessons).
+  // Раньше здесь стояла ещё одна, третья копия правил — пересчёт состава
+  // по разовым записям дня, — и в крайних случаях она расходилась с сеткой
+  // (баг 96). Теперь после любой записи окно просто просит состав заново.
+  const events = initialEvents
 
   const reloadEnrollments = async () => {
-    const { data } = await supabase.from('enrollments').select('*')
-      .eq('studio_id', studioId).eq('date', ds).eq('status', 'enrolled')
-    if (data) setLocalEnrollments(data)
+    if (onLessonsChanged) await onLessonsChanged()
   }
 
   const enroll = async (clientId, dirId, groupId = null) => {
@@ -446,10 +337,13 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
   }
 
   const cancelEnroll = async (clientId, dirId) => {
-    await supabase.from('enrollments')
+    const { error } = await supabase.from('enrollments')
       .update({ status: 'cancelled' })
       .eq('studio_id', studioId)
       .eq('direction_id', dirId).eq('client_id', clientId).eq('date', ds)
+    // Раньше ошибка молчала: крестик нажат, а человек остался в составе
+    if (error) { toast.fromError(error, 'Не удалось снять запись'); return }
+    dirtyRef.current = true
     await reloadEnrollments()
   }
 
@@ -519,6 +413,9 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
     }, { onConflict: 'studio_id,direction_id,client_id,date' })
     if (error) return error
     setFreshTrials(prev => prev.some(c => c.id === client.id) ? prev : [...prev, client])
+    // Родителю тоже: состав из базы уже знает этого человека, а список
+    // клиентов доедет только после reload
+    onFreshClient && onFreshClient(client)
     dirtyRef.current = true
     await reloadEnrollments()
     onClientsChanged && onClientsChanged()
@@ -959,11 +856,11 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
               </div>
               {isCalendar ? (
                 <span className={`badge ${maxSlot > 0 && ev.students.length >= maxSlot ? 'badge-red' : ev.students.length > 0 ? 'badge-green' : 'badge-gray'}`}>
-                  📅 {ev.students.length}{maxSlot > 0 ? `/${maxSlot}` : ''} зап.
+                  📅 {ev.pending ? '…' : ev.students.length}{maxSlot > 0 ? `/${maxSlot}` : ''} зап.
                 </span>
               ) : (
                 <span className={`badge ${isSlotFull ? 'badge-orange' : 'badge-green'}`}>
-                  {presentCount}/{ev.students.length}{maxSlot > 0 ? ` из ${maxSlot}` : ''}
+                  {presentCount}/{ev.pending ? '…' : ev.students.length}{maxSlot > 0 ? ` из ${maxSlot}` : ''}
                 </span>
               )}
             </div>
@@ -1239,10 +1136,13 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
                 )}
               </div>
             )}
-            {isCalendar && ev.students.length === 0 && (
+            {ev.pending && (
+              <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>Загружаю состав…</div>
+            )}
+            {!ev.pending && isCalendar && ev.students.length === 0 && (
               <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>Нет записавшихся на этот день</div>
             )}
-            {!isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
+            {!ev.pending && !isCalendar && ev.students.length === 0 && <div style={{ fontSize:13, color:T.muted, padding:'8px 2px' }}>{isClientDays ? 'В этот день никто не ходит' : 'Нет учеников'}</div>}
             </div>)}
           </div>
         )
@@ -1252,7 +1152,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
 }
 
 // Time grid for week/day view
-function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, enrollments = [] }) {
+function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeacher, filterChild, isAdmin, myTeacherName, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, lessons = EMPTY_LESSONS }) {
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
@@ -1260,8 +1160,9 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
-    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
-    if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
+    let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, lessons)
+    // Пока состав не пришёл, занятие не прячем: «пусто» ещё не известно
+    if (onlyWithStudents) events = events.filter(e => e.pending || e.students.length > 0)
     if (!events.length) return []
 
     // Assign columns using greedy interval scheduling
@@ -1367,8 +1268,8 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
                   <div style={{ fontSize:10, fontWeight:800, color:ev.color, lineHeight:1.3, whiteSpace:'normal', wordBreak:'break-word' }}>{ev.name}</div>
                   {height > 28 && <div style={{ fontSize:9, color:ev.color+'cc' }}>
                     {ev.time} · {ev.enrollmentType === 'calendar'
-                      ? `${ev.students.length}${ev.maxPerSlot > 0 ? `/${ev.maxPerSlot}` : ''} зап.`
-                      : `${ev.students.length} чел.`}
+                      ? `${ev.pending ? '…' : ev.students.length}${ev.maxPerSlot > 0 ? `/${ev.maxPerSlot}` : ''} зап.`
+                      : `${ev.pending ? '…' : ev.students.length} чел.`}
                   </div>}
                   {height > 44 && (ev.teachersList || []).length > 0 && (
                     <div style={{ fontSize:9, color:ev.color+'99', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -1393,7 +1294,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 }
 
 // Month view
-function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, enrollments = [] }) {
+function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, lessons = EMPTY_LESSONS }) {
   const now = nowInStudio()
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
   useEffect(() => {
@@ -1414,8 +1315,8 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
         {cells.map((day, i) => {
           if (!day) return <div key={i} className="cal-day empty" />
           const date = new Date(year, month, day)
-          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
-          if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
+          let events = getEventsForDate(date, directions, clients, filterDir, filterTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, lessons)
+          if (onlyWithStudents) events = events.filter(e => e.pending || e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
           const today0 = todayDate()
@@ -1466,7 +1367,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
                   {group.length === 1 ? (
                     <div className="cal-event"
                       style={{ background:group[0].color+'33', color:group[0].color, borderLeft:'3px solid '+group[0].color, borderRadius:'0 4px 4px 0', paddingLeft:3 }}
-                      title={group[0].name+' · '+group[0].students.length+' чел.'}>
+                      title={group[0].name+' · '+(group[0].pending ? '…' : group[0].students.length)+' чел.'}>
                       {time} {group[0].name.split(' ')[0]}
                     </div>
                   ) : (
@@ -1474,7 +1375,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
                       {group.map((e, ei) => (
                         <div key={ei} className="cal-event"
                           style={{ flex:1, minWidth:0, background:e.color+'33', color:e.color, borderLeft:'2px solid '+e.color, borderRadius:'0 3px 3px 0', paddingLeft:2, fontSize:8 }}
-                          title={e.name+' · '+e.students.length+' чел.'}>
+                          title={e.name+' · '+(e.pending ? '…' : e.students.length)+' чел.'}>
                           {ei === 0 ? time+' ' : ''}{e.name.split(' ')[0]}
                         </div>
                       ))}
@@ -1506,18 +1407,53 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
   const [filterAddress, setFilterAddress] = useState('all')
   const [colorMode, setColorMode] = useState('direction') // 'direction' | 'address'
   const [onlyWithStudents, setOnlyWithStudents] = useState(false)
-  const [enrollments, setEnrollments] = useState([])
 
-  useEffect(() => {
-    const loadEnrollments = async () => {
-      const from = dateStr(addDays(new Date(), -60))
-      const to = dateStr(addDays(new Date(), 60))
-      const { data } = await supabase.from('enrollments')
-        .select('*').eq('studio_id', studioId).gte('date', from).lte('date', to)
-      if (data) setEnrollments(data)
+  // ── Состав занятий — из базы, функцией schedule_lessons ──────────────
+  // Грузим сетку текущего месяца целиком неделями: её же хватает виду
+  // «неделя» и «день» внутри месяца. Раньше календарь тянул разовые записи
+  // только на ±60 дней от сегодня по часам браузера, и дальше этого окна
+  // «запись на дату» молча показывала пустые занятия (баг 97).
+  const [lessonRows, setLessonRows] = useState(null)   // { from, to, rows } | null
+  const [lessonsError, setLessonsError] = useState(null)
+  const [freshClients, setFreshClients] = useState([]) // заведены в окне дня, список клиентов ещё не обновился
+  const lessonsReq = useRef(0)
+  const gridY = currentDate.getFullYear(), gridM = currentDate.getMonth()
+  const range = useMemo(() => monthGridRange(new Date(gridY, gridM, 1), dateStr), [gridY, gridM])
+
+  const loadLessons = useCallback(async () => {
+    if (!studioId) return
+    const req = ++lessonsReq.current
+    const { data, error } = await supabase.rpc('schedule_lessons', {
+      p_studio_id: studioId, p_from: range.from, p_to: range.to,
+    })
+    if (req !== lessonsReq.current) return   // пока шли, успели запросить другой месяц
+    if (error) {
+      // Не рисуем «0 человек»: это была бы неправда. Занятия остаются
+      // с «…», сверху — что случилось и кнопка «Повторить»
+      console.error('schedule_lessons:', error)
+      setLessonsError(error.message || 'ошибка сети')
+      return
     }
-    if (studioId) loadEnrollments()
-  }, [studioId])
+    setLessonsError(null)
+    setLessonRows({ from: range.from, to: range.to, rows: data || [] })
+  }, [studioId, range.from, range.to])
+
+  // Заново — при смене месяца и после любого обновления данных студии:
+  // reload приносит новые массивы клиентов, направлений и статусов
+  useEffect(() => { loadLessons() }, [loadLessons, clients, directions, clientStatuses])
+
+  const lessons = useMemo(() => lessonRows
+    ? buildLessons(lessonRows.rows, lessonRows.from, lessonRows.to, clients, freshClients)
+    : EMPTY_LESSONS,
+  [lessonRows, clients, freshClients])
+
+  // Строки состава, которым не нашлось занятия в сетке. Разбор расписания
+  // пока живёт и в браузере (когда занятие), и в базе — если они когда-нибудь
+  // разойдутся, ребёнок пропал бы из сетки молча. Не молчим.
+  const orphans = useMemo(() => lessons.loaded
+    ? orphanCount(lessons, allEventKeys(lessons.from, lessons.to, directions))
+    : 0,
+  [lessons, directions])
 
   const isAdmin = role === 'Директор' || role === 'Администратор'
   const myTeacher = teachers.find(t => t.name === staff?.name) || null
@@ -1708,6 +1644,18 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
         )}
       </div>
 
+      {lessonsError && (
+        <div style={{ background:T.redLight, color:T.red, borderRadius:10, padding:'8px 12px', marginBottom:10, fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+          ⚠️ Не удалось загрузить, кто на каких занятиях: {lessonsError}. Вместо числа учеников стоит «…».
+          <button className="btn btn-outline btn-sm" onClick={loadLessons}>Повторить</button>
+        </div>
+      )}
+      {orphans > 0 && (
+        <div style={{ background:'#fff4e6', color:'#c47a00', borderRadius:10, padding:'8px 12px', marginBottom:10, fontSize:12, fontWeight:600 }}>
+          ⚠️ {orphans} {plural(orphans, 'запись', 'записи', 'записей')} состава не нашли занятия в сетке этого месяца — расписание в CRM и в базе разошлось. Сообщите разработчику.
+        </div>
+      )}
+
       {/* Views */}
       {view === 'month' && (
         <MonthView
@@ -1716,7 +1664,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           filterDir={filterDir} filterTeacher={effectiveTeacher} filterChild={filterChild}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
-          filterGroups={filterGroups} enrollments={enrollments}
+          filterGroups={filterGroups} lessons={lessons}
         />
       )}
 
@@ -1728,7 +1676,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onDayClick={handleDayClick} onlyWithStudents={onlyWithStudents}
           filterAddress={filterAddress} colorMode={colorMode} addresses={addresses}
-          filterGroups={filterGroups} enrollments={enrollments}
+          filterGroups={filterGroups} lessons={lessons}
         />
       )}
 
@@ -1744,8 +1692,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           date={selectedDay}
           // Фильтр «С учениками» действует и внутри дня: иначе из отфильтрованной
           // сетки проваливаешься обратно во все занятия, включая пустые
-          events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
-            .filter(e => !onlyWithStudents || e.students.length > 0)}
+          events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, lessons)
+            .filter(e => !onlyWithStudents || e.pending || e.students.length > 0)}
           teachers={teachers}
           clients={scheduleClients}
           studioId={studioId}
@@ -1757,6 +1705,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           allClients={clients}
           directions={directions}
           onClientsChanged={reload}
+          onLessonsChanged={loadLessons}
+          onFreshClient={(c) => setFreshClients(prev => prev.some(x => x.id === c.id) ? prev : [...prev, c])}
           trialRepeatPolicy={studioSettings?.trial_repeat_policy || 'warn'}
           onNavigate={(next, changed) => {
             if (changed) dayDirtyRef.current = true
@@ -1770,12 +1720,8 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
             setSelectedDay(null)
             // Если внутри что-то отмечали — обновляем списки клиентов (баланс, посещения)
             if (anyChanged) reload && reload()
-            // Перезагружаем enrollments чтобы обновить счётчик в календаре
-            const from = dateStr(addDays(new Date(), -60))
-            const to = dateStr(addDays(new Date(), 60))
-            supabase.from('enrollments').select('*')
-              .eq('studio_id', studioId).gte('date', from).lte('date', to)
-              .then(({ data }) => { if (data) setEnrollments(data) })
+            // Состав сетки — заново из базы: в окне могли записать или снять
+            loadLessons()
           }}
           isAdmin={isAdmin} myTeacherName={myTeacherName}
           onAttendanceChange={() => {}}
