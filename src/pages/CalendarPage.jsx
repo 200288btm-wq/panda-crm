@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, hashColor, addressColor } from '../styles.jsx'
+import { T, hashColor, addressColor, nowInStudio, todayDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { Hint } from '../components/Hint'
 import { toast, confirmAction } from '../lib/ui'
@@ -348,7 +348,8 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
   const dirtyRef = useRef(false)  // накопитель: были ли изменения, требующие reload при закрытии
   const markingRef = useRef(new Set())  // отметки в процессе сохранения — защита от двойного клика
 
-  const today = new Date(); today.setHours(0,0,0,0)
+  // «Сегодня» — по часам студии, а не браузера (баг 62)
+  const today = todayDate()
   const isPast = date <= today
   const ds = dateStr(date)
 
@@ -837,7 +838,7 @@ function DayModal({ date, events: initialEvents, teachers = [], onClose, onNavig
           </div>
           <button
             className="btn btn-light btn-sm"
-            onClick={() => goToDay(new Date())}
+            onClick={() => goToDay(todayDate())}
             disabled={isToday}
             title={isToday ? 'Вы и так на сегодняшнем дне' : 'Перейти на сегодня'}
           >Сегодня</button>
@@ -1255,7 +1256,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
   const hours = []
   for (let h = WORK_START; h <= WORK_END; h++) hours.push(h)
 
-  const now = new Date()
+  const now = nowInStudio()   // и день, и линия «сейчас» — по часам студии
 
   // Group events by time overlap — proper column assignment
   const getEventsWithLayout = (date) => {
@@ -1393,7 +1394,7 @@ function TimeGrid({ dates, directions, clients, teachers, filterDir, filterTeach
 
 // Month view
 function MonthView({ year, month, directions, clients, teachers, filterDir, filterTeacher, filterChild, onDayClick, onlyWithStudents, filterAddress, colorMode, addresses, filterGroups, enrollments = [] }) {
-  const now = new Date()
+  const now = nowInStudio()
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 640)
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth <= 640)
@@ -1417,7 +1418,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
           if (onlyWithStudents) events = events.filter(e => e.students.length > 0)
           const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear()
           const dayDate = new Date(year, month, day); dayDate.setHours(0,0,0,0)
-          const today0 = new Date(); today0.setHours(0,0,0,0)
+          const today0 = todayDate()
 
           if (isMobile) {
             // Мобильный: компактные ячейки с цветными точками
@@ -1490,7 +1491,7 @@ function MonthView({ year, month, directions, clients, teachers, filterDir, filt
 }
 
 export default function CalendarPage({ directions, clients, teachers, addresses = [], clientStatuses = [], studioSettings = null, staff, role, reload, studioId, features = { teachers: true, addresses: true, subgroups: true, categories: true, freeze: true } }) {
-  const now = new Date()
+  const now = nowInStudio()
   const [view, setView] = useState('month') // month | week | day
   const [currentDate, setCurrentDate] = useState(new Date(now.getFullYear(), now.getMonth(), now.getDate()))
   const [selectedDay, setSelectedDay] = useState(null)

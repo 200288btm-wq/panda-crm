@@ -370,7 +370,48 @@ export const toLocalISO = (date) => {
   if (isNaN(d.getTime())) return ''
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-export const todayLocal = () => toLocalISO(new Date())
+// ── Часовой пояс студии (баг 62) ─────────────────────────────
+// «Сегодня» — это дата СТУДИИ, а не того, кто смотрит. Администратор
+// в Белграде вечером видел бы вчерашний день екатеринбургской студии:
+// абонемент, сгоревший по времени студии, у него был ещё живой.
+//
+// Пояс ставит CRM.jsx сразу после загрузки studio_settings, раньше, чем
+// приезжают клиенты и оплаты, — поэтому всё, что считается от
+// todayLocal(), видит уже дату студии. Пока настроек нет (экран входа,
+// страница онлайн-записи) — пояс браузера, как было.
+//
+// Тот же вопрос в боте решает localToday(studio.timezone) — ответы
+// теперь совпадают.
+let STUDIO_TZ = null
+
+const validTz = (tz) => {
+  if (!tz || typeof tz !== 'string') return false
+  try { new Intl.DateTimeFormat('en-CA', { timeZone: tz }); return true } catch { return false }
+}
+
+export const setStudioTimezone = (tz) => { STUDIO_TZ = validTz(tz) ? tz : null }
+export const studioTimezone = () => STUDIO_TZ
+
+/**
+ * «Сейчас» по часам студии — как Date, у которого getFullYear/getMonth/
+ * getDate/getHours показывают время СТУДИИ. Для сетки календаря и линии
+ * «сейчас». В базу как момент времени такой объект не отдавать.
+ */
+export const nowInStudio = () => {
+  const now = new Date()
+  if (!STUDIO_TZ) return now
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: STUDIO_TZ, hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(now).map(x => [x.type, x.value]))
+  return new Date(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second)
+}
+
+/** Сегодняшняя дата студии, ГГГГ-ММ-ДД. */
+export const todayLocal = () => toLocalISO(nowInStudio())
+
+/** Сегодня студии как Date на полночь — для сравнений в сетке календаря. */
+export const todayDate = () => { const d = nowInStudio(); d.setHours(0, 0, 0, 0); return d }
 
 /** ГГГГ-ММ-ДД → ДД.ММ.ГГГГ для показа. Принимает и timestamp. */
 export const ruDate = (iso) => {

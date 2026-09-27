@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, ruDate } from '../styles.jsx'
+import { T, fmt, ruDate, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { QuickAdd } from '../components/QuickAdd'
 import { Hint } from '../components/Hint'
@@ -283,8 +283,7 @@ function DirectionModal({ direction, directionGroups, teachers, addresses, subsc
     ? (teachers || []).filter(t => (t.direction_ids || []).includes(direction.id))
     : []
 
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`
+  const todayStr = todayLocal()   // дата студии (баг 62)
 
   const [f, setF] = useState(direction ? {
     name: direction.name||'', launched: direction.launched||'',

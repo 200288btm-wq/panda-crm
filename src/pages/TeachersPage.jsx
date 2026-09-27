@@ -554,7 +554,7 @@ function TeacherModal({ teacher, directions, studioId, onClose, onSave }) {
               </div>
               <button onClick={() => { set('hired', todayLocal()); setHiredError(false) }}
                 style={{ fontSize: 12, color: T.green, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}>
-                Использовать сегодняшнюю дату ({new Date().toLocaleDateString('ru-RU')})
+                Использовать сегодняшнюю дату ({ruDate(todayLocal())})
               </button>
             </div>
           )}

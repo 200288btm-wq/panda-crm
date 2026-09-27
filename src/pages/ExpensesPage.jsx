@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles.jsx'
+import { T, fmt, todayLocal } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { NumberInput } from '../components/SearchSelect'
 import { toast } from '../lib/ui'
@@ -16,13 +16,13 @@ function ExpenseModal({ expense, directions, expenseTypes, typesLoaded, onClose,
     amount: expense.amount || '',
     category: expense.category || 'Периодичный',
     direction_id: expense.direction_id || '',
-    expense_date: expense.expense_date || (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })(),
+    expense_date: expense.expense_date || todayLocal(),
     qty: expense.qty || 1,
     comment: expense.comment || '',
     link: expense.link || '',
   } : {
     expense_type: firstType, amount: '', category: 'Периодичный',
-    direction_id: '', expense_date: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })(),
+    direction_id: '', expense_date: todayLocal(),
     qty: 1, comment: '', link: '',
   })
   const set = (k, v) => setF(p => ({ ...p, [k]: v }))

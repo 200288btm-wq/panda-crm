@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO } from '../styles.jsx'
+import { T, fmt, hashColor, STATUS_COLORS, STATUSES, todayLocal, toLocalISO, todayDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { CLIENT_TRACES, countTraces } from '../lib/archive'
 import { calcBalance, calcRealBalance, sumPaidLessons } from '../lib/balance'
@@ -44,7 +44,7 @@ function SortTh({ sortKey, sort, onSort, children }) {
 const calcAge = (birthday) => {
   if (!birthday) return null
   const b = new Date(birthday)
-  const today = new Date()
+  const today = todayDate()
   let age = today.getFullYear() - b.getFullYear()
   const m = today.getMonth() - b.getMonth()
   if (m < 0 || (m === 0 && today.getDate() < b.getDate())) age--
@@ -421,8 +421,8 @@ function ClientDetail({ client, directions, payments, teachers, addresses, onClo
 
   useEffect(() => {
     const fetchStats = async () => {
-      const now = new Date()
-      const monthStart = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
+      // Месяц — по календарю студии (баг 62)
+      const monthStart = todayLocal().slice(0, 8) + '01'
       const { data: pays } = await supabase.from('payments').select('lessons_count, payment_date, expires_at').eq('client_id', client.id)
       const totalPaid = sumPaidLessons(pays, client.paid_lessons)
       const monthPaid = (pays||[]).filter(p => p.payment_date >= monthStart).reduce((s,p) => s + (+p.lessons_count||0), 0)
@@ -1448,7 +1448,7 @@ export default function ClientsPage({ clients, directions, payments, teachers, r
 
 // ── Модалка записи на конкретные даты ───────────────────────
 function EnrollModal({ client, direction, studioId, onClose }) {
-  const today = new Date()
+  const today = todayDate()
   const [selectedDates, setSelectedDates] = useState([])
   const [existingEnrollments, setExistingEnrollments] = useState([])
   const [saving, setSaving] = useState(false)

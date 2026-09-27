@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt } from '../styles.jsx'
+import { T, fmt, todayLocal, todayDate } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { SearchSelect, NumberInput } from '../components/SearchSelect'
 import { statusIndex, inPayments, systemStatus, systemStatusName } from '../lib/clientStatus'
@@ -31,10 +31,7 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
   const [subId, setSubId] = useState('')
   const [dirId, setDirId] = useState(payment?.direction_id || '')
   const [groupName, setGroupName] = useState(payment?.group_name || 'Группа 1')
-  const [date, setDate] = useState(payment?.payment_date || (() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-  })())
+  const [date, setDate] = useState(payment?.payment_date || todayLocal())
   const [checkNum, setCheckNum] = useState(payment?.check_number || '')
   const [discount, setDiscount] = useState(0)
   const [customPrice, setCustomPrice] = useState(payment?.amount || '')
@@ -400,7 +397,7 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
   }, [deepLink])
 
   // Фильтры
-  const now = new Date()
+  const now = todayDate()   // «этот месяц» — по календарю студии
   const [filterMonth, setFilterMonth] = useState(false)
   const [filterClient, setFilterClient] = useState('all')
   const [filterDir, setFilterDir] = useState('all')
@@ -443,10 +440,10 @@ export default function PaymentsPage({ payments, clients, directions, subscripti
 
   // Применяем фильтры
   const filtered = payments.filter(p => {
-    if (filterMonth) {
-      const d = new Date(p.payment_date)
-      if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false
-    }
+    // Сравниваем строки ГГГГ-ММ, а не Date: new Date('2026-08-01')
+    // разбирается как полночь UTC, и в поясе западнее Гринвича оплата
+    // первого числа уезжала в прошлый месяц (баг 72)
+    if (filterMonth && String(p.payment_date || '').slice(0, 7) !== todayLocal().slice(0, 7)) return false
     if (filterClient !== 'all' && String(p.client_id) !== filterClient) return false
     if (filterDir !== 'all' && String(p.direction_id) !== filterDir) return false
     return true

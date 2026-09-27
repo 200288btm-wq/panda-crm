@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../supabase'
-import { T, todayLocal } from '../styles.jsx'
+import { T, todayLocal, todayDate, setStudioTimezone } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { systemStatusName } from '../lib/clientStatus'
 import { sweepStaleTrials } from '../lib/trials'
@@ -170,6 +170,9 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
     // студия может назвать «Новый» как угодно, а раньше подсчёт молча
     // уезжал в ноль. Справочник приезжает этим же залпом, поэтому имя
     // берём из него, а не из зашитой строки.
+    // Пояс студии — ДО клиентов и оплат: всё, что посчитается от них
+    // при первой же отрисовке, должно видеть уже дату студии (баг 62)
+    setStudioTimezone(ss.data?.timezone)
     if (c.data) {
       const newName = systemStatusName(cs.data, 'new')
       setClients(c.data)
@@ -384,7 +387,7 @@ export default function CRM({ session, staff, studio, studios, onSwitchStudio })
             )}
             {!isMobile && (
               <span style={{ fontSize: 11, color: T.muted }}>
-                {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                {todayDate().toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}
               </span>
             )}
 

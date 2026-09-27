@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
-import { T } from '../styles.jsx'
+import { T, studioTimezone } from '../styles.jsx'
 import { Modal } from '../components/Modal'
 import { toast, confirmAction } from '../lib/ui'
 import { systemStatusName } from '../lib/clientStatus'
@@ -351,7 +351,9 @@ export default function Leads({ directions = [], clientStatuses = [], studioId, 
     return new Date(iso).toLocaleString('ru-RU', {
       day: '2-digit', month: '2-digit',
       hour: '2-digit', minute: '2-digit',
-      timeZone: 'Asia/Yekaterinburg'
+      // Время заявки — по часам студии: по нему решают, когда перезвонить.
+      // Раньше здесь был зашит Екатеринбург (баг 63)
+      timeZone: studioTimezone() || undefined
     })
   }
 

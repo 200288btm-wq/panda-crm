@@ -1,18 +1,18 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabase'
-import { T, fmt, ruDate, todayLocal, toLocalISO } from '../styles.jsx'
+import { T, fmt, ruDate, todayLocal, toLocalISO, todayDate } from '../styles.jsx'
 
 // ── Периоды ─────────────────────────────────────────────────
 // Границы считаются локально: toISOString() в UTC+5 сдвигает первое
 // число месяца на предыдущий месяц.
 const monthRange = (shift = 0) => {
-  const n = new Date()
+  const n = todayDate()   // месяц — по календарю студии (баг 62)
   const from = new Date(n.getFullYear(), n.getMonth() + shift, 1)
   const to = new Date(n.getFullYear(), n.getMonth() + shift + 1, 0)
   return { from: toLocalISO(from), to: toLocalISO(to) }
 }
 const yearRange = () => {
-  const y = new Date().getFullYear()
+  const y = todayDate().getFullYear()
   return { from: `${y}-01-01`, to: `${y}-12-31` }
 }
 const PRESETS = [

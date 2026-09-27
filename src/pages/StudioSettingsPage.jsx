@@ -38,6 +38,35 @@ const TABS = [
   { id: 'plan',       label: 'Тариф' },
 ]
 
+// Часовые пояса для выбора. Названия по городам — так их узнают, а не
+// по «UTC+5». Если у студии уже стоит пояс не из списка, он остаётся
+// первой строкой как есть, а не подменяется молча.
+const TIMEZONES = [
+  ['Europe/Kaliningrad', 'Калининград (МСК−1)'],
+  ['Europe/Moscow', 'Москва (МСК)'],
+  ['Europe/Samara', 'Самара (МСК+1)'],
+  ['Asia/Yekaterinburg', 'Екатеринбург (МСК+2)'],
+  ['Asia/Omsk', 'Омск (МСК+3)'],
+  ['Asia/Novosibirsk', 'Новосибирск (МСК+4)'],
+  ['Asia/Krasnoyarsk', 'Красноярск (МСК+4)'],
+  ['Asia/Irkutsk', 'Иркутск (МСК+5)'],
+  ['Asia/Yakutsk', 'Якутск (МСК+6)'],
+  ['Asia/Vladivostok', 'Владивосток (МСК+7)'],
+  ['Asia/Magadan', 'Магадан (МСК+8)'],
+  ['Asia/Kamchatka', 'Камчатка (МСК+9)'],
+  ['Europe/Minsk', 'Минск'],
+  ['Asia/Almaty', 'Алматы'],
+  ['Asia/Tashkent', 'Ташкент'],
+  ['Asia/Tbilisi', 'Тбилиси'],
+  ['Asia/Yerevan', 'Ереван'],
+  ['Europe/Belgrade', 'Белград'],
+]
+const tzOptions = (current) => {
+  const list = TIMEZONES.map(([tz, label]) => ({ tz, label }))
+  if (current && !list.some(o => o.tz === current)) list.unshift({ tz: current, label: current })
+  return list
+}
+
 const Section = ({ title, icon, children }) => (
   <div style={{ background: 'white', borderRadius: 16, padding: '20px 24px', marginBottom: 16, border: `1px solid ${T.border}` }}>
     {title && <div style={{ fontFamily: 'Nunito,sans-serif', fontWeight: 800, fontSize: 15, color: T.ink, marginBottom: 16 }}>{icon} {title}</div>}
@@ -576,6 +605,20 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           <div className="form-group">
             <label className="form-label">Юридический адрес</label>
             <input className="form-input" value={settings.address || ''} onChange={e => set('address', e.target.value)} placeholder="г. Екатеринбург, ул. Онежская 4" />
+          </div>
+          {/* Часовой пояс (баг 62). От него зависит, какое «сегодня» у студии:
+              когда сгорает абонемент, какой день открыт в расписании, во сколько
+              пришла заявка. Раньше поле в базе было, а поменять его было негде. */}
+          <div className="form-group">
+            <label className="form-label">Часовой пояс студии</label>
+            <select className="form-input" value={settings.timezone || 'Asia/Yekaterinburg'} onChange={e => set('timezone', e.target.value)}>
+              {tzOptions(settings.timezone).map(o => <option key={o.tz} value={o.tz}>{o.label}</option>)}
+            </select>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4, lineHeight: 1.4 }}>
+              По нему считается «сегодня»: когда сгорает абонемент, какой день в расписании
+              сегодняшний, время заявок и утренние напоминания бота. Не зависит от того,
+              откуда вы открываете CRM.
+            </div>
           </div>
           <div className="form-row">
             <div className="form-group">
