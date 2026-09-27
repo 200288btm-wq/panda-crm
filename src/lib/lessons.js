@@ -21,6 +21,39 @@
 /** Ключ занятия: дата + направление + подгруппа (0 — без подгрупп). */
 export const lessonKey = (ds, dirId, groupId) => `${ds}|${dirId}|${groupId || 0}`
 
+// Supabase отдаёт за один запрос не больше 1000 строк (max_rows) и молча
+// обрезает остальное. Месяц Панды — ~3000 строк «ребёнок на занятии»:
+// без постраничной загрузки календарь показывал детей только в первые
+// дни месяца, а дальше «0/0» (заход 13, нашлось на живом).
+//
+// Грузим страницами, пока не соберём столько, сколько база насчитала
+// (count: 'exact'). Не сошлось — это ошибка, а не «детей нет».
+export const LESSONS_PAGE = 1000
+
+export async function fetchAllLessons(client, studioId, from, to) {
+  const args = { p_studio_id: studioId, p_from: from, p_to: to }
+  const rows = []
+  let total = null
+  for (let page = 0; page < 100; page++) {
+    const start = rows.length
+    const { data, error, count } = await client
+      // Сколько всего — спрашиваем один раз: подсчёт гоняет функцию ещё раз
+      .rpc('schedule_lessons', args, page === 0 ? { count: 'exact' } : {})
+      .range(start, start + LESSONS_PAGE - 1)
+    if (error) return { data: null, error }
+    if (total === null) total = count
+    rows.push(...(data || []))
+    if (total == null) {
+      // Сервер не сказал, сколько всего: читаем до пустой страницы
+      if (!data || data.length === 0) return { data: rows, error: null }
+      continue
+    }
+    if (rows.length >= total) return { data: rows, error: null }
+    if (!data || data.length === 0) break
+  }
+  return { data: null, error: { message: `состав загрузился не целиком: ${rows.length} из ${total ?? '?'}` } }
+}
+
 /** Ещё ничего не загружено. */
 export const EMPTY_LESSONS = Object.freeze({
   loaded: false, from: null, to: null, index: new Map(), byId: new Map(), rank: new Map(),

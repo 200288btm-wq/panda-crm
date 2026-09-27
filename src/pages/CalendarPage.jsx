@@ -7,7 +7,7 @@ import { toast, confirmAction } from '../lib/ui'
 import { statusIndex, inSchedule, systemStatus, systemStatusName } from '../lib/clientStatus'
 import { groupsOnDate, liveGroups } from '../lib/groups'
 import { countTrials, checkTrialRepeat } from '../lib/trials'
-import { EMPTY_LESSONS, buildLessons, studentsOf, lessonKey, orphanCount, monthGridRange } from '../lib/lessons'
+import { EMPTY_LESSONS, buildLessons, studentsOf, lessonKey, orphanCount, monthGridRange, fetchAllLessons } from '../lib/lessons'
 
 const MONTHS = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
 const NO_ADDRESS_COLOR = '#9ca3af'  // занятие без адреса в режиме «по адресам»
@@ -1423,9 +1423,7 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
   const loadLessons = useCallback(async () => {
     if (!studioId) return
     const req = ++lessonsReq.current
-    const { data, error } = await supabase.rpc('schedule_lessons', {
-      p_studio_id: studioId, p_from: range.from, p_to: range.to,
-    })
+    const { data, error } = await fetchAllLessons(supabase, studioId, range.from, range.to)
     if (req !== lessonsReq.current) return   // пока шли, успели запросить другой месяц
     if (error) {
       // Не рисуем «0 человек»: это была бы неправда. Занятия остаются
