@@ -375,7 +375,7 @@ function StatusPicker({ value, statuses, colorClass, onPick, disabled }) {
         disabled={disabled}
         title={disabled ? 'Статус нельзя сменить' : 'Нажмите, чтобы сменить статус'}
         style={{
-          fontSize: 14, fontWeight: 800, padding: '6px 12px', lineHeight: 1.2,
+          fontSize: 13, fontWeight: 600, padding: '5px 11px', lineHeight: 1.2,
           border: 'none', cursor: disabled ? 'default' : 'pointer',
           display: 'inline-flex', alignItems: 'center', gap: 6,
         }}
@@ -399,7 +399,7 @@ function StatusPicker({ value, statuses, colorClass, onPick, disabled }) {
                 display: 'block', width: '100%', textAlign: 'left',
                 padding: '8px 10px', borderRadius: 8, border: 'none',
                 background: s === value ? T.cream : 'transparent',
-                fontWeight: s === value ? 800 : 600, fontSize: 13.5,
+                fontWeight: s === value ? 600 : 400, fontSize: 13.5,
                 cursor: 'pointer', color: T.ink,
               }}
             >
