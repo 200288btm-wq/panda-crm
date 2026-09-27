@@ -9,6 +9,23 @@ import { liveGroups } from '../lib/groups'
 
 const pricePerLesson = (price, lessons) => lessons ? Math.round(price / lessons) : 0
 
+// Подгруппа, в которую ребёнок ходит по этому направлению, — по его карточке.
+//   «по дням клиента» — подгруппа из weekly_schedule;
+//   групповой формат  — отмеченная подгруппа ЭТОГО направления, если она одна.
+// Не выбрана или отмечено несколько — null: угадывать не беремся.
+function clientGroupName(client, dir) {
+  if (!client || !dir) return null
+  const live = liveGroups(dir)
+  if (!live.length) return null
+  const ws = (client.weekly_schedule || {})[dir.id] || (client.weekly_schedule || {})[String(dir.id)]
+  if (dir.enrollment_type === 'client_days' && ws?.group_id) {
+    const g = live.find(x => String(x.id) === String(ws.group_id))
+    return g ? g.name : null
+  }
+  const mine = live.filter(g => (client.group_ids || []).map(Number).includes(+g.id))
+  return mine.length === 1 ? mine[0].name : null
+}
+
 function PaymentModal({ payment, clients, directions, subscriptions, clientStatuses = [], onClose, onSave, preselectedClientId, studioId }) {
   const [clientId, setClientId] = useState(payment?.client_id || preselectedClientId || '')
   const [subId, setSubId] = useState('')
@@ -107,6 +124,27 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
     { value: 'custom', label: 'Другая сумма (вручную)', hint: '' },
   ]
   const dir = directions.find(d => d.id === +dirId)
+
+  // ── Группа оплаты — из карточки ребёнка ─────────────────────────
+  // Раньше поле показывало первую строку списка («12:00»), а в базу
+  // уходило «Группа 1» — начальное значение, которого в списке не было.
+  // На экране одно, в базе другое. Теперь в новой оплате группа
+  // подставляется из карточки, а без неё — первая из списка, и именно
+  // она и сохраняется. В старой оплате сохранённое не трогаем.
+  const groupOptions = liveGroups(dir).map(g => g.name).filter(Boolean)
+  const fromCard = clientGroupName(client, dir)
+  useEffect(() => {
+    if (payment) return
+    // Направление у ребёнка одно — подставляем и его
+    if (!dirId && client && (client.direction_ids || []).length === 1) {
+      setDirId(String(client.direction_ids[0])); return
+    }
+    setGroupName(fromCard || groupOptions[0] || 'Группа 1')
+  }, [clientId, dirId, fromCard])
+  // Старая оплата с группой, которой уже нет в списке, показывает
+  // сохранённое, а не подменяет его первой строкой
+  const shownGroups = groupOptions.length ? groupOptions : ['Группа 1']
+  if (groupName && !shownGroups.includes(groupName)) shownGroups.unshift(groupName)
 
   // Calculate final price
   const basePrice = (useCustomPrice || subId === 'custom') ? +customPrice : (selectedSub?.price || 0)
@@ -223,11 +261,14 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
                 убранные из расписания подгруппы в выборе не нужны.
                 В уже заведённых оплатах имя группы хранится текстом
                 и остаётся на месте. */}
-            {liveGroups(dir).length
-              ? liveGroups(dir).map(g => <option key={g.id || g.name || g} value={g.name || g}>{g.name || g}</option>)
-              : <option value="Группа 1">Группа 1</option>
-            }
+            {shownGroups.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
+          {!payment && fromCard && groupName === fromCard && (
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>из карточки ребёнка</div>
+          )}
+          {!payment && dir && groupOptions.length > 1 && !fromCard && client && (
+            <div style={{ fontSize: 11, color: '#c47a00', marginTop: 4 }}>в карточке подгруппа не выбрана</div>
+          )}
         </div>
       </div>
 
