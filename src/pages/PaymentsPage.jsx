@@ -143,7 +143,9 @@ function PaymentModal({ payment, clients, directions, subscriptions, clientStatu
   }, [clientId, dirId, fromCard])
   // Старая оплата с группой, которой уже нет в списке, показывает
   // сохранённое, а не подменяет его первой строкой
-  const shownGroups = groupOptions.length ? groupOptions : ['Группа 1']
+  // Копия, а не тот же массив: unshift ниже иначе испортил бы groupOptions,
+  // и эффект выше подставил бы вместо первой подгруппы «Группа 1»
+  const shownGroups = groupOptions.length ? [...groupOptions] : ['Группа 1']
   if (groupName && !shownGroups.includes(groupName)) shownGroups.unshift(groupName)
 
   // Calculate final price
