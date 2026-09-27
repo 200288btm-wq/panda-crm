@@ -169,13 +169,14 @@ const getEventsForDate = (date, directions, clients, filterDir, filterTeacher, f
             const mine = (c.group_ids || []).map(Number).filter(id => dirGroupIds.includes(id))
             return mine.length === 0 || mine.includes(+group.id)
           })
-          // Фильтруем по подгруппе
-          students = students.filter(c => {
-            const clientGroups = (c.group_ids || []).map(String)
-            // Если у клиента не указана подгруппа — показываем во всех
-            if (clientGroups.length === 0) return true
-            return clientGroups.includes(String(group.id))
-          })
+          // Здесь стоял второй фильтр по подгруппе — остаток кода до бага 83.
+          // Он выкидывал ребёнка, у которого отмечены подгруппы только ДРУГИХ
+          // направлений, из всех подгрупп этого — то есть из календаря
+          // направления целиком. Ровно противоположное правилу выше (баг 95).
+          //
+          // ⚠️ Правила состава занятия живут ещё в базе — функция
+          // schedule_lessons, по ней шлёт напоминания бот. Меняя правило
+          // здесь, менять и там; сверка — набором проверок захода 12.
           // Разовая запись на конкретный день. Раньше в групповом формате
           // подсадить человека на одно занятие было НЕКУДА: состав целиком
           // выводился из direction_ids/group_ids, то есть «ходит всегда»
@@ -1740,7 +1741,10 @@ export default function CalendarPage({ directions, clients, teachers, addresses 
           // педагогов, наполовину заполненный поиск.
           key={dateStr(selectedDay)}
           date={selectedDay}
-          events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)}
+          // Фильтр «С учениками» действует и внутри дня: иначе из отфильтрованной
+          // сетки проваливаешься обратно во все занятия, включая пустые
+          events={getEventsForDate(selectedDay, directions, scheduleClients, filterDir, effectiveTeacher, filterChild, teachers, filterAddress, colorMode, addresses, filterGroups, enrollments)
+            .filter(e => !onlyWithStudents || e.students.length > 0)}
           teachers={teachers}
           clients={scheduleClients}
           studioId={studioId}

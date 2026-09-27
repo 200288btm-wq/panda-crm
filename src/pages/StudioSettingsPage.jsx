@@ -868,6 +868,9 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
           {settings.bot_token && <WebhookButton token={settings.bot_token} T={T} />}
         </Section>
 
+        {/* ── Напоминания о занятиях: общий выключатель + по родителям (баг 59) ── */}
+        <RemindersSection settings={settings} onLocalChange={set} studioId={studioId} clients={clients} T={T} />
+
         {/* ── Ссылка на онлайн-запись (слаг студии) ── */}
         <Section title="Ссылка на онлайн-запись" icon="🔗">
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
@@ -922,6 +925,110 @@ export default function StudioSettingsPage({ studio, studioId, directions = [], 
       {tab === 'booking' && <div style={{ maxWidth: 700 }}><BookingSettingsPage directions={directions} studioId={studioId} /></div>}
 
     </div>
+  )
+}
+
+// =====================================================================
+// Напоминания о занятиях — кто их получает (баг 59).
+//
+// Два уровня, и оба решают:
+//   studio_settings.lesson_reminders       — общий выключатель студии.
+//       Выключен — не уходит НИКОМУ, что бы ни стояло ниже.
+//   client_telegram.notify_before_hours    — у каждого родителя свой
+//       (0 — выкл, больше нуля — вкл). Его же переключает сам родитель
+//       кнопкой в боте, здесь и там — одно и то же поле.
+//
+// Новые привязки приходят включёнными, так что студия управляет
+// рассылкой одной галочкой, а не правкой кода.
+//
+// Сохраняется СРАЗУ, каждым нажатием, а не общей кнопкой «Сохранить»:
+// мгновенное действие в форме с отложенным сохранением путает
+// (см. грабли). Поэтому после записи общего выключателя обновляем и
+// локальное состояние формы — иначе кнопка «Сохранить» выше отправила
+// бы строку настроек целиком со старым значением и выключила бы
+// рассылку обратно.
+// =====================================================================
+const REMINDERS_ON = 24   // крон смотрит только на > 0; то же число, что в боте
+
+function RemindersSection({ settings, onLocalChange, studioId, clients = [], T }) {
+  const [links, setLinks] = useState(null)   // null — ещё грузим
+  const [loadError, setLoadError] = useState(null)
+  const [busy, setBusy] = useState(null)
+
+  const load = async () => {
+    const { data, error } = await supabase.from('client_telegram').select('*').eq('studio_id', studioId)
+    if (error) { setLoadError(error.message); setLinks([]); return }
+    setLoadError(null)
+    setLinks(data || [])
+  }
+  useEffect(() => { if (studioId) load() }, [studioId])
+
+  const studioOn = settings?.lesson_reminders === true
+  const nameOf = (cid) => (clients.find(c => c.id === cid) || {}).child_name || `клиент №${cid}`
+  const rows = (links || []).slice().sort((a, b) => nameOf(a.client_id).localeCompare(nameOf(b.client_id), 'ru'))
+  const onCount = rows.filter(r => r.notify_before_hours > 0).length
+
+  const toggleStudio = async (on) => {
+    if (!settings?.id) { toast.error('Сначала сохраните настройки бота выше'); return }
+    setBusy('studio')
+    const { error } = await supabase.from('studio_settings').update({ lesson_reminders: on }).eq('id', settings.id)
+    setBusy(null)
+    if (error) { toast.fromError(error, 'Не удалось переключить напоминания'); return }
+    onLocalChange('lesson_reminders', on)
+    toast.success(on ? 'Напоминания включены' : 'Напоминания выключены для всех')
+  }
+
+  const toggleLink = async (row, on) => {
+    setBusy(row.id)
+    const { error } = await supabase.from('client_telegram')
+      .update({ notify_before_hours: on ? REMINDERS_ON : 0 }).eq('id', row.id)
+    setBusy(null)
+    if (error) { toast.fromError(error, 'Не удалось сохранить'); return }
+    setLinks(prev => prev.map(r => r.id === row.id ? { ...r, notify_before_hours: on ? REMINDERS_ON : 0 } : r))
+  }
+
+  return (
+    <Section title="Напоминания о занятиях" icon="📅">
+      <div style={{ fontSize: 13, color: T.muted, marginBottom: 14, lineHeight: 1.6 }}>
+        Каждое утро бот пишет родителям о занятиях ребёнка сегодня и завтра — с кнопками
+        «Придём» и «Не сможем». Ответы видны в расписании, у каждого ребёнка.
+      </div>
+
+      <FlagBox T={T} on={studioOn} disabled={busy === 'studio'}
+        label="Рассылать напоминания"
+        hint="Выключено — не уходит никому, какие бы галочки ни стояли ниже."
+        onChange={toggleStudio} />
+
+      <div style={{ marginTop: 18, fontSize: 12.5, fontWeight: 700, color: T.ink }}>
+        Родители, подключившие бота
+        {links && rows.length > 0 && <span style={{ fontWeight: 600, color: T.muted }}> · включено у {onCount} из {rows.length}</span>}
+      </div>
+      <div style={{ fontSize: 11, color: T.muted, margin: '2px 0 10px', lineHeight: 1.4 }}>
+        Галочку каждый родитель может переключить и сам — в боте, в «Настройках уведомлений».
+      </div>
+
+      {links === null && <div style={{ fontSize: 12.5, color: T.muted }}>Загружаю…</div>}
+      {loadError && <div style={{ fontSize: 12.5, color: '#e05a5a' }}>⚠️ Не удалось загрузить список: {loadError}</div>}
+      {links && !loadError && rows.length === 0 && (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Пока никто не подключил бота.</div>
+      )}
+      {rows.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, opacity: studioOn ? 1 : 0.6 }}>
+          {rows.map(r => (
+            <FlagBox key={r.id} T={T}
+              on={r.notify_before_hours > 0}
+              disabled={busy === r.id}
+              label={nameOf(r.client_id)}
+              onChange={(on) => toggleLink(r, on)} />
+          ))}
+        </div>
+      )}
+      {!studioOn && rows.length > 0 && (
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: 10 }}>
+          Сейчас рассылка выключена для всех — галочки у родителей сработают, когда включите её.
+        </div>
+      )}
+    </Section>
   )
 }
 
