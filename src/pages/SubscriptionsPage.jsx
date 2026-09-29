@@ -309,7 +309,13 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   const [localSubs, setLocalSubs] = useState(null)
   const [dragIdx, setDragIdx] = useState(null)
   const [dragOver, setDragOver] = useState(null)
-  const [filterMode, setFilterMode] = useState('all') // 'all' | 'dir:ID' | 'cat:ID' | 'inactive'
+  // Три независимых фильтра, складываются через «И». Раньше это было одно
+  // значение на всё сразу, и клик по категории снимал выбранное направление
+  const [showInactive, setShowInactive] = useState(false)
+  const [filterDir, setFilterDir] = useState(null)   // id направления или null
+  const [filterCat, setFilterCat] = useState(null)   // id ценовой категории или null
+  const anyFilter = showInactive || filterDir !== null || filterCat !== null
+  const resetFilters = () => { setShowInactive(false); setFilterDir(null); setFilterCat(null) }
 
   // Синхронизируем localSubs когда приходят новые subscriptions
   useEffect(() => {
@@ -318,21 +324,16 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
   }, [subscriptions])
 
   const filtered = (localSubs || subscriptions).filter(s => {
-    if (filterMode === 'inactive') return !s.is_active
-    if (filterMode === 'all') return s.is_active
-    if (filterMode.startsWith('dir:')) {
-      const dirId = parseInt(filterMode.slice(4))
-      const dir = directions.find(d => d.id === dirId)
-      if (!dir) return s.is_active
-      const catIds = dir.category_ids || []
-      if (catIds.length === 0) return s.is_active
-      return s.is_active && (!s.category_id || catIds.includes(s.category_id))
+    if (showInactive ? s.is_active : !s.is_active) return false
+    if (filterDir !== null) {
+      // Направление: абонементы его ценовых категорий плюс абонементы без
+      // категории. У направления без категорий подходит любой абонемент
+      const dir = directions.find(d => d.id === filterDir)
+      const catIds = dir?.category_ids || []
+      if (catIds.length > 0 && s.category_id && !catIds.includes(s.category_id)) return false
     }
-    if (filterMode.startsWith('cat:')) {
-      const catId = parseInt(filterMode.slice(4))
-      return s.is_active && s.category_id === catId
-    }
-    return s.is_active
+    if (filterCat !== null && s.category_id !== filterCat) return false
+    return true
   })
 
   const active = subscriptions.filter(s => s.is_active)
@@ -395,30 +396,37 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
         <div style={{ flex: 1 }}>
           {/* Фильтр по направлениям */}
           <div className="tabs" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
-            <button className={`tab ${filterMode === 'all' ? 'active' : ''}`} onClick={() => setFilterMode('all')}>Все активные</button>
+            <button className={`tab ${!showInactive && filterDir === null ? 'active' : ''}`}
+              onClick={() => { setShowInactive(false); setFilterDir(null) }}>Все активные</button>
             {directions.map(d => (
-              <button key={d.id} className={`tab ${filterMode === `dir:${d.id}` ? 'active' : ''}`}
-                onClick={() => setFilterMode(`dir:${d.id}`)}>{d.name}</button>
+              <button key={d.id} className={`tab ${filterDir === d.id ? 'active' : ''}`}
+                onClick={() => setFilterDir(filterDir === d.id ? null : d.id)}>{d.name}</button>
             ))}
-            <button className={`tab ${filterMode === 'inactive' ? 'active' : ''}`} onClick={() => setFilterMode('inactive')}>Неактивные</button>
+            <button className={`tab ${showInactive ? 'active' : ''}`}
+              onClick={() => setShowInactive(v => !v)}>Неактивные</button>
           </div>
           {/* Фильтр по категориям */}
           {priceCategories.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {priceCategories.map(c => (
                 <button key={c.id}
-                  onClick={() => setFilterMode(filterMode === `cat:${c.id}` ? 'all' : `cat:${c.id}`)}
+                  onClick={() => setFilterCat(filterCat === c.id ? null : c.id)}
                   style={{
                     padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                    border: `1.5px solid ${filterMode === `cat:${c.id}` ? T.green : T.border}`,
-                    background: filterMode === `cat:${c.id}` ? T.greenBg : 'white',
-                    color: filterMode === `cat:${c.id}` ? T.greenDark : T.muted,
+                    border: `1.5px solid ${filterCat === c.id ? T.green : T.border}`,
+                    background: filterCat === c.id ? T.greenBg : 'white',
+                    color: filterCat === c.id ? T.greenDark : T.muted,
                     transition: 'all 0.15s',
                   }}>
                   🏷️ {c.name}
                 </button>
               ))}
             </div>
+          )}
+          {anyFilter && (
+            <button className="btn btn-ghost btn-sm" onClick={resetFilters} style={{ fontSize: 12, marginTop: 8 }}>
+              ✕ Сбросить фильтры
+            </button>
           )}
         </div>
         {isAdmin && (
@@ -508,7 +516,7 @@ export default function SubscriptionsPage({ subscriptions, directions, reload, i
           <div className="card card-pad">
             <div className="empty">
               <div className="empty-icon">💳</div>
-              <div className="empty-text">Абонементов нет</div>
+              <div className="empty-text">{anyFilter ? 'По выбранным фильтрам абонементов нет' : 'Абонементов нет'}</div>
             </div>
           </div>
         )}
